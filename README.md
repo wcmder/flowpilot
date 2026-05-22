@@ -1,0 +1,201 @@
+# FlowPilot
+
+FlowPilot is an agentic data-flow troubleshooting tool for packet captures. It
+uses PyShark/TShark to extract network conversations and the OpenAI Responses
+API to reason about transfer problems such as TCP retransmissions, UDP reachability,
+ESP/IPsec flows, one-way traffic, resets, zero windows, and possible path issues.
+
+## What it does
+
+- Reads `.pcap` / `.pcapng` files with PyShark.
+- Aggregates packets into bidirectional flows.
+- Highlights top talkers, protocols, ports, DNS names, ESP SPIs, and TCP issue
+  counters when TShark exposes them.
+- Extracts TLS certificate metadata observed in the capture when TShark exposes
+  it, including subject, issuer, serial, validity, SAN DNS names, and SHA-256
+  fingerprint.
+- Calculates local troubleshooting metrics such as retransmission rate, RTT
+  average/max when available, one-way flow detection, packet rate, and maximum
+  inter-packet gap.
+- Optionally asks an OpenAI model to reason over the flow summary and return
+  likely network causes, evidence, and next troubleshooting actions.
+
+## Requirements
+
+- Python 3.10+
+- TShark installed and available on `PATH`
+- An OpenAI API key for LLM analysis
+
+On macOS, TShark is commonly installed with Wireshark:
+
+```bash
+brew install --cask wireshark
+```
+
+## Setup
+
+```bash
+python3 -m venv env-flowpilot
+source env-flowpilot/bin/activate
+pip install -e ".[dev]"
+export OPENAI_API_KEY="your_api_key_here"
+```
+
+FlowPilot also loads a local `.env` file automatically. Create one from the
+example and put your real local values there:
+
+```bash
+cp .env.example .env
+```
+
+OpenAI's Python SDK reads `OPENAI_API_KEY` from the environment after `.env` is
+loaded.
+By default, FlowPilot uses the standard OpenAI API endpoint. To use an
+OpenAI-compatible gateway in a restricted or government network, set:
+
+```bash
+export FLOWPILOT_OPENAI_BASE_URL="https://your-openai-compatible-endpoint.example/v1"
+```
+
+## Usage
+
+Summarize a capture without calling the LLM:
+
+```bash
+flowpilot analyze capture.pcap --no-llm
+```
+
+Local `--no-llm` output includes packet counts, byte counts, directionality,
+retransmission rate, RTT average/max when TShark exposes `tcp.analysis.ack_rtt`,
+maximum packet gap, packet rate, and TCP issue counters.
+
+Focus on one flow or a smaller slice before sending anything to the LLM:
+
+```bash
+flowpilot analyze capture.pcap --host 10.0.0.5 --peer 198.51.100.20 --protocol tcp --port 443
+```
+
+Other useful local filters:
+
+```bash
+flowpilot analyze capture.pcap --protocol esp --no-llm
+flowpilot analyze capture.pcap --src 10.0.0.5 --dst 198.51.100.20 --no-llm
+flowpilot analyze capture.pcap --host 10.0.0.5 --show-flows 50 --no-llm
+```
+
+Analyze with OpenAI reasoning:
+
+```bash
+flowpilot analyze capture.pcap --model gpt-5-mini
+```
+
+List models from the configured OpenAI or OpenAI-compatible endpoint:
+
+```bash
+flowpilot models
+flowpilot models --json
+```
+
+Write machine-readable output:
+
+```bash
+flowpilot analyze capture.pcap --json report.json
+```
+
+## CLI options
+
+The main command is:
+
+```bash
+flowpilot analyze CAPTURE_PATH [OPTIONS]
+```
+
+Core options:
+
+| Option | Meaning |
+| --- | --- |
+| `CAPTURE_PATH` | Path to a `.pcap` or `.pcapng` file. |
+| `--no-llm` | Only run local PyShark/TShark flow analysis. No metadata is sent to the LLM endpoint. |
+| `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
+| `--json PATH` | Write the summary and optional LLM report to a JSON file. |
+| `--packet-limit INTEGER` | Stop reading after this many packets. Useful for quick checks on very large captures. |
+| `--tls-keylog-file PATH` | Pass a TLS key log file to TShark for decryption, usually an `SSLKEYLOGFILE` generated during capture. |
+| `--max-flows INTEGER` | Maximum top flows included in the LLM request. Defaults to `25`. |
+| `--show-flows INTEGER` | Maximum flows shown in the terminal table. Defaults to `10`. |
+
+Model discovery:
+
+| Command | Meaning |
+| --- | --- |
+| `flowpilot models` | Calls the configured `/v1/models` endpoint and prints available model IDs. |
+| `flowpilot models --json` | Prints the model list as JSON. |
+
+Local packet filters:
+
+| Option | Direction | Meaning |
+| --- | --- | --- |
+| `--host IP` | Bidirectional | Include packets where this IP is either source or destination. |
+| `--peer IP` | Bidirectional | Use with `--host` to isolate traffic between two endpoints. |
+| `--src IP` | One-way | Include packets from this source IP only. |
+| `--dst IP` | One-way | Include packets to this destination IP only. |
+| `--protocol TEXT` | Either | Include only this protocol, for example `tcp`, `udp`, `esp`, `ah`, `gre`, or `icmp`. |
+| `--port INTEGER` | Either | Include packets where this TCP/UDP source or destination port appears. |
+| `--src-port INTEGER` | One-way | Include packets from this TCP/UDP source port only. |
+| `--dst-port INTEGER` | One-way | Include packets to this TCP/UDP destination port only. |
+| `--include-redirects` | Related flows | With filters, include follow-on flows for decrypted HTTP redirect `Location` targets. |
+
+For bidirectional analysis of one conversation, prefer `--host` with `--peer`:
+
+```bash
+flowpilot analyze capture.pcap --host 10.0.0.5 --peer 198.51.100.20 --no-llm
+```
+
+For one direction only, use `--src` and `--dst`:
+
+```bash
+flowpilot analyze capture.pcap --src 10.0.0.5 --dst 198.51.100.20 --no-llm
+```
+
+If a decrypted HTTPS response redirects to a new URL and you want the redirected
+traffic included too, combine TLS decryption, your starting flow filter, and
+`--include-redirects`:
+
+```bash
+flowpilot analyze capture.pcap \
+  --tls-keylog-file ~/Downloads/sslkeys.log \
+  --host 10.0.0.5 \
+  --peer 198.51.100.20 \
+  --include-redirects
+```
+
+FlowPilot extracts decrypted HTTP `Location` headers from the filtered traffic,
+then adds matching DNS, HTTP host, TLS SNI, and resolved-IP flows for those
+redirect targets when they are visible in the same capture.
+
+FlowPilot can also summarize certificate metadata exchanged in visible TLS or
+DTLS handshakes. The certificate table groups bidirectional authentication under
+a stable flow ID and shows which endpoint presented each certificate, so mutual
+certificate authentication can appear as multiple endpoint rows for the same
+flow. This is capture-based analysis: it reports the certificates observed in
+the pcap, not a fresh live probe of the server. If the handshake or certificate
+message is missing from the capture, certificate details may not be available.
+
+## TLS decryption
+
+If you have a TLS key log file from the client or server, FlowPilot can pass it
+to TShark while reading the capture:
+
+```bash
+flowpilot analyze capture.pcap --tls-keylog-file ~/Downloads/sslkeys.log --no-llm
+```
+
+The key log file must match the captured TLS sessions, and the capture normally
+needs the TLS handshake packets. This uses TShark's `tls.keylog_file` preference;
+when decryption succeeds, decrypted protocol layers such as HTTP may become
+visible to PyShark. FlowPilot still summarizes metadata and does not send raw
+payloads to the LLM.
+
+## Notes
+
+FlowPilot sends derived flow metadata to OpenAI, not raw packet payloads. Review
+the generated summary before using LLM reasoning on sensitive captures.

@@ -1,0 +1,252 @@
+from datetime import datetime, timedelta
+
+from flowpilot.analysis import summarize_capture
+from flowpilot.capture import _tshark_custom_parameters
+from flowpilot.filters import FlowFilter, filter_observations, include_redirect_related_flows
+from flowpilot.models import PacketObservation, TlsCertificateObservation
+
+
+def test_summarize_capture_groups_bidirectional_flow() -> None:
+    start = datetime(2026, 1, 1, 12, 0, 0)
+    packets = [
+        PacketObservation(
+            timestamp=start,
+            src_ip="10.0.0.5",
+            dst_ip="93.184.216.34",
+            src_port=54000,
+            dst_port=443,
+            protocol="TCP",
+            length=120,
+            rtt_seconds=0.025,
+            issue_tags=["tcp_retransmission"],
+            tls_sni="example.com",
+        ),
+        PacketObservation(
+            timestamp=start + timedelta(seconds=1),
+            src_ip="93.184.216.34",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=54000,
+            protocol="TCP",
+            length=300,
+            rtt_seconds=0.075,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert summary.packet_count == 2
+    assert summary.total_bytes == 420
+    assert summary.flow_count == 1
+    assert summary.protocols == {"TCP": 2}
+    assert summary.top_ports["443"] == 2
+    assert summary.issue_counts == {"tcp_retransmission": 1}
+    assert summary.names == ["example.com"]
+    assert summary.flows[0].packet_count == 2
+    assert summary.flows[0].issue_counts == {"tcp_retransmission": 1}
+    assert summary.flows[0].duration_seconds == 1.0
+    assert summary.flows[0].packet_rate_per_second == 2.0
+    assert summary.flows[0].byte_rate_per_second == 420.0
+    assert summary.flows[0].retransmission_rate == 0.5
+    assert summary.flows[0].avg_rtt_ms == 50.0
+    assert summary.flows[0].rtt_max_ms == 75.0
+    assert summary.flows[0].max_interarrival_ms == 1000.0
+    assert summary.flows[0].is_one_way is False
+    assert summary.compact()["top_flows"][0]["avg_rtt_ms"] == 50.0
+
+
+def test_summarize_capture_tracks_esp_spi_without_ports() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+        )
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert summary.protocols == {"ESP": 1}
+    assert summary.top_ports == {}
+    assert summary.flows[0].esp_spis == ["0x0000abcd"]
+    assert summary.flows[0].is_one_way is True
+    assert summary.compact()["top_flows"][0]["esp_spis"] == ["0x0000abcd"]
+
+
+def test_filter_observations_isolates_host_peer_protocol_and_port() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.5",
+            dst_ip="198.51.100.20",
+            src_port=50000,
+            dst_port=443,
+            protocol="TCP",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.5",
+            dst_ip="203.0.113.10",
+            src_port=50001,
+            dst_port=443,
+            protocol="TCP",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.5",
+            dst_ip="198.51.100.20",
+            src_port=50002,
+            dst_port=53,
+            protocol="UDP",
+        ),
+    ]
+
+    filtered = list(
+        filter_observations(
+            packets,
+            FlowFilter(
+                host="10.0.0.5",
+                peer="198.51.100.20",
+                protocol="tcp",
+                port=443,
+            ),
+        )
+    )
+
+    assert len(filtered) == 1
+    assert filtered[0].dst_ip == "198.51.100.20"
+    assert filtered[0].dst_port == 443
+
+
+def test_tshark_custom_parameters_include_tls_keylog(tmp_path) -> None:
+    keylog_file = tmp_path / "sslkeys.log"
+    keylog_file.write_text("CLIENT_RANDOM placeholder placeholder\n", encoding="utf-8")
+
+    params = _tshark_custom_parameters(keylog_file)
+
+    assert params is not None
+    assert f"tls.keylog_file:{keylog_file}" in params
+    assert "tcp.desegment_tcp_streams:TRUE" in params
+
+
+def test_include_redirect_related_flows_adds_redirect_target_flow() -> None:
+    seed = PacketObservation(
+        src_ip="10.0.0.5",
+        dst_ip="198.51.100.20",
+        src_port=50000,
+        dst_port=443,
+        protocol="TCP",
+        http_location="https://cdn.example.net/file.bin",
+    )
+    dns = PacketObservation(
+        src_ip="10.0.0.5",
+        dst_ip="192.0.2.53",
+        src_port=53000,
+        dst_port=53,
+        protocol="UDP",
+        dns_query="cdn.example.net",
+        dns_answers=["203.0.113.44"],
+    )
+    redirected = PacketObservation(
+        src_ip="10.0.0.5",
+        dst_ip="203.0.113.44",
+        src_port=50001,
+        dst_port=443,
+        protocol="TCP",
+        tls_sni="cdn.example.net",
+    )
+    unrelated = PacketObservation(
+        src_ip="10.0.0.5",
+        dst_ip="203.0.113.99",
+        src_port=50002,
+        dst_port=443,
+        protocol="TCP",
+    )
+
+    expanded = include_redirect_related_flows(
+        [seed, dns, redirected, unrelated],
+        [seed],
+    )
+
+    assert expanded == [seed, dns, redirected]
+
+
+def test_summarize_capture_tracks_tls_certificates() -> None:
+    certificate = TlsCertificateObservation(
+        presenter_ip="198.51.100.20",
+        presenter_port=443,
+        subject="CN=api.example.com",
+        subject_cn="api.example.com",
+        issuer="CN=Example Intermediate CA",
+        issuer_cn="Example Intermediate CA",
+        serial="01:02:03",
+        not_before="2026-01-01",
+        not_after="2027-01-01",
+        san_dns=["api.example.com"],
+        fingerprint_sha256="abc123",
+    )
+    packets = [
+        PacketObservation(
+            src_ip="198.51.100.20",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=50000,
+            protocol="TCP",
+            tls_certificates=[certificate],
+        )
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert summary.flows[0].tls_certificates[0].presenter_role == "server"
+    assert summary.flows[0].tls_certificates[0].subject == certificate.subject
+    assert summary.compact()["top_flows"][0]["tls_certificates"][0]["subject"] == (
+        "CN=api.example.com"
+    )
+    assert summary.compact()["top_flows"][0]["tls_certificates"][0]["presenter_ip"] == (
+        "198.51.100.20"
+    )
+    assert summary.compact()["top_flows"][0]["tls_certificates"][0]["issuer_cn"] == (
+        "Example Intermediate CA"
+    )
+
+
+def test_summarize_capture_marks_second_cert_presenter_as_client() -> None:
+    server_certificate = TlsCertificateObservation(
+        presenter_ip="198.51.100.20",
+        presenter_port=443,
+        subject_cn="server.example.com",
+        issuer_cn="Example CA",
+        serial="01",
+    )
+    client_certificate = TlsCertificateObservation(
+        presenter_ip="10.0.0.5",
+        presenter_port=50000,
+        subject_cn="client.example.com",
+        issuer_cn="Example CA",
+        serial="02",
+    )
+    packets = [
+        PacketObservation(
+            src_ip="198.51.100.20",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=50000,
+            protocol="TCP",
+            tls_certificates=[server_certificate],
+        ),
+        PacketObservation(
+            src_ip="10.0.0.5",
+            dst_ip="198.51.100.20",
+            src_port=50000,
+            dst_port=443,
+            protocol="TCP",
+            tls_certificates=[client_certificate],
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert [cert.presenter_role for cert in summary.flows[0].tls_certificates] == [
+        "server",
+        "client",
+    ]
