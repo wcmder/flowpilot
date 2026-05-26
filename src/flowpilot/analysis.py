@@ -72,6 +72,30 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         if packet.http_location and packet.http_location not in flow.redirect_locations:
             flow.redirect_locations = [*flow.redirect_locations, packet.http_location][:25]
 
+        if packet.sip_call_id and packet.sip_call_id not in flow.sip_call_ids:
+            flow.sip_call_ids = [*flow.sip_call_ids, packet.sip_call_id][:25]
+        if packet.sip_method:
+            flow.sip_methods[packet.sip_method] = flow.sip_methods.get(packet.sip_method, 0) + 1
+        if packet.sip_status_code is not None:
+            status = str(packet.sip_status_code)
+            if packet.sip_reason:
+                status = f"{status} {packet.sip_reason}"
+            flow.sip_statuses[status] = flow.sip_statuses.get(status, 0) + 1
+        for participant in (packet.sip_from, packet.sip_to):
+            if participant and participant not in flow.sip_participants:
+                flow.sip_participants = [*flow.sip_participants, participant][:25]
+
+        if packet.smb_command:
+            flow.smb_commands[packet.smb_command] = flow.smb_commands.get(packet.smb_command, 0) + 1
+        if packet.smb_status:
+            flow.smb_statuses[packet.smb_status] = flow.smb_statuses.get(packet.smb_status, 0) + 1
+        if packet.smb_session_id and packet.smb_session_id not in flow.smb_session_ids:
+            flow.smb_session_ids = [*flow.smb_session_ids, packet.smb_session_id][:25]
+        if packet.smb_tree_id and packet.smb_tree_id not in flow.smb_tree_ids:
+            flow.smb_tree_ids = [*flow.smb_tree_ids, packet.smb_tree_id][:25]
+        if packet.smb_filename and packet.smb_filename not in flow.smb_filenames:
+            flow.smb_filenames = [*flow.smb_filenames, packet.smb_filename][:25]
+
         presenter_roles = _certificate_presenter_roles(flow)
         for certificate in packet.tls_certificates:
             if certificate.presenter_role is None:

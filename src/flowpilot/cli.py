@@ -156,6 +156,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
     table.add_column("Traffic", justify="right")
     table.add_column("Direction")
     table.add_column("Metrics")
+    table.add_column("Protocol")
     table.add_column("Issues")
 
     flow_ids = _flow_ids(summary.flows)
@@ -177,10 +178,71 @@ def _render_summary(summary, *, show_flows: int) -> None:
                     f"rate {flow.packet_rate_per_second:.1f} pps",
                 ]
             ),
+            _protocol_marker(flow),
             _format_issue_counts(flow.issue_counts) or ", ".join(flow.names[:3]),
         )
     console.print(table)
+    _render_sip_details(summary, show_flows=show_flows)
+    _render_smb_details(summary, show_flows=show_flows)
     _render_tls_certificates(summary, show_flows=show_flows)
+
+
+def _render_sip_details(summary, *, show_flows: int) -> None:
+    flow_ids = _flow_ids(summary.flows)
+    rows = [
+        (flow_ids[flow.key], flow)
+        for flow in summary.flows[:show_flows]
+        if flow.sip_call_ids or flow.sip_methods or flow.sip_statuses
+    ]
+    if not rows:
+        return
+
+    table = Table(title="SIP Details In Top Flows", show_lines=True)
+    table.add_column("Flow ID", justify="right")
+    table.add_column("Call IDs")
+    table.add_column("Methods")
+    table.add_column("Statuses")
+    table.add_column("Participants")
+
+    for flow_id, flow in rows:
+        table.add_row(
+            str(flow_id),
+            "\n".join(flow.sip_call_ids[:10]),
+            _format_counter_lines(flow.sip_methods),
+            _format_counter_lines(flow.sip_statuses),
+            "\n".join(flow.sip_participants[:10]),
+        )
+    console.print(table)
+
+
+def _render_smb_details(summary, *, show_flows: int) -> None:
+    flow_ids = _flow_ids(summary.flows)
+    rows = [
+        (flow_ids[flow.key], flow)
+        for flow in summary.flows[:show_flows]
+        if flow.smb_commands or flow.smb_statuses or flow.smb_filenames
+    ]
+    if not rows:
+        return
+
+    table = Table(title="SMB Details In Top Flows", show_lines=True)
+    table.add_column("Flow ID", justify="right")
+    table.add_column("Commands")
+    table.add_column("Statuses")
+    table.add_column("Session IDs")
+    table.add_column("Tree IDs")
+    table.add_column("Files")
+
+    for flow_id, flow in rows:
+        table.add_row(
+            str(flow_id),
+            _format_counter_lines(flow.smb_commands),
+            _format_counter_lines(flow.smb_statuses),
+            "\n".join(flow.smb_session_ids[:10]),
+            "\n".join(flow.smb_tree_ids[:10]),
+            "\n".join(flow.smb_filenames[:10]),
+        )
+    console.print(table)
 
 
 def _render_tls_certificates(summary, *, show_flows: int) -> None:
@@ -278,6 +340,29 @@ def _milliseconds(value: float | None) -> str:
 
 def _format_issue_counts(issue_counts: dict[str, int]) -> str:
     return ", ".join(f"{name}={count}" for name, count in issue_counts.items())
+
+
+def _protocol_marker(flow) -> str:
+    details = []
+    if flow.sip_call_ids or flow.sip_methods or flow.sip_statuses:
+        details.append(
+            f"SIP calls={len(flow.sip_call_ids)} "
+            f"methods={sum(flow.sip_methods.values())} "
+            f"statuses={sum(flow.sip_statuses.values())}"
+        )
+    if flow.smb_commands or flow.smb_statuses or flow.smb_filenames:
+        details.append(
+            f"SMB commands={sum(flow.smb_commands.values())} "
+            f"statuses={sum(flow.smb_statuses.values())} "
+            f"files={len(flow.smb_filenames)}"
+        )
+    return "\n".join(details)
+
+
+def _format_counter_lines(counts: dict[str, int]) -> str:
+    if not counts:
+        return ""
+    return "\n".join(f"{key}: {value}" for key, value in list(counts.items())[:10])
 
 
 def _validity(certificate) -> str:

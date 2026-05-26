@@ -49,6 +49,17 @@ class PacketObservation(BaseModel):
     http_location: str | None = None
     tls_sni: str | None = None
     tls_certificates: list[TlsCertificateObservation] = Field(default_factory=list)
+    sip_call_id: str | None = None
+    sip_method: str | None = None
+    sip_status_code: int | None = None
+    sip_reason: str | None = None
+    sip_from: str | None = None
+    sip_to: str | None = None
+    smb_command: str | None = None
+    smb_status: str | None = None
+    smb_session_id: str | None = None
+    smb_tree_id: str | None = None
+    smb_filename: str | None = None
 
 
 class FlowKey(BaseModel, frozen=True):
@@ -93,6 +104,15 @@ class FlowSummary(BaseModel):
     esp_spis: list[str] = Field(default_factory=list)
     redirect_locations: list[str] = Field(default_factory=list)
     tls_certificates: list[TlsCertificateObservation] = Field(default_factory=list)
+    sip_call_ids: list[str] = Field(default_factory=list)
+    sip_methods: dict[str, int] = Field(default_factory=dict)
+    sip_statuses: dict[str, int] = Field(default_factory=dict)
+    sip_participants: list[str] = Field(default_factory=list)
+    smb_commands: dict[str, int] = Field(default_factory=dict)
+    smb_statuses: dict[str, int] = Field(default_factory=dict)
+    smb_session_ids: list[str] = Field(default_factory=list)
+    smb_tree_ids: list[str] = Field(default_factory=list)
+    smb_filenames: list[str] = Field(default_factory=list)
     names: list[str] = Field(default_factory=list)
 
     @property
@@ -178,6 +198,19 @@ class CaptureSummary(BaseModel):
                         certificate.model_dump(mode="json")
                         for certificate in flow.tls_certificates[:5]
                     ],
+                    "sip": {
+                        "call_ids": flow.sip_call_ids[:10],
+                        "methods": flow.sip_methods,
+                        "statuses": flow.sip_statuses,
+                        "participants": flow.sip_participants[:10],
+                    },
+                    "smb": {
+                        "commands": flow.smb_commands,
+                        "statuses": flow.smb_statuses,
+                        "session_ids": flow.smb_session_ids[:10],
+                        "tree_ids": flow.smb_tree_ids[:10],
+                        "filenames": flow.smb_filenames[:10],
+                    },
                     "names": flow.names[:10],
                 }
                 for flow in flows

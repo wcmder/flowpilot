@@ -250,3 +250,67 @@ def test_summarize_capture_marks_second_cert_presenter_as_client() -> None:
         "server",
         "client",
     ]
+
+
+def test_summarize_capture_tracks_sip_call_metadata() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.20",
+            src_port=5060,
+            dst_port=5060,
+            protocol="UDP",
+            sip_call_id="call-123",
+            sip_method="INVITE",
+            sip_from="sip:alice@example.com",
+            sip_to="sip:bob@example.com",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.20",
+            dst_ip="10.0.0.10",
+            src_port=5060,
+            dst_port=5060,
+            protocol="UDP",
+            sip_call_id="call-123",
+            sip_status_code=486,
+            sip_reason="Busy Here",
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.sip_call_ids == ["call-123"]
+    assert flow.sip_methods == {"INVITE": 1}
+    assert flow.sip_statuses == {"486 Busy Here": 1}
+    assert flow.sip_participants == ["sip:alice@example.com", "sip:bob@example.com"]
+    assert summary.compact()["top_flows"][0]["sip"]["statuses"] == {"486 Busy Here": 1}
+
+
+def test_summarize_capture_tracks_smb_metadata() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="Create",
+            smb_status="STATUS_ACCESS_DENIED",
+            smb_session_id="0x111",
+            smb_tree_id="0x222",
+            smb_filename="\\\\share\\blocked.docx",
+        )
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_commands == {"Create": 1}
+    assert flow.smb_statuses == {"STATUS_ACCESS_DENIED": 1}
+    assert flow.smb_session_ids == ["0x111"]
+    assert flow.smb_tree_ids == ["0x222"]
+    assert flow.smb_filenames == ["\\\\share\\blocked.docx"]
+    assert summary.compact()["top_flows"][0]["smb"]["statuses"] == {
+        "STATUS_ACCESS_DENIED": 1
+    }

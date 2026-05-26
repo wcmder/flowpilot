@@ -87,6 +87,17 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         tls_sni=_layer_attr(packet, "tls", "handshake_extensions_server_name")
         or _layer_attr(packet, "ssl", "handshake_extensions_server_name"),
         tls_certificates=tls_certificates,
+        sip_call_id=_layer_attr(packet, "sip", "call_id"),
+        sip_method=_layer_attr(packet, "sip", "method"),
+        sip_status_code=_safe_int(_layer_attr(packet, "sip", "status_code")),
+        sip_reason=_layer_attr(packet, "sip", "reason_phrase"),
+        sip_from=_layer_attr(packet, "sip", "from_addr") or _layer_attr(packet, "sip", "from"),
+        sip_to=_layer_attr(packet, "sip", "to_addr") or _layer_attr(packet, "sip", "to"),
+        smb_command=_smb_value(packet, "cmd"),
+        smb_status=_smb_value(packet, "nt_status") or _smb_value(packet, "status"),
+        smb_session_id=_smb_value(packet, "sesid") or _smb_value(packet, "session_id"),
+        smb_tree_id=_smb_value(packet, "tid") or _smb_value(packet, "tree_id"),
+        smb_filename=_smb_value(packet, "file") or _smb_value(packet, "filename"),
     )
 
 
@@ -153,6 +164,14 @@ def _dns_answers(packet: Any) -> list[str]:
             continue
         answers.extend(str(value).split(","))
     return [answer.strip() for answer in answers if answer.strip()]
+
+
+def _smb_value(packet: Any, attr_name: str) -> str | None:
+    for layer_name in ("smb2", "smb"):
+        value = _layer_attr(packet, layer_name, attr_name)
+        if value:
+            return value
+    return None
 
 
 def _tls_certificates(packet: Any) -> list[TlsCertificateObservation]:
