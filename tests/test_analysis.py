@@ -267,6 +267,7 @@ def test_summarize_capture_marks_second_cert_presenter_as_client() -> None:
 def test_summarize_capture_tracks_sip_call_metadata() -> None:
     packets = [
         PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
             src_ip="10.0.0.10",
             dst_ip="10.0.0.20",
             src_port=5060,
@@ -278,6 +279,7 @@ def test_summarize_capture_tracks_sip_call_metadata() -> None:
             sip_to="sip:bob@example.com",
         ),
         PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 0, 1),
             src_ip="10.0.0.20",
             dst_ip="10.0.0.10",
             src_port=5060,
@@ -316,6 +318,20 @@ def test_summarize_capture_tracks_sip_call_metadata() -> None:
     assert flow.sip_calls["call-123"].callee == "sip:bob@example.com"
     assert flow.sip_calls["call-123"].statuses == {"486 Busy Here": 1}
     assert flow.sip_calls["call-123"].issues == ["client failure response"]
+    assert flow.sip_calls["call-123"].trace == [
+        {
+            "time": "2026-01-01T12:00:00",
+            "from_endpoint": "10.0.0.10:5060",
+            "to_endpoint": "10.0.0.20:5060",
+            "message": "INVITE",
+        },
+        {
+            "time": "2026-01-01T12:00:01",
+            "from_endpoint": "10.0.0.20:5060",
+            "to_endpoint": "10.0.0.10:5060",
+            "message": "486 Busy Here",
+        },
+    ]
     assert flow.sip_calls["call-456"].caller == "sip:carol@example.com"
     assert flow.sip_calls["call-456"].callee == "sip:dave@example.com"
     assert summary.compact()["top_flows"][0]["sip"]["statuses"] == {"486 Busy Here": 1}
@@ -330,6 +346,7 @@ def test_summarize_capture_tracks_sip_call_metadata() -> None:
 def test_summarize_capture_tracks_smb_metadata() -> None:
     packets = [
         PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
             src_ip="10.0.0.10",
             dst_ip="10.0.0.30",
             src_port=55000,
@@ -340,17 +357,36 @@ def test_summarize_capture_tracks_smb_metadata() -> None:
             smb_session_id="0x111",
             smb_tree_id="0x222",
             smb_filename="\\\\share\\blocked.docx",
+        ),
+        PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 2, 0),
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="Read",
+            smb_status="STATUS_SUCCESS",
+            smb_read_length=32768,
+            smb_filename="\\\\share\\slow.bin",
         )
     ]
 
     summary = summarize_capture(packets)
     flow = summary.flows[0]
 
-    assert flow.smb_commands == {"Create": 1}
-    assert flow.smb_statuses == {"STATUS_ACCESS_DENIED": 1}
+    assert flow.smb_commands == {"Create": 1, "Read": 1}
+    assert flow.smb_statuses == {"STATUS_ACCESS_DENIED": 1, "STATUS_SUCCESS": 1}
+    assert flow.smb_read_ops == 1
+    assert flow.smb_read_bytes == 32768
+    assert flow.smb_error_count == 1
+    assert "smb errors observed" in flow.smb_diagnostic_hints
+    assert "small average smb read/write size" in flow.smb_diagnostic_hints
     assert flow.smb_session_ids == ["0x111"]
     assert flow.smb_tree_ids == ["0x222"]
-    assert flow.smb_filenames == ["\\\\share\\blocked.docx"]
+    assert flow.smb_filenames == ["\\\\share\\blocked.docx", "\\\\share\\slow.bin"]
     assert summary.compact()["top_flows"][0]["smb"]["statuses"] == {
-        "STATUS_ACCESS_DENIED": 1
+        "STATUS_ACCESS_DENIED": 1,
+        "STATUS_SUCCESS": 1,
     }
+    assert summary.compact()["top_flows"][0]["smb"]["transfer_bytes"] == 32768

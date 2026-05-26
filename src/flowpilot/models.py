@@ -39,6 +39,7 @@ class SipCallSummary(BaseModel):
     methods: dict[str, int] = Field(default_factory=dict)
     statuses: dict[str, int] = Field(default_factory=dict)
     issues: list[str] = Field(default_factory=list)
+    trace: list[dict[str, str | None]] = Field(default_factory=list)
 
 
 class PacketObservation(BaseModel):
@@ -69,6 +70,8 @@ class PacketObservation(BaseModel):
     smb_session_id: str | None = None
     smb_tree_id: str | None = None
     smb_filename: str | None = None
+    smb_read_length: int | None = None
+    smb_write_length: int | None = None
 
 
 class FlowKey(BaseModel, frozen=True):
@@ -123,6 +126,11 @@ class FlowSummary(BaseModel):
     smb_session_ids: list[str] = Field(default_factory=list)
     smb_tree_ids: list[str] = Field(default_factory=list)
     smb_filenames: list[str] = Field(default_factory=list)
+    smb_read_ops: int = 0
+    smb_write_ops: int = 0
+    smb_read_bytes: int = 0
+    smb_write_bytes: int = 0
+    smb_error_count: int = 0
     names: list[str] = Field(default_factory=list)
 
     @property
@@ -183,6 +191,37 @@ class FlowSummary(BaseModel):
             hints.append("tcp reset observed")
         if self.key.protocol in {"ESP", "UDP"} and self.duration_seconds >= 60:
             hints.append("encrypted or datagram flow limits direct loss/latency proof")
+        hints.extend(self.smb_diagnostic_hints)
+        return hints
+
+    @property
+    def smb_transfer_bytes(self) -> int:
+        return self.smb_read_bytes + self.smb_write_bytes
+
+    @property
+    def smb_transfer_mbps(self) -> float:
+        duration = self.duration_seconds
+        if duration <= 0:
+            return 0.0
+        return (self.smb_transfer_bytes * 8 / duration) / 1_000_000
+
+    @property
+    def smb_diagnostic_hints(self) -> list[str]:
+        if not (self.smb_commands or self.smb_statuses or self.smb_filenames):
+            return []
+
+        hints = []
+        total_ops = self.smb_read_ops + self.smb_write_ops
+        if self.smb_error_count:
+            hints.append("smb errors observed")
+        if total_ops and self.smb_transfer_bytes:
+            avg_size = self.smb_transfer_bytes / total_ops
+            if avg_size < 64 * 1024:
+                hints.append("small average smb read/write size")
+        if self.duration_seconds >= 60 and self.smb_transfer_mbps < 10:
+            hints.append("low smb transfer throughput for long-lived flow")
+        if self.max_interarrival_ms is not None and self.max_interarrival_ms >= 1_000:
+            hints.append("smb transfer stalls or idle gaps observed")
         return hints
 
 
@@ -249,6 +288,14 @@ class CaptureSummary(BaseModel):
                         "session_ids": flow.smb_session_ids[:10],
                         "tree_ids": flow.smb_tree_ids[:10],
                         "filenames": flow.smb_filenames[:10],
+                        "read_ops": flow.smb_read_ops,
+                        "write_ops": flow.smb_write_ops,
+                        "read_bytes": flow.smb_read_bytes,
+                        "write_bytes": flow.smb_write_bytes,
+                        "transfer_bytes": flow.smb_transfer_bytes,
+                        "transfer_mbps": round(flow.smb_transfer_mbps, 3),
+                        "error_count": flow.smb_error_count,
+                        "diagnostic_hints": flow.smb_diagnostic_hints,
                     },
                     "names": flow.names[:10],
                 }

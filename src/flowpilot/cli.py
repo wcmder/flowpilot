@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -103,6 +104,7 @@ def analyze(
         "Local analysis finished: "
         f"{summary.packet_count} packets, {summary.flow_count} flows, {summary.total_bytes} bytes."
     )
+    _render_summary(summary, show_flows=show_flows)
     if no_llm:
         _info("LLM reasoning skipped because --no-llm was set.")
         report = None
@@ -112,10 +114,11 @@ def analyze(
             f"model={model}, top_flows={min(summary.flow_count, max_flows)}. "
             "Raw packet payloads are not sent."
         )
+        llm_started_at = time.perf_counter()
         report = reason_about_capture(summary, model=model, max_flows=max_flows)
-        _info("LLM reasoning finished.")
+        llm_elapsed = time.perf_counter() - llm_started_at
+        _info(f"LLM reasoning finished in {llm_elapsed:.2f}s.")
 
-    _render_summary(summary, show_flows=show_flows)
     if report:
         _render_reasoning(report)
 
@@ -224,6 +227,7 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
     table.add_column("Methods")
     table.add_column("Statuses")
     table.add_column("Issue")
+    table.add_column("Trace")
 
     for flow_id, flow in rows:
         if flow.sip_calls:
@@ -236,6 +240,7 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
                     _format_counter_lines(call.methods),
                     _format_counter_lines(call.statuses),
                     "\n".join(call.issues),
+                    _format_sip_trace(call.trace),
                 )
         else:
             table.add_row(
@@ -245,6 +250,7 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
                 "-",
                 _format_counter_lines(flow.sip_methods),
                 _format_counter_lines(flow.sip_statuses),
+                "",
                 "",
             )
     console.print(table)
@@ -267,6 +273,8 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
     table.add_column("Session IDs")
     table.add_column("Tree IDs")
     table.add_column("Files")
+    table.add_column("Transfer")
+    table.add_column("Issue")
 
     for flow_id, flow in rows:
         table.add_row(
@@ -276,6 +284,12 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
             "\n".join(flow.smb_session_ids[:10]),
             "\n".join(flow.smb_tree_ids[:10]),
             "\n".join(flow.smb_filenames[:10]),
+            (
+                f"read {flow.smb_read_ops} ops / {flow.smb_read_bytes} bytes\n"
+                f"write {flow.smb_write_ops} ops / {flow.smb_write_bytes} bytes\n"
+                f"{flow.smb_transfer_mbps:.3f} Mbps"
+            ),
+            "\n".join(flow.smb_diagnostic_hints),
         )
     console.print(table)
 
@@ -398,6 +412,13 @@ def _format_counter_lines(counts: dict[str, int]) -> str:
     if not counts:
         return ""
     return "\n".join(f"{key}: {value}" for key, value in list(counts.items())[:10])
+
+
+def _format_sip_trace(trace: list[dict[str, str | None]]) -> str:
+    return "\n".join(
+        f"{event.get('from_endpoint')} -> {event.get('to_endpoint')} {event.get('message')}"
+        for event in trace[:8]
+    )
 
 
 def _validity(certificate) -> str:

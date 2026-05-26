@@ -98,6 +98,12 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         smb_session_id=_smb_value(packet, "sesid") or _smb_value(packet, "session_id"),
         smb_tree_id=_smb_value(packet, "tid") or _smb_value(packet, "tree_id"),
         smb_filename=_smb_value(packet, "file") or _smb_value(packet, "filename"),
+        smb_read_length=_safe_int(
+            _smb_value(packet, "read_length") or _smb_value(packet, "length")
+        ),
+        smb_write_length=_safe_int(
+            _smb_value(packet, "write_length") or _smb_value(packet, "data_len")
+        ),
     )
 
 

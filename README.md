@@ -17,7 +17,8 @@ ESP/IPsec flows, one-way traffic, resets, zero windows, and possible path issues
 - Extracts SIP call metadata such as call ID, caller, callee, methods, response
   statuses, and failure response issues when visible.
 - Extracts SMB/SMB2 metadata such as commands, NT status values, session/tree
-  IDs, and filenames when visible.
+  IDs, filenames, read/write operation counts, transfer bytes, and transfer
+  efficiency hints when visible.
 - Calculates local troubleshooting metrics such as retransmission rate, RTT
   average/max when available, one-way flow detection, packet rate, and maximum
   inter-packet gap.
@@ -75,6 +76,12 @@ endpoint returns `404` for Responses:
 export FLOWPILOT_LLM_API="auto"
 ```
 
+For providers with request-per-minute limits, set a client-side throttle:
+
+```bash
+export FLOWPILOT_LLM_REQUESTS_PER_MINUTE="120"
+```
+
 ## Usage
 
 Summarize a capture without calling the LLM:
@@ -90,7 +97,12 @@ protocol clues.
 SIP and SMB details are shown in separate tables keyed by `Flow ID`, because one
 network flow can carry many SIP calls or many SMB operations. SIP details are
 split by Call-ID with separate caller, callee, and issue columns. SIP response
-codes in the 4xx, 5xx, and 6xx ranges are marked as call failure issues.
+codes in the 4xx, 5xx, and 6xx ranges are marked as call failure issues. Each
+SIP call also includes a compact call trace so the LLM can reason about call
+setup and failure direction. SMB details include read/write operations, transfer
+bytes, SMB transfer Mbps, statuses/errors, files, and hints for suboptimal file
+transfer behavior such as small read/write sizes, errors, low throughput, or
+large idle gaps.
 
 Focus on one flow or a smaller slice before sending anything to the LLM:
 
@@ -112,9 +124,9 @@ Analyze with OpenAI reasoning:
 flowpilot analyze capture.pcap --model gpt-5-mini
 ```
 
-When LLM reasoning is enabled, FlowPilot prints `[info]` progress lines after
-local analysis finishes and before sending derived metadata to the model. Raw
-packet payloads are not sent.
+When LLM reasoning is enabled, FlowPilot prints `[info]` progress lines, renders
+the local summary first, and then sends derived metadata to the model. Raw packet
+payloads are not sent.
 
 List models from the configured OpenAI or OpenAI-compatible endpoint:
 

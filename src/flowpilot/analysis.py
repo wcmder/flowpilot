@@ -98,6 +98,9 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
                 issue = _sip_status_issue(packet.sip_status_code)
                 if issue and issue not in call.issues:
                     call.issues = [*call.issues, issue]
+            event = _sip_trace_event(packet)
+            if event and event not in call.trace:
+                call.trace = [*call.trace, event][:50]
         if packet.sip_method:
             flow.sip_methods[packet.sip_method] = flow.sip_methods.get(packet.sip_method, 0) + 1
         if packet.sip_status_code is not None:
@@ -117,6 +120,19 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
             flow.smb_tree_ids = [*flow.smb_tree_ids, packet.smb_tree_id][:25]
         if packet.smb_filename and packet.smb_filename not in flow.smb_filenames:
             flow.smb_filenames = [*flow.smb_filenames, packet.smb_filename][:25]
+        if packet.smb_command and "read" in packet.smb_command.lower():
+            flow.smb_read_ops += 1
+            flow.smb_read_bytes += packet.smb_read_length or 0
+        if packet.smb_command and "write" in packet.smb_command.lower():
+            flow.smb_write_ops += 1
+            flow.smb_write_bytes += packet.smb_write_length or 0
+        if packet.smb_status and packet.smb_status.upper() not in {
+            "0",
+            "0x00000000",
+            "STATUS_SUCCESS",
+            "SUCCESS",
+        }:
+            flow.smb_error_count += 1
 
         presenter_roles = _certificate_presenter_roles(flow)
         for certificate in packet.tls_certificates:
@@ -179,3 +195,23 @@ def _sip_status_issue(status_code: int) -> str | None:
             return "server failure response"
         return "global failure response"
     return None
+
+
+def _sip_trace_event(packet: PacketObservation) -> dict[str, str | None]:
+    if packet.sip_method:
+        message = packet.sip_method
+    elif packet.sip_status_code is not None:
+        message = _sip_status(packet)
+    else:
+        return {}
+
+    return {
+        "time": packet.timestamp.isoformat() if packet.timestamp else None,
+        "from_endpoint": _endpoint(packet.src_ip, packet.src_port),
+        "to_endpoint": _endpoint(packet.dst_ip, packet.dst_port),
+        "message": message,
+    }
+
+
+def _endpoint(ip: str, port: int | None) -> str:
+    return f"{ip}:{port}" if port is not None else ip
