@@ -99,8 +99,7 @@ For ESP/IPsec, FlowPilot also tracks visible ESP sequence numbers per SPI and
 direction so the local summary and LLM metadata can flag sequence gaps,
 out-of-order packets, and duplicates when those fields are present. In the top
 flows table, the Protocol column shows per-direction sequence counters, the
-distribution of observed sequence gap sizes such as `gap=1(x10) gap=2(x2)`,
-and each gap event such as `101->103(missing=1)`.
+distribution of observed missing-packet gap sizes such as `gap=1(x10) gap=2(x2)`.
 SIP and SMB details are shown in separate tables keyed by `Flow ID`, because one
 network flow can carry many SIP calls or many SMB operations. SIP details are
 split by Call-ID with separate caller, callee, and issue columns. SIP response
