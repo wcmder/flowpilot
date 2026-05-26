@@ -275,16 +275,40 @@ def test_summarize_capture_tracks_sip_call_metadata() -> None:
             sip_status_code=486,
             sip_reason="Busy Here",
         ),
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.20",
+            src_port=5060,
+            dst_port=5060,
+            protocol="UDP",
+            sip_call_id="call-456",
+            sip_method="INVITE",
+            sip_from="sip:carol@example.com",
+            sip_to="sip:dave@example.com",
+        ),
     ]
 
     summary = summarize_capture(packets)
     flow = summary.flows[0]
 
-    assert flow.sip_call_ids == ["call-123"]
-    assert flow.sip_methods == {"INVITE": 1}
+    assert flow.sip_call_ids == ["call-123", "call-456"]
+    assert flow.sip_methods == {"INVITE": 2}
     assert flow.sip_statuses == {"486 Busy Here": 1}
-    assert flow.sip_participants == ["sip:alice@example.com", "sip:bob@example.com"]
+    assert flow.sip_participants == [
+        "sip:alice@example.com",
+        "sip:bob@example.com",
+        "sip:carol@example.com",
+        "sip:dave@example.com",
+    ]
+    assert flow.sip_calls["call-123"].caller == "sip:alice@example.com"
+    assert flow.sip_calls["call-123"].callee == "sip:bob@example.com"
+    assert flow.sip_calls["call-123"].statuses == {"486 Busy Here": 1}
+    assert flow.sip_calls["call-456"].caller == "sip:carol@example.com"
+    assert flow.sip_calls["call-456"].callee == "sip:dave@example.com"
     assert summary.compact()["top_flows"][0]["sip"]["statuses"] == {"486 Busy Here": 1}
+    assert summary.compact()["top_flows"][0]["sip"]["calls"][0]["caller"] == (
+        "sip:alice@example.com"
+    )
 
 
 def test_summarize_capture_tracks_smb_metadata() -> None:

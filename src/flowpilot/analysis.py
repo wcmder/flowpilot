@@ -3,7 +3,14 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 
-from .models import CaptureSummary, FlowKey, FlowSummary, PacketObservation, counter_to_sorted_dict
+from .models import (
+    CaptureSummary,
+    FlowKey,
+    FlowSummary,
+    PacketObservation,
+    SipCallSummary,
+    counter_to_sorted_dict,
+)
 
 
 def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSummary:
@@ -74,12 +81,24 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
 
         if packet.sip_call_id and packet.sip_call_id not in flow.sip_call_ids:
             flow.sip_call_ids = [*flow.sip_call_ids, packet.sip_call_id][:25]
+        if packet.sip_call_id:
+            call = flow.sip_calls.setdefault(
+                packet.sip_call_id,
+                SipCallSummary(call_id=packet.sip_call_id),
+            )
+            if packet.sip_from and call.caller is None:
+                call.caller = packet.sip_from
+            if packet.sip_to and call.callee is None:
+                call.callee = packet.sip_to
+            if packet.sip_method:
+                call.methods[packet.sip_method] = call.methods.get(packet.sip_method, 0) + 1
+            if packet.sip_status_code is not None:
+                status = _sip_status(packet)
+                call.statuses[status] = call.statuses.get(status, 0) + 1
         if packet.sip_method:
             flow.sip_methods[packet.sip_method] = flow.sip_methods.get(packet.sip_method, 0) + 1
         if packet.sip_status_code is not None:
-            status = str(packet.sip_status_code)
-            if packet.sip_reason:
-                status = f"{status} {packet.sip_reason}"
+            status = _sip_status(packet)
             flow.sip_statuses[status] = flow.sip_statuses.get(status, 0) + 1
         for participant in (packet.sip_from, packet.sip_to):
             if participant and participant not in flow.sip_participants:
@@ -140,3 +159,10 @@ def _next_certificate_role(roles: dict[tuple[str | None, int | None], str]) -> s
     if "client" not in roles.values():
         return "client"
     return "peer"
+
+
+def _sip_status(packet: PacketObservation) -> str:
+    status = str(packet.sip_status_code)
+    if packet.sip_reason:
+        status = f"{status} {packet.sip_reason}"
+    return status

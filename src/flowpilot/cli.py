@@ -199,19 +199,32 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
 
     table = Table(title="SIP Details In Top Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
-    table.add_column("Call IDs")
+    table.add_column("Call ID")
+    table.add_column("Caller")
+    table.add_column("Callee")
     table.add_column("Methods")
     table.add_column("Statuses")
-    table.add_column("Participants")
 
     for flow_id, flow in rows:
-        table.add_row(
-            str(flow_id),
-            "\n".join(flow.sip_call_ids[:10]),
-            _format_counter_lines(flow.sip_methods),
-            _format_counter_lines(flow.sip_statuses),
-            "\n".join(flow.sip_participants[:10]),
-        )
+        if flow.sip_calls:
+            for call in list(flow.sip_calls.values())[:10]:
+                table.add_row(
+                    str(flow_id),
+                    call.call_id,
+                    call.caller or "-",
+                    call.callee or "-",
+                    _format_counter_lines(call.methods),
+                    _format_counter_lines(call.statuses),
+                )
+        else:
+            table.add_row(
+                str(flow_id),
+                "\n".join(flow.sip_call_ids[:10]),
+                "-",
+                "-",
+                _format_counter_lines(flow.sip_methods),
+                _format_counter_lines(flow.sip_statuses),
+            )
     console.print(table)
 
 

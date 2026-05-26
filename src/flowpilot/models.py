@@ -32,6 +32,14 @@ class TlsCertificateObservation(BaseModel):
         )
 
 
+class SipCallSummary(BaseModel):
+    call_id: str
+    caller: str | None = None
+    callee: str | None = None
+    methods: dict[str, int] = Field(default_factory=dict)
+    statuses: dict[str, int] = Field(default_factory=dict)
+
+
 class PacketObservation(BaseModel):
     timestamp: datetime | None = None
     src_ip: str
@@ -105,6 +113,7 @@ class FlowSummary(BaseModel):
     redirect_locations: list[str] = Field(default_factory=list)
     tls_certificates: list[TlsCertificateObservation] = Field(default_factory=list)
     sip_call_ids: list[str] = Field(default_factory=list)
+    sip_calls: dict[str, SipCallSummary] = Field(default_factory=dict)
     sip_methods: dict[str, int] = Field(default_factory=dict)
     sip_statuses: dict[str, int] = Field(default_factory=dict)
     sip_participants: list[str] = Field(default_factory=list)
@@ -200,6 +209,10 @@ class CaptureSummary(BaseModel):
                     ],
                     "sip": {
                         "call_ids": flow.sip_call_ids[:10],
+                        "calls": [
+                            call.model_dump(mode="json")
+                            for call in list(flow.sip_calls.values())[:10]
+                        ],
                         "methods": flow.sip_methods,
                         "statuses": flow.sip_statuses,
                         "participants": flow.sip_participants[:10],

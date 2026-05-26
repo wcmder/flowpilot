@@ -14,8 +14,8 @@ ESP/IPsec flows, one-way traffic, resets, zero windows, and possible path issues
 - Extracts TLS certificate metadata observed in the capture when TShark exposes
   it, including subject, issuer, serial, validity, SAN DNS names, and SHA-256
   fingerprint.
-- Extracts SIP call metadata such as call ID, methods, response statuses, and
-  participants when visible.
+- Extracts SIP call metadata such as call ID, caller, callee, methods, and
+  response statuses when visible.
 - Extracts SMB/SMB2 metadata such as commands, NT status values, session/tree
   IDs, and filenames when visible.
 - Calculates local troubleshooting metrics such as retransmission rate, RTT
@@ -74,7 +74,8 @@ retransmission rate, RTT average/max when TShark exposes `tcp.analysis.ack_rtt`,
 maximum packet gap, packet rate, TCP issue counters, and visible SIP/SMB
 protocol clues.
 SIP and SMB details are shown in separate tables keyed by `Flow ID`, because one
-network flow can carry many SIP calls or many SMB operations.
+network flow can carry many SIP calls or many SMB operations. SIP details are
+split by Call-ID with separate caller and callee columns.
 
 Focus on one flow or a smaller slice before sending anything to the LLM:
 
