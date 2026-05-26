@@ -170,9 +170,29 @@ def test_filter_sip_calls_by_phone_keeps_matching_call_trace() -> None:
         ),
     ]
 
-    filtered = filter_sip_calls_by_phone(packets, "555-0100")
+    filtered = filter_sip_calls_by_phone(packets, "0100")
 
     assert [packet.sip_call_id for packet in filtered] == ["call-123", "call-123"]
+
+
+def test_filter_sip_calls_by_phone_matches_partial_digits_inside_uri() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.20",
+            src_port=5060,
+            dst_port=5060,
+            protocol="UDP",
+            sip_call_id="call-789",
+            sip_method="INVITE",
+            sip_from="sip:14152799913@something",
+            sip_to="sip:15550101@example.com",
+        )
+    ]
+
+    filtered = filter_sip_calls_by_phone(packets, "2799913")
+
+    assert [packet.sip_call_id for packet in filtered] == ["call-789"]
 
 
 def test_tshark_custom_parameters_include_tls_keylog(tmp_path) -> None:

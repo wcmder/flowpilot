@@ -196,11 +196,12 @@ For one direction only, use `--src` and `--dst`:
 flowpilot analyze capture.pcap --src 10.0.0.5 --dst 198.51.100.20 --no-llm
 ```
 
-For one SIP phone number, use `--sip-phone`. Separators are ignored, so
-`555-0100` can match SIP URIs containing `+1-555-0100`:
+For one SIP phone number, use `--sip-phone`. Partial numbers are supported and
+separators are ignored, so `0100` or `555-0100` can match SIP URIs containing
+`+1-555-0100`:
 
 ```bash
-flowpilot analyze capture.pcap --sip-phone 555-0100 --no-llm
+flowpilot analyze capture.pcap --sip-phone 0100 --no-llm
 ```
 
 If a decrypted HTTPS response redirects to a new URL and you want the redirected

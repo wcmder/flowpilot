@@ -78,8 +78,8 @@ def analyze(
         str | None,
         typer.Option(
             help=(
-                "Only include SIP calls where caller or callee contains this phone number. "
-                "Keeps the full matching Call-ID trace."
+                "Only include SIP calls where caller or callee contains this full or partial "
+                "phone number. Keeps the full matching Call-ID trace."
             )
         ),
     ] = None,

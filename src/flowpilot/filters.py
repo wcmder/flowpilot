@@ -81,8 +81,8 @@ def filter_sip_calls_by_phone(
         for packet in packets
         if packet.sip_call_id
         and (
-            wanted in _digits(packet.sip_from or "")
-            or wanted in _digits(packet.sip_to or "")
+            _phone_matches(wanted, packet.sip_from)
+            or _phone_matches(wanted, packet.sip_to)
         )
     }
     return [
@@ -92,8 +92,8 @@ def filter_sip_calls_by_phone(
         or (
             not packet.sip_call_id
             and (
-                wanted in _digits(packet.sip_from or "")
-                or wanted in _digits(packet.sip_to or "")
+                _phone_matches(wanted, packet.sip_from)
+                or _phone_matches(wanted, packet.sip_to)
             )
         )
     ]
@@ -170,3 +170,7 @@ def _is_ip_address(value: str) -> bool:
 
 def _digits(value: str) -> str:
     return "".join(re.findall(r"\d+", value))
+
+
+def _phone_matches(wanted_digits: str, value: str | None) -> bool:
+    return wanted_digits in _digits(value or "")
