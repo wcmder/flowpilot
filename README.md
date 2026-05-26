@@ -61,6 +61,20 @@ OpenAI-compatible gateway in a restricted or government network, set:
 export FLOWPILOT_OPENAI_BASE_URL="https://your-openai-compatible-endpoint.example/v1"
 ```
 
+Some OpenAI-compatible gateways only document `client.chat.completions.create()`
+instead of the newer Responses API. In that case, set:
+
+```bash
+export FLOWPILOT_LLM_API="chat_completions"
+```
+
+You can also use `auto` to try Responses first and retry Chat Completions if the
+endpoint returns `404` for Responses:
+
+```bash
+export FLOWPILOT_LLM_API="auto"
+```
+
 ## Usage
 
 Summarize a capture without calling the LLM:

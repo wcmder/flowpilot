@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Any
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import APIStatusError, OpenAI
 
 from .models import CaptureSummary, ReasoningReport
 
@@ -12,6 +13,7 @@ load_dotenv()
 
 DEFAULT_MODEL = os.getenv("FLOWPILOT_MODEL", "gpt-5-mini")
 OPENAI_BASE_URL = os.getenv("FLOWPILOT_OPENAI_BASE_URL")
+LLM_API = os.getenv("FLOWPILOT_LLM_API", "responses").lower()
 
 SYSTEM_PROMPT = """You are FlowPilot, a careful network data-transfer troubleshooting agent.
 Analyze derived flow metadata, not raw payloads. Focus on network-related transfer problems:
@@ -48,6 +50,35 @@ def reason_about_capture(
     max_flows: int = 25,
 ) -> ReasoningReport:
     client = openai_client()
+    if LLM_API in {"chat", "chat_completions", "chat-completions"}:
+        return _reason_with_chat_completions(
+            client,
+            summary,
+            model=model,
+            max_flows=max_flows,
+        )
+    if LLM_API == "auto":
+        try:
+            return _reason_with_responses(client, summary, model=model, max_flows=max_flows)
+        except APIStatusError as exc:
+            if exc.status_code != 404:
+                raise
+            return _reason_with_chat_completions(
+                client,
+                summary,
+                model=model,
+                max_flows=max_flows,
+            )
+    return _reason_with_responses(client, summary, model=model, max_flows=max_flows)
+
+
+def _reason_with_responses(
+    client: OpenAI,
+    summary: CaptureSummary,
+    *,
+    model: str,
+    max_flows: int,
+) -> ReasoningReport:
     response = client.responses.parse(
         model=model,
         instructions=SYSTEM_PROMPT,
@@ -66,3 +97,49 @@ def reason_about_capture(
         text_format=ReasoningReport,
     )
     return response.output_parsed
+
+
+def _reason_with_chat_completions(
+    client: OpenAI,
+    summary: CaptureSummary,
+    *,
+    model: str,
+    max_flows: int,
+) -> ReasoningReport:
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    "Return only JSON matching this JSON Schema:\n"
+                    f"{json.dumps(ReasoningReport.model_json_schema(), indent=2)}\n\n"
+                    "Analyze this packet-capture flow summary. "
+                    "Identify data-transfer issues across TCP, UDP, ESP/IPsec, and other "
+                    "network protocols. Prioritize network causes over application causes "
+                    "unless the flow evidence points otherwise.\n\n"
+                    f"{json.dumps(summary.compact(max_flows=max_flows), indent=2, default=str)}"
+                ),
+            },
+        ],
+        response_format={"type": "json_object"},
+    )
+    content = response.choices[0].message.content
+    if not content:
+        raise RuntimeError("Chat completions response did not include message content.")
+    return ReasoningReport.model_validate(_json_object(content))
+
+
+def _json_object(content: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise
+        parsed = json.loads(content[start : end + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("Expected model response to be a JSON object.")
+    return parsed
