@@ -15,13 +15,24 @@ DEFAULT_MODEL = os.getenv("FLOWPILOT_MODEL", "gpt-5-mini")
 OPENAI_BASE_URL = os.getenv("FLOWPILOT_OPENAI_BASE_URL")
 LLM_API = os.getenv("FLOWPILOT_LLM_API", "responses").lower()
 
-SYSTEM_PROMPT = """You are FlowPilot, a careful network data-transfer troubleshooting agent.
-Analyze derived flow metadata, not raw payloads. Focus on network-related transfer problems:
-TCP retransmissions, duplicate ACKs, out-of-order delivery, resets, zero windows, one-way flows,
-UDP loss symptoms, ESP/IPsec visibility limits, protocol or port blocking, MTU/path issues, and
-asymmetric routing. Be precise about what the evidence supports, separate observation from
-hypothesis, and recommend practical next checks for a network engineer.
-Return concise JSON matching the requested schema."""
+SYSTEM_PROMPT = """You are FlowPilot, a network data-transfer troubleshooting agent.
+Do not merely summarize the flows. Diagnose likely flow issues from derived metadata.
+
+Focus on symptoms such as low throughput over long duration, one-way traffic, large packet gaps,
+TCP retransmissions, duplicate ACKs, out-of-order delivery, resets, zero windows,
+UDP/ESP visibility limits, protocol or port blocking, MTU/path issues, congestion,
+shaping/policing, asymmetric routing, and application handoff after redirects.
+
+For ESP/IPsec and other encrypted/datagram flows, explicitly state what cannot be proven from
+the metadata, but still reason from duration, bytes, throughput_mbps, directionality, packet
+gaps, SPI, and peer behavior. If a flow has high bytes but low throughput, treat that as a
+potential performance finding and recommend concrete next checks such as tunnel counters,
+drops, MTU/MSS, fragmentation, QoS/policing, path loss, CPU/crypto load, or comparing both
+tunnel endpoints.
+
+Every finding must include evidence from the provided fields and a recommended action. Avoid generic
+restatements of packet counts unless they support a hypothesis. Return concise JSON matching the
+requested schema."""
 
 
 def openai_client() -> OpenAI:
@@ -86,10 +97,12 @@ def _reason_with_responses(
             {
                 "role": "user",
                 "content": (
-                    "Analyze this packet-capture flow summary. "
-                    "Identify data-transfer issues across TCP, UDP, ESP/IPsec, and other "
-                    "network protocols. Prioritize network causes over application causes "
-                    "unless the flow evidence points otherwise.\n\n"
+                    "Diagnose likely data-transfer issues in this packet-capture summary. "
+                    "Return findings, hypotheses, and next checks. Do not just summarize flows. "
+                    "Pay special attention to long-lived low-throughput ESP/IPsec or UDP flows, "
+                    "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
+                    "SMB errors, "
+                    "and certificate/redirect clues.\n\n"
                     f"{json.dumps(summary.compact(max_flows=max_flows), indent=2, default=str)}"
                 ),
             }
@@ -115,10 +128,12 @@ def _reason_with_chat_completions(
                 "content": (
                     "Return only JSON matching this JSON Schema:\n"
                     f"{json.dumps(ReasoningReport.model_json_schema(), indent=2)}\n\n"
-                    "Analyze this packet-capture flow summary. "
-                    "Identify data-transfer issues across TCP, UDP, ESP/IPsec, and other "
-                    "network protocols. Prioritize network causes over application causes "
-                    "unless the flow evidence points otherwise.\n\n"
+                    "Diagnose likely data-transfer issues in this packet-capture summary. "
+                    "Return findings, hypotheses, and next checks. Do not just summarize flows. "
+                    "Pay special attention to long-lived low-throughput ESP/IPsec or UDP flows, "
+                    "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
+                    "SMB errors, "
+                    "and certificate/redirect clues.\n\n"
                     f"{json.dumps(summary.compact(max_flows=max_flows), indent=2, default=str)}"
                 ),
             },

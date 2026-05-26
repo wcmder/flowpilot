@@ -112,6 +112,10 @@ Analyze with OpenAI reasoning:
 flowpilot analyze capture.pcap --model gpt-5-mini
 ```
 
+When LLM reasoning is enabled, FlowPilot prints `[info]` progress lines after
+local analysis finishes and before sending derived metadata to the model. Raw
+packet payloads are not sent.
+
 List models from the configured OpenAI or OpenAI-compatible endpoint:
 
 ```bash

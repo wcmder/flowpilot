@@ -146,6 +146,10 @@ class FlowSummary(BaseModel):
         return self.byte_count / duration
 
     @property
+    def throughput_mbps(self) -> float:
+        return (self.byte_rate_per_second * 8) / 1_000_000
+
+    @property
     def retransmission_rate(self) -> float:
         if self.packet_count == 0:
             return 0.0
@@ -161,6 +165,25 @@ class FlowSummary(BaseModel):
     @property
     def is_one_way(self) -> bool:
         return self.src_to_dst_packets == 0 or self.dst_to_src_packets == 0
+
+    @property
+    def diagnostic_hints(self) -> list[str]:
+        hints = []
+        if self.is_one_way and self.packet_count > 1:
+            hints.append("one-way traffic observed")
+        if self.duration_seconds >= 60 and self.throughput_mbps < 2:
+            hints.append("low average throughput for long-lived flow")
+        if self.max_interarrival_ms is not None and self.max_interarrival_ms >= 5_000:
+            hints.append("large inter-packet gap observed")
+        if self.retransmission_rate >= 0.01:
+            hints.append("tcp retransmission rate above 1 percent")
+        if self.issue_counts.get("tcp_zero_window", 0) > 0:
+            hints.append("tcp receiver window pressure observed")
+        if self.issue_counts.get("tcp_reset", 0) > 0:
+            hints.append("tcp reset observed")
+        if self.key.protocol in {"ESP", "UDP"} and self.duration_seconds >= 60:
+            hints.append("encrypted or datagram flow limits direct loss/latency proof")
+        return hints
 
 
 class CaptureSummary(BaseModel):
@@ -196,11 +219,13 @@ class CaptureSummary(BaseModel):
                     "duration_seconds": round(flow.duration_seconds, 3),
                     "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
                     "byte_rate_per_second": round(flow.byte_rate_per_second, 3),
+                    "throughput_mbps": round(flow.throughput_mbps, 3),
                     "retransmission_rate": round(flow.retransmission_rate, 4),
                     "avg_rtt_ms": _round_optional(flow.avg_rtt_ms, 3),
                     "max_rtt_ms": _round_optional(flow.rtt_max_ms, 3),
                     "max_interarrival_ms": _round_optional(flow.max_interarrival_ms, 3),
                     "one_way": flow.is_one_way,
+                    "diagnostic_hints": flow.diagnostic_hints,
                     "issue_counts": flow.issue_counts,
                     "esp_spis": flow.esp_spis[:10],
                     "redirect_locations": flow.redirect_locations[:10],

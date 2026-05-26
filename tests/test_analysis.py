@@ -58,8 +58,17 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
 def test_summarize_capture_tracks_esp_spi_without_ports() -> None:
     packets = [
         PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
             src_ip="192.0.2.10",
             dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+        ),
+        PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 2, 0),
+            src_ip="198.51.100.20",
+            dst_ip="192.0.2.10",
             protocol="ESP",
             length=900,
             esp_spi="0x0000abcd",
@@ -68,11 +77,14 @@ def test_summarize_capture_tracks_esp_spi_without_ports() -> None:
 
     summary = summarize_capture(packets)
 
-    assert summary.protocols == {"ESP": 1}
+    assert summary.protocols == {"ESP": 2}
     assert summary.top_ports == {}
     assert summary.flows[0].esp_spis == ["0x0000abcd"]
-    assert summary.flows[0].is_one_way is True
+    assert summary.flows[0].is_one_way is False
+    assert summary.flows[0].throughput_mbps == 0.00012
+    assert "low average throughput for long-lived flow" in summary.flows[0].diagnostic_hints
     assert summary.compact()["top_flows"][0]["esp_spis"] == ["0x0000abcd"]
+    assert "diagnostic_hints" in summary.compact()["top_flows"][0]
 
 
 def test_filter_observations_isolates_host_peer_protocol_and_port() -> None:

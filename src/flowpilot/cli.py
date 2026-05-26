@@ -99,7 +99,21 @@ def analyze(
         observations = filter_observations(observations, flow_filter)
 
     summary = summarize_capture(observations)
-    report = None if no_llm else reason_about_capture(summary, model=model, max_flows=max_flows)
+    _info(
+        "Local analysis finished: "
+        f"{summary.packet_count} packets, {summary.flow_count} flows, {summary.total_bytes} bytes."
+    )
+    if no_llm:
+        _info("LLM reasoning skipped because --no-llm was set.")
+        report = None
+    else:
+        _info(
+            "Sending derived metadata to LLM: "
+            f"model={model}, top_flows={min(summary.flow_count, max_flows)}. "
+            "Raw packet payloads are not sent."
+        )
+        report = reason_about_capture(summary, model=model, max_flows=max_flows)
+        _info("LLM reasoning finished.")
 
     _render_summary(summary, show_flows=show_flows)
     if report:
@@ -176,6 +190,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
                     f"rtt {_rtt(flow)}",
                     f"gap {_milliseconds(flow.max_interarrival_ms)}",
                     f"rate {flow.packet_rate_per_second:.1f} pps",
+                    f"thr {flow.throughput_mbps:.3f} Mbps",
                 ]
             ),
             _protocol_marker(flow),
@@ -185,6 +200,10 @@ def _render_summary(summary, *, show_flows: int) -> None:
     _render_sip_details(summary, show_flows=show_flows)
     _render_smb_details(summary, show_flows=show_flows)
     _render_tls_certificates(summary, show_flows=show_flows)
+
+
+def _info(message: str) -> None:
+    console.print(f"[cyan][info][/cyan] {message}")
 
 
 def _render_sip_details(summary, *, show_flows: int) -> None:
