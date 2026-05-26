@@ -435,7 +435,8 @@ def _format_esp_sequences(sequences) -> str:
             f"missing={sequence.missing_count} "
             f"ooo={sequence.out_of_order_count} "
             f"dup={sequence.duplicate_count} "
-            f"gaps={_format_esp_gap_distribution(sequence.gap_occurrences)}"
+            f"gaps={_format_esp_gap_distribution(sequence.gap_occurrences)} "
+            f"events={_format_esp_gap_events(sequence.gap_occurrences)}"
         )
     if len(sequences) > 6:
         lines.append(f"... {len(sequences) - 6} more ESP directions/SPIs")
@@ -450,6 +451,15 @@ def _format_esp_gap_distribution(gaps: list[dict[str, int]]) -> str:
         missing = gap["missing"]
         counts[missing] = counts.get(missing, 0) + 1
     return " ".join(f"gap={missing}(x{count})" for missing, count in sorted(counts.items()))
+
+
+def _format_esp_gap_events(gaps: list[dict[str, int]]) -> str:
+    if not gaps:
+        return "none"
+    return ", ".join(
+        f"{gap['after_sequence']}->{gap['next_sequence']}(missing={gap['missing']})"
+        for gap in gaps
+    )
 
 
 def _format_counter_lines(counts: dict[str, int]) -> str:
