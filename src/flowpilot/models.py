@@ -38,6 +38,7 @@ class SipCallSummary(BaseModel):
     callee: str | None = None
     methods: dict[str, int] = Field(default_factory=dict)
     statuses: dict[str, int] = Field(default_factory=dict)
+    issues: list[str] = Field(default_factory=list)
 
 
 class PacketObservation(BaseModel):

@@ -204,6 +204,7 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
     table.add_column("Callee")
     table.add_column("Methods")
     table.add_column("Statuses")
+    table.add_column("Issue")
 
     for flow_id, flow in rows:
         if flow.sip_calls:
@@ -215,6 +216,7 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
                     call.callee or "-",
                     _format_counter_lines(call.methods),
                     _format_counter_lines(call.statuses),
+                    "\n".join(call.issues),
                 )
         else:
             table.add_row(
@@ -224,6 +226,7 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
                 "-",
                 _format_counter_lines(flow.sip_methods),
                 _format_counter_lines(flow.sip_statuses),
+                "",
             )
     console.print(table)
 

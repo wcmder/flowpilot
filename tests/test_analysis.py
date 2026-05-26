@@ -303,12 +303,16 @@ def test_summarize_capture_tracks_sip_call_metadata() -> None:
     assert flow.sip_calls["call-123"].caller == "sip:alice@example.com"
     assert flow.sip_calls["call-123"].callee == "sip:bob@example.com"
     assert flow.sip_calls["call-123"].statuses == {"486 Busy Here": 1}
+    assert flow.sip_calls["call-123"].issues == ["client failure response"]
     assert flow.sip_calls["call-456"].caller == "sip:carol@example.com"
     assert flow.sip_calls["call-456"].callee == "sip:dave@example.com"
     assert summary.compact()["top_flows"][0]["sip"]["statuses"] == {"486 Busy Here": 1}
     assert summary.compact()["top_flows"][0]["sip"]["calls"][0]["caller"] == (
         "sip:alice@example.com"
     )
+    assert summary.compact()["top_flows"][0]["sip"]["calls"][0]["issues"] == [
+        "client failure response"
+    ]
 
 
 def test_summarize_capture_tracks_smb_metadata() -> None:

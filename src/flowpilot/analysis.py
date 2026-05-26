@@ -95,6 +95,9 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
             if packet.sip_status_code is not None:
                 status = _sip_status(packet)
                 call.statuses[status] = call.statuses.get(status, 0) + 1
+                issue = _sip_status_issue(packet.sip_status_code)
+                if issue and issue not in call.issues:
+                    call.issues = [*call.issues, issue]
         if packet.sip_method:
             flow.sip_methods[packet.sip_method] = flow.sip_methods.get(packet.sip_method, 0) + 1
         if packet.sip_status_code is not None:
@@ -166,3 +169,13 @@ def _sip_status(packet: PacketObservation) -> str:
     if packet.sip_reason:
         status = f"{status} {packet.sip_reason}"
     return status
+
+
+def _sip_status_issue(status_code: int) -> str | None:
+    if 400 <= status_code <= 699:
+        if 400 <= status_code <= 499:
+            return "client failure response"
+        if 500 <= status_code <= 599:
+            return "server failure response"
+        return "global failure response"
+    return None
