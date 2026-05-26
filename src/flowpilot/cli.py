@@ -422,18 +422,36 @@ def _protocol_marker(flow) -> str:
             f"files={len(flow.smb_filenames)}"
         )
     if flow.esp_sequences:
-        missing = sum(sequence.missing_count for sequence in flow.esp_sequences)
-        out_of_order = sum(sequence.out_of_order_count for sequence in flow.esp_sequences)
-        duplicates = sum(sequence.duplicate_count for sequence in flow.esp_sequences)
-        largest_gap = max(sequence.largest_sequence_gap for sequence in flow.esp_sequences)
-        details.append(
-            "ESP seq "
-            f"missing={missing} "
-            f"ooo={out_of_order} "
-            f"dup={duplicates} "
-            f"gap={largest_gap}"
-        )
+        details.append(_format_esp_sequences(flow.esp_sequences))
     return "\n".join(details)
+
+
+def _format_esp_sequences(sequences) -> str:
+    packets = sum(sequence.packet_count for sequence in sequences)
+    missing = sum(sequence.missing_count for sequence in sequences)
+    out_of_order = sum(sequence.out_of_order_count for sequence in sequences)
+    duplicates = sum(sequence.duplicate_count for sequence in sequences)
+    largest_gap = max(sequence.largest_sequence_gap for sequence in sequences)
+    lines = [
+        "ESP seq total "
+        f"pkts={packets} "
+        f"missing={missing} "
+        f"ooo={out_of_order} "
+        f"dup={duplicates} "
+        f"gap={largest_gap}"
+    ]
+    for sequence in sequences[:6]:
+        lines.append(
+            f"{sequence.direction} "
+            f"pkts={sequence.packet_count} "
+            f"missing={sequence.missing_count} "
+            f"ooo={sequence.out_of_order_count} "
+            f"dup={sequence.duplicate_count} "
+            f"gap={sequence.largest_sequence_gap}"
+        )
+    if len(sequences) > 6:
+        lines.append(f"... {len(sequences) - 6} more ESP directions/SPIs")
+    return "\n".join(lines)
 
 
 def _format_counter_lines(counts: dict[str, int]) -> str:
