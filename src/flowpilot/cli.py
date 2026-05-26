@@ -12,7 +12,12 @@ from rich.table import Table
 
 from .analysis import summarize_capture
 from .capture import read_capture
-from .filters import FlowFilter, filter_observations, include_redirect_related_flows
+from .filters import (
+    FlowFilter,
+    filter_observations,
+    filter_sip_calls_by_phone,
+    include_redirect_related_flows,
+)
 from .reasoning import DEFAULT_MODEL, list_openai_models, reason_about_capture
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
@@ -69,6 +74,15 @@ def analyze(
             )
         ),
     ] = False,
+    sip_phone: Annotated[
+        str | None,
+        typer.Option(
+            help=(
+                "Only include SIP calls where caller or callee contains this phone number. "
+                "Keeps the full matching Call-ID trace."
+            )
+        ),
+    ] = None,
     max_flows: Annotated[int, typer.Option(help="Maximum top flows sent to the model.")] = 25,
     show_flows: Annotated[int, typer.Option(help="Maximum flows shown in the terminal.")] = 10,
     no_llm: Annotated[bool, typer.Option(help="Only print the local flow summary.")] = False,
@@ -98,6 +112,8 @@ def analyze(
         observations = include_redirect_related_flows(all_observations, seed_observations)
     elif flow_filter.is_active:
         observations = filter_observations(observations, flow_filter)
+    if sip_phone:
+        observations = filter_sip_calls_by_phone(observations, sip_phone)
 
     summary = summarize_capture(observations)
     _info(

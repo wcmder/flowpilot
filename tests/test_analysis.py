@@ -2,7 +2,12 @@ from datetime import datetime, timedelta
 
 from flowpilot.analysis import summarize_capture
 from flowpilot.capture import _tshark_custom_parameters
-from flowpilot.filters import FlowFilter, filter_observations, include_redirect_related_flows
+from flowpilot.filters import (
+    FlowFilter,
+    filter_observations,
+    filter_sip_calls_by_phone,
+    include_redirect_related_flows,
+)
 from flowpilot.models import PacketObservation, TlsCertificateObservation
 
 
@@ -127,6 +132,47 @@ def test_filter_observations_isolates_host_peer_protocol_and_port() -> None:
     assert len(filtered) == 1
     assert filtered[0].dst_ip == "198.51.100.20"
     assert filtered[0].dst_port == 443
+
+
+def test_filter_sip_calls_by_phone_keeps_matching_call_trace() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.20",
+            src_port=5060,
+            dst_port=5060,
+            protocol="UDP",
+            sip_call_id="call-123",
+            sip_method="INVITE",
+            sip_from="sip:+1-555-0100@example.com",
+            sip_to="sip:15550101@example.com",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.20",
+            dst_ip="10.0.0.10",
+            src_port=5060,
+            dst_port=5060,
+            protocol="UDP",
+            sip_call_id="call-123",
+            sip_status_code=486,
+            sip_reason="Busy Here",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=5060,
+            dst_port=5060,
+            protocol="UDP",
+            sip_call_id="call-456",
+            sip_method="INVITE",
+            sip_from="sip:15550102@example.com",
+            sip_to="sip:15550103@example.com",
+        ),
+    ]
+
+    filtered = filter_sip_calls_by_phone(packets, "555-0100")
+
+    assert [packet.sip_call_id for packet in filtered] == ["call-123", "call-123"]
 
 
 def test_tshark_custom_parameters_include_tls_keylog(tmp_path) -> None:

@@ -182,6 +182,7 @@ Local packet filters:
 | `--src-port INTEGER` | One-way | Include packets from this TCP/UDP source port only. |
 | `--dst-port INTEGER` | One-way | Include packets to this TCP/UDP destination port only. |
 | `--include-redirects` | Related flows | With filters, include follow-on flows for decrypted HTTP redirect `Location` targets. |
+| `--sip-phone TEXT` | SIP calls | Include SIP calls where caller or callee contains this phone number. Keeps the full matching Call-ID trace. |
 
 For bidirectional analysis of one conversation, prefer `--host` with `--peer`:
 
@@ -193,6 +194,13 @@ For one direction only, use `--src` and `--dst`:
 
 ```bash
 flowpilot analyze capture.pcap --src 10.0.0.5 --dst 198.51.100.20 --no-llm
+```
+
+For one SIP phone number, use `--sip-phone`. Separators are ignored, so
+`555-0100` can match SIP URIs containing `+1-555-0100`:
+
+```bash
+flowpilot analyze capture.pcap --sip-phone 555-0100 --no-llm
 ```
 
 If a decrypted HTTPS response redirects to a new URL and you want the redirected

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from ipaddress import ip_address
@@ -64,6 +65,38 @@ def filter_observations(
     for observation in observations:
         if flow_filter.matches(observation):
             yield observation
+
+
+def filter_sip_calls_by_phone(
+    observations: Iterable[PacketObservation],
+    phone_number: str,
+) -> list[PacketObservation]:
+    packets = list(observations)
+    wanted = _digits(phone_number)
+    if not wanted:
+        return packets
+
+    matching_call_ids = {
+        packet.sip_call_id
+        for packet in packets
+        if packet.sip_call_id
+        and (
+            wanted in _digits(packet.sip_from or "")
+            or wanted in _digits(packet.sip_to or "")
+        )
+    }
+    return [
+        packet
+        for packet in packets
+        if packet.sip_call_id in matching_call_ids
+        or (
+            not packet.sip_call_id
+            and (
+                wanted in _digits(packet.sip_from or "")
+                or wanted in _digits(packet.sip_to or "")
+            )
+        )
+    ]
 
 
 def include_redirect_related_flows(
@@ -133,3 +166,7 @@ def _is_ip_address(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _digits(value: str) -> str:
+    return "".join(re.findall(r"\d+", value))
