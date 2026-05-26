@@ -427,19 +427,7 @@ def _protocol_marker(flow) -> str:
 
 
 def _format_esp_sequences(sequences) -> str:
-    packets = sum(sequence.packet_count for sequence in sequences)
-    missing = sum(sequence.missing_count for sequence in sequences)
-    out_of_order = sum(sequence.out_of_order_count for sequence in sequences)
-    duplicates = sum(sequence.duplicate_count for sequence in sequences)
-    largest_gap = max(sequence.largest_sequence_gap for sequence in sequences)
-    lines = [
-        "ESP seq total "
-        f"pkts={packets} "
-        f"missing={missing} "
-        f"ooo={out_of_order} "
-        f"dup={duplicates} "
-        f"gap={largest_gap}"
-    ]
+    lines = []
     for sequence in sequences[:6]:
         lines.append(
             f"{sequence.direction} "
@@ -447,11 +435,20 @@ def _format_esp_sequences(sequences) -> str:
             f"missing={sequence.missing_count} "
             f"ooo={sequence.out_of_order_count} "
             f"dup={sequence.duplicate_count} "
-            f"gap={sequence.largest_sequence_gap}"
+            f"gaps={_format_esp_gap_occurrences(sequence.gap_occurrences)}"
         )
     if len(sequences) > 6:
         lines.append(f"... {len(sequences) - 6} more ESP directions/SPIs")
     return "\n".join(lines)
+
+
+def _format_esp_gap_occurrences(gaps: list[dict[str, int]]) -> str:
+    if not gaps:
+        return "none"
+    return ", ".join(
+        f"{gap['after_sequence']}->{gap['next_sequence']}(gap={gap['gap']})"
+        for gap in gaps
+    )
 
 
 def _format_counter_lines(counts: dict[str, int]) -> str:

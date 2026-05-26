@@ -203,9 +203,19 @@ def _record_esp_sequence(flow: FlowSummary, packet: PacketObservation) -> None:
         if current < sequence.highest_sequence:
             sequence.out_of_order_count += 1
         elif current > sequence.highest_sequence + 1:
+            gap_size = current - sequence.highest_sequence
+            sequence.gap_occurrences = [
+                *sequence.gap_occurrences,
+                {
+                    "after_sequence": sequence.highest_sequence,
+                    "next_sequence": current,
+                    "gap": gap_size,
+                    "missing": gap_size - 1,
+                },
+            ]
             sequence.largest_sequence_gap = max(
                 sequence.largest_sequence_gap,
-                current - sequence.highest_sequence,
+                gap_size,
             )
     sequence.seen_sequences.add(current)
     sequence.highest_sequence = max(sequence.highest_sequence or current, current)

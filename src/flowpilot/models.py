@@ -50,6 +50,7 @@ class EspSequenceSummary(BaseModel):
     last_sequence: int | None = None
     highest_sequence: int | None = None
     largest_sequence_gap: int = 0
+    gap_occurrences: list[dict[str, int]] = Field(default_factory=list)
     out_of_order_count: int = 0
     duplicate_count: int = 0
     seen_sequences: set[int] = Field(default_factory=set, exclude=True)
@@ -80,6 +81,7 @@ class EspSequenceSummary(BaseModel):
             "highest_sequence": self.highest_sequence,
             "missing_count": self.missing_count,
             "largest_sequence_gap": self.largest_sequence_gap,
+            "gap_occurrences": self.gap_occurrences,
             "out_of_order_count": self.out_of_order_count,
             "duplicate_count": self.duplicate_count,
         }
