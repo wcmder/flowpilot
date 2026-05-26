@@ -92,6 +92,64 @@ def test_summarize_capture_tracks_esp_spi_without_ports() -> None:
     assert "diagnostic_hints" in summary.compact()["top_flows"][0]
 
 
+def test_summarize_capture_tracks_esp_sequence_anomalies() -> None:
+    start = datetime(2026, 1, 1, 12, 0, 0)
+    packets = [
+        PacketObservation(
+            timestamp=start,
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+            esp_sequence=1,
+        ),
+        PacketObservation(
+            timestamp=start + timedelta(seconds=1),
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+            esp_sequence=3,
+        ),
+        PacketObservation(
+            timestamp=start + timedelta(seconds=2),
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+            esp_sequence=2,
+        ),
+        PacketObservation(
+            timestamp=start + timedelta(seconds=3),
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+            esp_sequence=2,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    sequence = summary.flows[0].esp_sequences[0]
+    compact_sequence = summary.compact()["top_flows"][0]["esp_sequences"][0]
+
+    assert sequence.first_sequence == 1
+    assert sequence.last_sequence == 2
+    assert sequence.highest_sequence == 3
+    assert sequence.missing_count == 0
+    assert sequence.largest_sequence_gap == 2
+    assert sequence.out_of_order_count == 1
+    assert sequence.duplicate_count == 1
+    assert "esp sequence anomaly observed" in summary.flows[0].diagnostic_hints
+    assert compact_sequence["largest_sequence_gap"] == 2
+    assert compact_sequence["out_of_order_count"] == 1
+    assert compact_sequence["duplicate_count"] == 1
+
+
 def test_filter_observations_isolates_host_peer_protocol_and_port() -> None:
     packets = [
         PacketObservation(

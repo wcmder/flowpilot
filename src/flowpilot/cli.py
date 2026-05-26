@@ -421,6 +421,18 @@ def _protocol_marker(flow) -> str:
             f"statuses={sum(flow.smb_statuses.values())} "
             f"files={len(flow.smb_filenames)}"
         )
+    if flow.esp_sequences:
+        missing = sum(sequence.missing_count for sequence in flow.esp_sequences)
+        out_of_order = sum(sequence.out_of_order_count for sequence in flow.esp_sequences)
+        duplicates = sum(sequence.duplicate_count for sequence in flow.esp_sequences)
+        largest_gap = max(sequence.largest_sequence_gap for sequence in flow.esp_sequences)
+        details.append(
+            "ESP seq "
+            f"missing={missing} "
+            f"ooo={out_of_order} "
+            f"dup={duplicates} "
+            f"gap={largest_gap}"
+        )
     return "\n".join(details)
 
 

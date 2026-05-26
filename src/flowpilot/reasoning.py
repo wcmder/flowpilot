@@ -29,10 +29,12 @@ and application handoff after redirects.
 
 For ESP/IPsec and other encrypted/datagram flows, explicitly state what cannot be proven from
 the metadata, but still reason from duration, bytes, throughput_mbps, directionality, packet
-gaps, SPI, and peer behavior. If a flow has high bytes but low throughput, treat that as a
-potential performance finding and recommend concrete next checks such as tunnel counters,
-drops, MTU/MSS, fragmentation, QoS/policing, path loss, CPU/crypto load, or comparing both
-tunnel endpoints.
+gaps, SPI, ESP sequence gaps, missing ESP sequence numbers, duplicate ESP sequence numbers,
+out-of-order ESP sequence numbers, and peer behavior. Treat ESP sequence anomalies as stronger
+evidence for packet loss, replay/duplicate delivery, capture loss, or path reordering than byte
+counts alone. If a flow has high bytes but low throughput, treat that as a potential performance
+finding and recommend concrete next checks such as tunnel counters, anti-replay drops, MTU/MSS,
+fragmentation, QoS/policing, path loss, CPU/crypto load, or comparing both tunnel endpoints.
 
 Every finding must include evidence from the provided fields and a recommended action. Avoid generic
 restatements of packet counts unless they support a hypothesis. Return concise JSON matching the

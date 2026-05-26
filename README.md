@@ -9,8 +9,9 @@ ESP/IPsec flows, one-way traffic, resets, zero windows, and possible path issues
 
 - Reads `.pcap` / `.pcapng` files with PyShark.
 - Aggregates packets into bidirectional flows.
-- Highlights top talkers, protocols, ports, DNS names, ESP SPIs, and TCP issue
-  counters when TShark exposes them.
+- Highlights top talkers, protocols, ports, DNS names, ESP SPIs, ESP sequence
+  gaps/out-of-order/duplicate indicators, and TCP issue counters when TShark
+  exposes them.
 - Extracts TLS certificate metadata observed in the capture when TShark exposes
   it, including subject, issuer, serial, validity, SAN DNS names, and SHA-256
   fingerprint.
@@ -94,6 +95,9 @@ Local `--no-llm` output includes packet counts, byte counts, directionality,
 retransmission rate, RTT average/max when TShark exposes `tcp.analysis.ack_rtt`,
 maximum packet gap, packet rate, TCP issue counters, and visible SIP/SMB
 protocol clues.
+For ESP/IPsec, FlowPilot also tracks visible ESP sequence numbers per SPI and
+direction so the local summary and LLM metadata can flag sequence gaps,
+out-of-order packets, and duplicates when those fields are present.
 SIP and SMB details are shown in separate tables keyed by `Flow ID`, because one
 network flow can carry many SIP calls or many SMB operations. SIP details are
 split by Call-ID with separate caller, callee, and issue columns. SIP response

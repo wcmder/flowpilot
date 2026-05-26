@@ -5,6 +5,7 @@ from collections.abc import Iterable
 
 from .models import (
     CaptureSummary,
+    EspSequenceSummary,
     FlowKey,
     FlowSummary,
     PacketObservation,
@@ -75,6 +76,8 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
 
         if packet.esp_spi and packet.esp_spi not in flow.esp_spis:
             flow.esp_spis = [*flow.esp_spis, packet.esp_spi][:25]
+        if packet.esp_spi and packet.esp_sequence is not None:
+            _record_esp_sequence(flow, packet)
 
         if packet.http_location and packet.http_location not in flow.redirect_locations:
             flow.redirect_locations = [*flow.redirect_locations, packet.http_location][:25]
@@ -170,6 +173,43 @@ def _certificate_presenter_roles(flow: FlowSummary) -> dict[tuple[str | None, in
         for certificate in flow.tls_certificates
         if certificate.presenter_role is not None
     }
+
+
+def _record_esp_sequence(flow: FlowSummary, packet: PacketObservation) -> None:
+    direction = (
+        f"{_endpoint(packet.src_ip, packet.src_port)} -> "
+        f"{_endpoint(packet.dst_ip, packet.dst_port)}"
+    )
+    sequence = next(
+        (
+            item
+            for item in flow.esp_sequences
+            if item.spi == packet.esp_spi and item.direction == direction
+        ),
+        None,
+    )
+    if sequence is None:
+        sequence = EspSequenceSummary(spi=packet.esp_spi, direction=direction)
+        flow.esp_sequences = [*flow.esp_sequences, sequence][:25]
+
+    current = packet.esp_sequence
+    sequence.packet_count += 1
+    if sequence.first_sequence is None:
+        sequence.first_sequence = current
+    is_duplicate = current in sequence.seen_sequences
+    if is_duplicate:
+        sequence.duplicate_count += 1
+    if sequence.highest_sequence is not None and not is_duplicate:
+        if current < sequence.highest_sequence:
+            sequence.out_of_order_count += 1
+        elif current > sequence.highest_sequence + 1:
+            sequence.largest_sequence_gap = max(
+                sequence.largest_sequence_gap,
+                current - sequence.highest_sequence,
+            )
+    sequence.seen_sequences.add(current)
+    sequence.highest_sequence = max(sequence.highest_sequence or current, current)
+    sequence.last_sequence = current
 
 
 def _next_certificate_role(roles: dict[tuple[str | None, int | None], str]) -> str:

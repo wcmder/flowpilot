@@ -42,6 +42,49 @@ class SipCallSummary(BaseModel):
     trace: list[dict[str, str | None]] = Field(default_factory=list)
 
 
+class EspSequenceSummary(BaseModel):
+    spi: str
+    direction: str
+    packet_count: int = 0
+    first_sequence: int | None = None
+    last_sequence: int | None = None
+    highest_sequence: int | None = None
+    largest_sequence_gap: int = 0
+    out_of_order_count: int = 0
+    duplicate_count: int = 0
+    seen_sequences: set[int] = Field(default_factory=set, exclude=True)
+
+    @property
+    def missing_count(self) -> int:
+        if self.first_sequence is None or self.highest_sequence is None:
+            return 0
+        expected = self.highest_sequence - self.first_sequence + 1
+        return max(expected - len(self.seen_sequences), 0)
+
+    @property
+    def has_anomalies(self) -> bool:
+        return (
+            self.missing_count > 0
+            or self.out_of_order_count > 0
+            or self.duplicate_count > 0
+            or self.largest_sequence_gap > 1
+        )
+
+    def compact(self) -> dict[str, int | str | None]:
+        return {
+            "spi": self.spi,
+            "direction": self.direction,
+            "packets": self.packet_count,
+            "first_sequence": self.first_sequence,
+            "last_sequence": self.last_sequence,
+            "highest_sequence": self.highest_sequence,
+            "missing_count": self.missing_count,
+            "largest_sequence_gap": self.largest_sequence_gap,
+            "out_of_order_count": self.out_of_order_count,
+            "duplicate_count": self.duplicate_count,
+        }
+
+
 class PacketObservation(BaseModel):
     timestamp: datetime | None = None
     src_ip: str
@@ -53,6 +96,7 @@ class PacketObservation(BaseModel):
     rtt_seconds: float | None = None
     issue_tags: list[str] = Field(default_factory=list)
     esp_spi: str | None = None
+    esp_sequence: int | None = None
     dns_query: str | None = None
     dns_answers: list[str] = Field(default_factory=list)
     http_host: str | None = None
@@ -114,6 +158,7 @@ class FlowSummary(BaseModel):
     max_interarrival_ms: float | None = None
     issue_counts: dict[str, int] = Field(default_factory=dict)
     esp_spis: list[str] = Field(default_factory=list)
+    esp_sequences: list[EspSequenceSummary] = Field(default_factory=list)
     redirect_locations: list[str] = Field(default_factory=list)
     tls_certificates: list[TlsCertificateObservation] = Field(default_factory=list)
     sip_call_ids: list[str] = Field(default_factory=list)
@@ -189,6 +234,8 @@ class FlowSummary(BaseModel):
             hints.append("tcp receiver window pressure observed")
         if self.issue_counts.get("tcp_reset", 0) > 0:
             hints.append("tcp reset observed")
+        if any(sequence.has_anomalies for sequence in self.esp_sequences):
+            hints.append("esp sequence anomaly observed")
         if self.key.protocol in {"ESP", "UDP"} and self.duration_seconds >= 60:
             hints.append("encrypted or datagram flow limits direct loss/latency proof")
         hints.extend(self.smb_diagnostic_hints)
@@ -267,6 +314,9 @@ class CaptureSummary(BaseModel):
                     "diagnostic_hints": flow.diagnostic_hints,
                     "issue_counts": flow.issue_counts,
                     "esp_spis": flow.esp_spis[:10],
+                    "esp_sequences": [
+                        sequence.compact() for sequence in flow.esp_sequences[:10]
+                    ],
                     "redirect_locations": flow.redirect_locations[:10],
                     "tls_certificates": [
                         certificate.model_dump(mode="json")

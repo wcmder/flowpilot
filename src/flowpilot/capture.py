@@ -80,6 +80,7 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         rtt_seconds=_tcp_rtt_seconds(packet),
         issue_tags=_issue_tags(packet, protocol),
         esp_spi=_layer_attr(packet, "esp", "spi"),
+        esp_sequence=_safe_int(_layer_attr(packet, "esp", "sequence")),
         dns_query=_layer_attr(packet, "dns", "qry_name"),
         dns_answers=_dns_answers(packet),
         http_host=_layer_attr(packet, "http", "host"),
@@ -365,9 +366,12 @@ def _safe_int(value: Any) -> int | None:
     if value in (None, ""):
         return None
     try:
-        return int(value)
+        return int(str(value), 0)
     except (TypeError, ValueError):
-        return None
+        try:
+            return int(str(value))
+        except (TypeError, ValueError):
+            return None
 
 
 def _safe_float(value: Any) -> float | None:
