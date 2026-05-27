@@ -607,7 +607,6 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
     table.add_column("Issuer CN", overflow="fold")
     table.add_column("Validity")
     table.add_column("SAN")
-    table.add_column("SHA-256")
 
     for flow_id, flow, certificate in rows:
         table.add_row(
@@ -618,7 +617,6 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
             certificate.issuer_cn or certificate.issuer or "-",
             _validity(certificate),
             ", ".join(certificate.san_dns[:5]),
-            certificate.fingerprint_sha256 or "-",
         )
     console.print(table)
 
