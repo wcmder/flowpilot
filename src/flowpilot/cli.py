@@ -316,7 +316,7 @@ class _ProgressReporter:
             percent = min(int((packet_count / self.total_packets) * 100), 100)
             if (
                 percent == self._last_percent
-                or (percent < 100 and now - self._last_report_at < 5)
+                or (percent < 100 and now - self._last_report_at < 10)
             ):
                 return
             self._last_percent = percent
@@ -325,7 +325,7 @@ class _ProgressReporter:
                 f"{percent}% ({packet_count}/{self.total_packets} raw packets)."
             )
         else:
-            if packet_count < 1_000 or now - self._last_report_at < 5:
+            if packet_count < 1_000 or now - self._last_report_at < 10:
                 return
             _info(f"Local analysis progress: read {packet_count} raw packets.")
         self._last_report_at = now
