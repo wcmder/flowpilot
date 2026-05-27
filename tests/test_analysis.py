@@ -509,12 +509,15 @@ def test_summarize_capture_tracks_smb_metadata() -> None:
     assert flow.smb_statuses == {"STATUS_ACCESS_DENIED": 1, "STATUS_SUCCESS": 1}
     assert flow.smb_read_ops == 1
     assert flow.smb_read_bytes == 32768
+    assert flow.smb_read_unknown_bytes_ops == 0
     assert flow.smb_error_count == 1
     assert "smb errors observed" in flow.smb_diagnostic_hints
     assert "small average smb read/write size" in flow.smb_diagnostic_hints
     assert flow.smb_session_ids == ["0x111"]
     assert flow.smb_tree_ids == ["0x222"]
     assert flow.smb_filenames == ["\\\\share\\blocked.docx", "\\\\share\\slow.bin"]
+    assert flow.smb_read_filenames == ["\\\\share\\slow.bin"]
+    assert flow.smb_write_filenames == []
     assert summary.compact()["top_flows"][0]["smb"]["statuses"] == {
         "STATUS_ACCESS_DENIED": 1,
         "STATUS_SUCCESS": 1,
@@ -533,6 +536,7 @@ def test_summarize_capture_counts_numeric_smb_write_command() -> None:
             smb_command="11",
             smb_status="0",
             smb_write_length=4096,
+            smb_filename="\\\\share\\upload.bin",
         )
     ]
 
@@ -542,6 +546,29 @@ def test_summarize_capture_counts_numeric_smb_write_command() -> None:
     assert flow.smb_commands == {"11": 1}
     assert flow.smb_write_ops == 1
     assert flow.smb_write_bytes == 4096
+    assert flow.smb_write_unknown_bytes_ops == 0
+    assert flow.smb_write_filenames == ["\\\\share\\upload.bin"]
+
+
+def test_summarize_capture_tracks_smb_write_unknown_length() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="11",
+            smb_status="0",
+        )
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_write_ops == 1
+    assert flow.smb_write_bytes == 0
+    assert flow.smb_write_unknown_bytes_ops == 1
 
 
 def test_summarize_capture_tracks_dns_metadata() -> None:

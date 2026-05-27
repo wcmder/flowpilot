@@ -104,10 +104,20 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         )
         if "read" in smb_command_label_value:
             flow.smb_read_ops += 1
-            flow.smb_read_bytes += packet.smb_read_length or 0
+            if packet.smb_filename and packet.smb_filename not in flow.smb_read_filenames:
+                flow.smb_read_filenames = [*flow.smb_read_filenames, packet.smb_filename][:25]
+            if packet.smb_read_length is None:
+                flow.smb_read_unknown_bytes_ops += 1
+            else:
+                flow.smb_read_bytes += packet.smb_read_length
         if "write" in smb_command_label_value:
             flow.smb_write_ops += 1
-            flow.smb_write_bytes += packet.smb_write_length or 0
+            if packet.smb_filename and packet.smb_filename not in flow.smb_write_filenames:
+                flow.smb_write_filenames = [*flow.smb_write_filenames, packet.smb_filename][:25]
+            if packet.smb_write_length is None:
+                flow.smb_write_unknown_bytes_ops += 1
+            else:
+                flow.smb_write_bytes += packet.smb_write_length
         if packet.smb_status and packet.smb_status.upper() not in {
             "0",
             "0x00000000",

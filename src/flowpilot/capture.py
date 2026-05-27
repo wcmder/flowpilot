@@ -112,11 +112,29 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         smb_session_id=_smb_value(packet, "sesid") or _smb_value(packet, "session_id"),
         smb_tree_id=_smb_value(packet, "tid") or _smb_value(packet, "tree_id"),
         smb_filename=_smb_value(packet, "file") or _smb_value(packet, "filename"),
-        smb_read_length=_safe_int(
-            _smb_value(packet, "read_length") or _smb_value(packet, "length")
+        smb_read_length=_smb_int_value(
+            packet,
+            (
+                "read_length",
+                "read_count",
+                "read_data_len",
+                "data_len",
+                "data_size",
+                "file_rw_length",
+                "count",
+            ),
         ),
-        smb_write_length=_safe_int(
-            _smb_value(packet, "write_length") or _smb_value(packet, "data_len")
+        smb_write_length=_smb_int_value(
+            packet,
+            (
+                "write_length",
+                "write_count",
+                "write_data_len",
+                "data_len",
+                "data_size",
+                "file_rw_length",
+                "count",
+            ),
         ),
     )
 
@@ -198,6 +216,14 @@ def _smb_value(packet: Any, attr_name: str) -> str | None:
     for layer_name in ("smb2", "smb"):
         value = _layer_attr(packet, layer_name, attr_name)
         if value:
+            return value
+    return None
+
+
+def _smb_int_value(packet: Any, attr_names: tuple[str, ...]) -> int | None:
+    for attr_name in attr_names:
+        value = _safe_int(_smb_value(packet, attr_name))
+        if value is not None:
             return value
     return None
 

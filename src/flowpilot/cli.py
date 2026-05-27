@@ -513,12 +513,8 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
             str(flow_id),
             _format_smb_counter_lines(flow.smb_commands, SMB_COMMAND_NAMES),
             _format_smb_counter_lines(flow.smb_statuses, SMB_STATUS_NAMES),
-            "\n".join(flow.smb_filenames[:10]),
-            (
-                f"read {flow.smb_read_ops} ops / {flow.smb_read_bytes} bytes\n"
-                f"write {flow.smb_write_ops} ops / {flow.smb_write_bytes} bytes\n"
-                f"{flow.smb_transfer_mbps:.3f} Mbps"
-            ),
+            _format_smb_transfer_files(flow),
+            _format_smb_transfer(flow),
             "\n".join(flow.smb_diagnostic_hints),
         )
     console.print(table)
@@ -770,6 +766,42 @@ def _format_smb_counter_lines(counts: dict[str, int], names: dict[str, str]) -> 
         f"{smb_display_value(value, names)}: {count}"
         for value, count in list(counts.items())[:10]
     )
+
+
+def _format_smb_transfer(flow) -> str:
+    return "\n".join(
+        [
+            _format_smb_transfer_line(
+                "read",
+                flow.smb_read_ops,
+                flow.smb_read_bytes,
+                flow.smb_read_unknown_bytes_ops,
+            ),
+            _format_smb_transfer_line(
+                "write",
+                flow.smb_write_ops,
+                flow.smb_write_bytes,
+                flow.smb_write_unknown_bytes_ops,
+            ),
+            f"smb payload {flow.smb_transfer_mbps:.3f} Mbps",
+            f"flow total {flow.throughput_mbps:.3f} Mbps",
+        ]
+    )
+
+
+def _format_smb_transfer_files(flow) -> str:
+    lines = [
+        *[f"download {filename}" for filename in flow.smb_read_filenames[:10]],
+        *[f"upload {filename}" for filename in flow.smb_write_filenames[:10]],
+    ]
+    return "\n".join(lines)
+
+
+def _format_smb_transfer_line(label: str, ops: int, byte_count: int, unknown_ops: int) -> str:
+    line = f"{label} {ops} ops / {byte_count} bytes"
+    if unknown_ops:
+        line += f" ({unknown_ops} ops length unavailable)"
+    return line
 
 
 def _validity(certificate) -> str:

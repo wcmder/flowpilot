@@ -4,11 +4,15 @@ from pathlib import Path
 from flowpilot.cli import (
     _count_packets_in_capture,
     _format_smb_counter_lines,
+    _format_smb_transfer,
+    _format_smb_transfer_files,
+    _format_smb_transfer_line,
     _local_analysis_start_message,
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
 )
 from flowpilot.esp import format_esp_gap_distribution
+from flowpilot.models import FlowKey, FlowSummary
 from flowpilot.smb import SMB_COMMAND_NAMES, SMB_STATUS_NAMES
 
 
@@ -106,6 +110,48 @@ def test_format_smb_counter_lines_labels_numeric_commands() -> None:
 
 
 def test_format_smb_counter_lines_labels_numeric_statuses() -> None:
-    assert _format_smb_counter_lines({"0x00000000": 2}, SMB_STATUS_NAMES) == (
-        "STATUS_SUCCESS(0x00000000): 2"
+    assert _format_smb_counter_lines(
+        {
+            "0x00000000": 2,
+            "0xc0000022": 1,
+            "0xdeadbeef": 1,
+        },
+        SMB_STATUS_NAMES,
+    ) == (
+        "STATUS_SUCCESS(0x00000000): 2\n"
+        "STATUS_ACCESS_DENIED(0xc0000022): 1\n"
+        "NTSTATUS_UNKNOWN(0xdeadbeef): 1"
+    )
+
+
+def test_format_smb_transfer_line_shows_unavailable_lengths() -> None:
+    assert _format_smb_transfer_line("write", 10, 0, 10) == (
+        "write 10 ops / 0 bytes (10 ops length unavailable)"
+    )
+
+
+def test_format_smb_transfer_labels_payload_and_flow_rates() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        byte_count=1_000_000,
+        first_seen="2026-01-01T00:00:00",
+        last_seen="2026-01-01T00:00:01",
+        smb_write_ops=10,
+        smb_write_unknown_bytes_ops=10,
+    )
+
+    assert "smb payload 0.000 Mbps" in _format_smb_transfer(flow)
+    assert "flow total 8.000 Mbps" in _format_smb_transfer(flow)
+
+
+def test_format_smb_transfer_files_only_shows_uploads_and_downloads() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        smb_filenames=["\\\\share\\metadata-only.txt"],
+        smb_read_filenames=["\\\\share\\download.bin"],
+        smb_write_filenames=["\\\\share\\upload.bin"],
+    )
+
+    assert _format_smb_transfer_files(flow) == (
+        "download \\\\share\\download.bin\nupload \\\\share\\upload.bin"
     )
