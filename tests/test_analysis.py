@@ -141,16 +141,16 @@ def test_summarize_capture_tracks_esp_sequence_anomalies() -> None:
     assert sequence.last_sequence == 2
     assert sequence.highest_sequence == 3
     assert sequence.missing_count == 0
-    assert sequence.largest_sequence_gap == 2
+    assert sequence.largest_sequence_gap == 1
     assert sequence.gap_occurrences == [
-        {"after_sequence": 1, "next_sequence": 3, "gap": 2, "missing": 1}
+        {"after_sequence": 1, "next_sequence": 3, "gap": 1, "missing": 1}
     ]
     assert sequence.out_of_order_count == 1
     assert sequence.duplicate_count == 1
     assert "esp sequence anomaly observed" in summary.flows[0].diagnostic_hints
-    assert compact_sequence["largest_sequence_gap"] == 2
+    assert compact_sequence["largest_sequence_gap"] == 1
     assert compact_sequence["gap_occurrences"] == [
-        {"after_sequence": 1, "next_sequence": 3, "gap": 2, "missing": 1}
+        {"after_sequence": 1, "next_sequence": 3, "gap": 1, "missing": 1}
     ]
     assert compact_sequence["out_of_order_count"] == 1
     assert compact_sequence["duplicate_count"] == 1

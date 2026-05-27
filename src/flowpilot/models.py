@@ -68,7 +68,7 @@ class EspSequenceSummary(BaseModel):
             self.missing_count > 0
             or self.out_of_order_count > 0
             or self.duplicate_count > 0
-            or self.largest_sequence_gap > 1
+            or self.largest_sequence_gap > 0
         )
 
     def compact(self) -> dict[str, int | str | None]:
