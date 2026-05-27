@@ -20,6 +20,10 @@ ESP/IPsec flows, one-way traffic, resets, zero windows, and possible path issues
 - Extracts SMB/SMB2 metadata such as commands, NT status values, session/tree
   IDs, filenames, read/write operation counts, transfer bytes, and transfer
   efficiency hints when visible.
+- Extracts DNS metadata such as queries, query types, response codes, answers,
+  and DNS error indicators when visible.
+- Extracts DHCP metadata such as message types, transaction IDs, client MACs,
+  hostnames, requested/offered IPs, server IDs, and lease times when visible.
 - Calculates local troubleshooting metrics such as retransmission rate, RTT
   average/max when available, one-way flow detection, packet rate, and maximum
   inter-packet gap.
@@ -178,6 +182,10 @@ setup and failure direction. SMB details include read/write operations, transfer
 bytes, SMB transfer Mbps, statuses/errors, files, and hints for suboptimal file
 transfer behavior such as small read/write sizes, errors, low throughput, or
 large idle gaps.
+DNS details include query names, query types, response codes, answers, and error
+counts such as NXDOMAIN/SERVFAIL/refused when visible. DHCP details include
+message types such as Discover/Offer/Request/ACK, client identifiers, requested
+and offered addresses, server IDs, and lease times.
 
 Focus on one flow or a smaller slice before sending anything to the LLM:
 

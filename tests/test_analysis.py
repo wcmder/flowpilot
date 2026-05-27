@@ -520,3 +520,83 @@ def test_summarize_capture_tracks_smb_metadata() -> None:
         "STATUS_SUCCESS": 1,
     }
     assert summary.compact()["top_flows"][0]["smb"]["transfer_bytes"] == 32768
+
+
+def test_summarize_capture_tracks_dns_metadata() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="192.0.2.53",
+            src_port=53000,
+            dst_port=53,
+            protocol="UDP",
+            dns_query="missing.example",
+            dns_query_type="A",
+            dns_response_code="3 NXDOMAIN",
+        ),
+        PacketObservation(
+            src_ip="192.0.2.53",
+            dst_ip="10.0.0.10",
+            src_port=53,
+            dst_port=53000,
+            protocol="UDP",
+            dns_query="www.example",
+            dns_query_type="AAAA",
+            dns_response_code="0 NoError",
+            dns_answers=["2001:db8::10"],
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.dns_queries == {"missing.example": 1, "www.example": 1}
+    assert flow.dns_query_types == {"A": 1, "AAAA": 1}
+    assert flow.dns_response_codes == {"3 NXDOMAIN": 1, "0 NoError": 1}
+    assert flow.dns_answers == ["2001:db8::10"]
+    assert flow.dns_error_count == 1
+    assert "dns error responses observed" in flow.diagnostic_hints
+    assert summary.compact()["top_flows"][0]["dns"]["error_count"] == 1
+
+
+def test_summarize_capture_tracks_dhcp_metadata() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="0.0.0.0",
+            dst_ip="255.255.255.255",
+            src_port=68,
+            dst_port=67,
+            protocol="UDP",
+            dhcp_message_type="Discover",
+            dhcp_transaction_id="0x1234",
+            dhcp_client_mac="00:11:22:33:44:55",
+            dhcp_hostname="laptop-1",
+            dhcp_requested_ip="10.0.0.50",
+        ),
+        PacketObservation(
+            src_ip="0.0.0.0",
+            dst_ip="255.255.255.255",
+            src_port=67,
+            dst_port=68,
+            protocol="UDP",
+            dhcp_message_type="Offer",
+            dhcp_transaction_id="0x1234",
+            dhcp_your_ip="10.0.0.51",
+            dhcp_server_id="10.0.0.1",
+            dhcp_lease_time="3600",
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.dhcp_message_types == {"Discover": 1, "Offer": 1}
+    assert flow.dhcp_transaction_ids == ["0x1234"]
+    assert flow.dhcp_client_macs == ["00:11:22:33:44:55"]
+    assert flow.dhcp_hostnames == ["laptop-1"]
+    assert flow.dhcp_requested_ips == ["10.0.0.50"]
+    assert flow.dhcp_offered_ips == ["10.0.0.51"]
+    assert flow.dhcp_server_ids == ["10.0.0.1"]
+    assert flow.dhcp_lease_times == ["3600"]
+    assert "dhcp exchange lacks ack in observed packets" in flow.diagnostic_hints
+    assert summary.compact()["top_flows"][0]["dhcp"]["offered_ips"] == ["10.0.0.51"]

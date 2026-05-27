@@ -66,7 +66,9 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
             flow.rtt_total_ms += rtt_ms
             flow.rtt_max_ms = max(filter(None, [flow.rtt_max_ms, rtt_ms]), default=rtt_ms)
 
-        if packet.src_ip == key.endpoint_a and packet.src_port == key.port_a:
+        if packet.src_ip == key.endpoint_a and (
+            key.port_a is None or packet.src_port == key.port_a
+        ):
             flow.src_to_dst_packets += 1
         else:
             flow.dst_to_src_packets += 1
@@ -137,6 +139,34 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         }:
             flow.smb_error_count += 1
 
+        if packet.dns_query:
+            flow.dns_queries[packet.dns_query] = flow.dns_queries.get(packet.dns_query, 0) + 1
+        if packet.dns_query_type:
+            flow.dns_query_types[packet.dns_query_type] = (
+                flow.dns_query_types.get(packet.dns_query_type, 0) + 1
+            )
+        if packet.dns_response_code:
+            flow.dns_response_codes[packet.dns_response_code] = (
+                flow.dns_response_codes.get(packet.dns_response_code, 0) + 1
+            )
+            if not _is_dns_success(packet.dns_response_code):
+                flow.dns_error_count += 1
+        for answer in packet.dns_answers:
+            if answer and answer not in flow.dns_answers:
+                flow.dns_answers = [*flow.dns_answers, answer][:50]
+
+        if packet.dhcp_message_type:
+            flow.dhcp_message_types[packet.dhcp_message_type] = (
+                flow.dhcp_message_types.get(packet.dhcp_message_type, 0) + 1
+            )
+        _append_unique(flow, "dhcp_transaction_ids", packet.dhcp_transaction_id)
+        _append_unique(flow, "dhcp_client_macs", packet.dhcp_client_mac)
+        _append_unique(flow, "dhcp_hostnames", packet.dhcp_hostname)
+        _append_unique(flow, "dhcp_requested_ips", packet.dhcp_requested_ip)
+        _append_unique(flow, "dhcp_offered_ips", packet.dhcp_your_ip)
+        _append_unique(flow, "dhcp_server_ids", packet.dhcp_server_id)
+        _append_unique(flow, "dhcp_lease_times", packet.dhcp_lease_time)
+
         presenter_roles = _certificate_presenter_roles(flow)
         for certificate in packet.tls_certificates:
             if certificate.presenter_role is None:
@@ -173,6 +203,19 @@ def _certificate_presenter_roles(flow: FlowSummary) -> dict[tuple[str | None, in
         for certificate in flow.tls_certificates
         if certificate.presenter_role is not None
     }
+
+
+def _append_unique(flow: FlowSummary, field_name: str, value: str | None, limit: int = 25) -> None:
+    if not value:
+        return
+    values = getattr(flow, field_name)
+    if value not in values:
+        setattr(flow, field_name, [*values, value][:limit])
+
+
+def _is_dns_success(response_code: str) -> bool:
+    normalized = response_code.lower()
+    return normalized in {"0", "noerror", "no error"} or normalized.startswith("0 ")
 
 
 def _record_esp_sequence(flow: FlowSummary, packet: PacketObservation) -> None:

@@ -82,7 +82,17 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         esp_spi=_layer_attr(packet, "esp", "spi"),
         esp_sequence=_safe_int(_layer_attr(packet, "esp", "sequence")),
         dns_query=_layer_attr(packet, "dns", "qry_name"),
+        dns_query_type=_layer_attr(packet, "dns", "qry_type"),
+        dns_response_code=_layer_attr(packet, "dns", "flags_rcode"),
         dns_answers=_dns_answers(packet),
+        dhcp_message_type=_dhcp_value(packet, "option_dhcp"),
+        dhcp_transaction_id=_dhcp_value(packet, "id"),
+        dhcp_client_mac=_dhcp_value(packet, "hw_mac_addr"),
+        dhcp_hostname=_dhcp_value(packet, "option_hostname"),
+        dhcp_requested_ip=_dhcp_value(packet, "option_requested_ip_address"),
+        dhcp_your_ip=_dhcp_value(packet, "ip_your"),
+        dhcp_server_id=_dhcp_value(packet, "option_dhcp_server_id"),
+        dhcp_lease_time=_dhcp_value(packet, "option_ip_address_lease_time"),
         http_host=_layer_attr(packet, "http", "host"),
         http_location=_layer_attr(packet, "http", "location"),
         tls_sni=_layer_attr(packet, "tls", "handshake_extensions_server_name")
@@ -171,6 +181,14 @@ def _dns_answers(packet: Any) -> list[str]:
             continue
         answers.extend(str(value).split(","))
     return [answer.strip() for answer in answers if answer.strip()]
+
+
+def _dhcp_value(packet: Any, attr_name: str) -> str | None:
+    for layer_name in ("dhcp", "bootp"):
+        value = _layer_attr(packet, layer_name, attr_name)
+        if value:
+            return value
+    return None
 
 
 def _smb_value(packet: Any, attr_name: str) -> str | None:

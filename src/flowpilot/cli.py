@@ -230,6 +230,8 @@ def _render_summary(summary, *, show_flows: int) -> None:
             _format_issue_counts(flow.issue_counts) or ", ".join(flow.names[:3]),
         )
     console.print(table)
+    _render_dns_details(summary, show_flows=show_flows)
+    _render_dhcp_details(summary, show_flows=show_flows)
     _render_sip_details(summary, show_flows=show_flows)
     _render_smb_details(summary, show_flows=show_flows)
     _render_tls_certificates(summary, show_flows=show_flows)
@@ -320,6 +322,75 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
                 f"{flow.smb_transfer_mbps:.3f} Mbps"
             ),
             "\n".join(flow.smb_diagnostic_hints),
+        )
+    console.print(table)
+
+
+def _render_dns_details(summary, *, show_flows: int) -> None:
+    flow_ids = _flow_ids(summary.flows)
+    rows = [
+        (flow_ids[flow.key], flow)
+        for flow in summary.flows[:show_flows]
+        if flow.dns_queries or flow.dns_response_codes or flow.dns_answers
+    ]
+    if not rows:
+        return
+
+    table = Table(title="DNS Details In Top Flows", show_lines=True)
+    table.add_column("Flow ID", justify="right")
+    table.add_column("Queries")
+    table.add_column("Types")
+    table.add_column("RCode")
+    table.add_column("Answers")
+    table.add_column("Issue")
+
+    for flow_id, flow in rows:
+        table.add_row(
+            str(flow_id),
+            _format_counter_lines(flow.dns_queries),
+            _format_counter_lines(flow.dns_query_types),
+            _format_counter_lines(flow.dns_response_codes),
+            "\n".join(flow.dns_answers[:10]),
+            "dns error responses observed" if flow.dns_error_count else "",
+        )
+    console.print(table)
+
+
+def _render_dhcp_details(summary, *, show_flows: int) -> None:
+    flow_ids = _flow_ids(summary.flows)
+    rows = [
+        (flow_ids[flow.key], flow)
+        for flow in summary.flows[:show_flows]
+        if flow.dhcp_message_types or flow.dhcp_client_macs or flow.dhcp_requested_ips
+    ]
+    if not rows:
+        return
+
+    table = Table(title="DHCP Details In Top Flows", show_lines=True)
+    table.add_column("Flow ID", justify="right")
+    table.add_column("Messages")
+    table.add_column("Client")
+    table.add_column("Requested/Offered")
+    table.add_column("Server")
+    table.add_column("Lease")
+    table.add_column("Issue")
+
+    for flow_id, flow in rows:
+        table.add_row(
+            str(flow_id),
+            _format_counter_lines(flow.dhcp_message_types),
+            "\n".join([*flow.dhcp_client_macs[:5], *flow.dhcp_hostnames[:5]]),
+            "\n".join(
+                [
+                    *[f"requested {ip}" for ip in flow.dhcp_requested_ips[:5]],
+                    *[f"offered {ip}" for ip in flow.dhcp_offered_ips[:5]],
+                ]
+            ),
+            "\n".join(flow.dhcp_server_ids[:10]),
+            "\n".join(flow.dhcp_lease_times[:10]),
+            "dhcp exchange lacks ack in observed packets"
+            if flow.dhcp_message_types and not _has_counter_key(flow.dhcp_message_types, "ACK")
+            else "",
         )
     console.print(table)
 
@@ -471,6 +542,18 @@ def _protocol_marker(flow) -> str:
             f"statuses={sum(flow.smb_statuses.values())} "
             f"files={len(flow.smb_filenames)}"
         )
+    if flow.dns_queries or flow.dns_response_codes:
+        details.append(
+            f"DNS queries={sum(flow.dns_queries.values())} "
+            f"rcodes={sum(flow.dns_response_codes.values())} "
+            f"errors={flow.dns_error_count}"
+        )
+    if flow.dhcp_message_types:
+        details.append(
+            f"DHCP messages={sum(flow.dhcp_message_types.values())} "
+            f"clients={len(flow.dhcp_client_macs)} "
+            f"offers={len(flow.dhcp_offered_ips)}"
+        )
     if flow.esp_sequences:
         details.append(_format_esp_sequences(flow.esp_sequences))
     return "\n".join(details)
@@ -506,6 +589,10 @@ def _format_counter_lines(counts: dict[str, int]) -> str:
     if not counts:
         return ""
     return "\n".join(f"{key}: {value}" for key, value in list(counts.items())[:10])
+
+
+def _has_counter_key(counts: dict[str, int], wanted: str) -> bool:
+    return any(wanted.upper() in key.upper() for key in counts)
 
 
 def _format_sip_trace(trace: list[dict[str, str | None]]) -> str:

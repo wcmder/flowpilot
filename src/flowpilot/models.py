@@ -100,7 +100,17 @@ class PacketObservation(BaseModel):
     esp_spi: str | None = None
     esp_sequence: int | None = None
     dns_query: str | None = None
+    dns_query_type: str | None = None
+    dns_response_code: str | None = None
     dns_answers: list[str] = Field(default_factory=list)
+    dhcp_message_type: str | None = None
+    dhcp_transaction_id: str | None = None
+    dhcp_client_mac: str | None = None
+    dhcp_hostname: str | None = None
+    dhcp_requested_ip: str | None = None
+    dhcp_your_ip: str | None = None
+    dhcp_server_id: str | None = None
+    dhcp_lease_time: str | None = None
     http_host: str | None = None
     http_location: str | None = None
     tls_sni: str | None = None
@@ -129,6 +139,13 @@ class FlowKey(BaseModel, frozen=True):
 
     @classmethod
     def from_packet(cls, packet: PacketObservation) -> FlowKey:
+        if packet.dhcp_message_type or {packet.src_port, packet.dst_port} == {67, 68}:
+            return cls(
+                endpoint_a=min(packet.src_ip, packet.dst_ip),
+                endpoint_b=max(packet.src_ip, packet.dst_ip),
+                protocol=packet.protocol,
+            )
+
         left = (packet.src_ip, packet.src_port)
         right = (packet.dst_ip, packet.dst_port)
         if _endpoint_sort_key(left) <= _endpoint_sort_key(right):
@@ -178,6 +195,19 @@ class FlowSummary(BaseModel):
     smb_read_bytes: int = 0
     smb_write_bytes: int = 0
     smb_error_count: int = 0
+    dns_queries: dict[str, int] = Field(default_factory=dict)
+    dns_query_types: dict[str, int] = Field(default_factory=dict)
+    dns_response_codes: dict[str, int] = Field(default_factory=dict)
+    dns_answers: list[str] = Field(default_factory=list)
+    dns_error_count: int = 0
+    dhcp_message_types: dict[str, int] = Field(default_factory=dict)
+    dhcp_transaction_ids: list[str] = Field(default_factory=list)
+    dhcp_client_macs: list[str] = Field(default_factory=list)
+    dhcp_hostnames: list[str] = Field(default_factory=list)
+    dhcp_requested_ips: list[str] = Field(default_factory=list)
+    dhcp_offered_ips: list[str] = Field(default_factory=list)
+    dhcp_server_ids: list[str] = Field(default_factory=list)
+    dhcp_lease_times: list[str] = Field(default_factory=list)
     names: list[str] = Field(default_factory=list)
 
     @property
@@ -238,6 +268,10 @@ class FlowSummary(BaseModel):
             hints.append("tcp reset observed")
         if any(sequence.has_anomalies for sequence in self.esp_sequences):
             hints.append("esp sequence anomaly observed")
+        if self.dns_error_count:
+            hints.append("dns error responses observed")
+        if self.dhcp_message_types and not _has_any_key(self.dhcp_message_types, {"ACK"}):
+            hints.append("dhcp exchange lacks ack in observed packets")
         if self.key.protocol in {"ESP", "UDP"} and self.duration_seconds >= 60:
             hints.append("encrypted or datagram flow limits direct loss/latency proof")
         hints.extend(self.smb_diagnostic_hints)
@@ -349,6 +383,23 @@ class CaptureSummary(BaseModel):
                         "error_count": flow.smb_error_count,
                         "diagnostic_hints": flow.smb_diagnostic_hints,
                     },
+                    "dns": {
+                        "queries": flow.dns_queries,
+                        "query_types": flow.dns_query_types,
+                        "response_codes": flow.dns_response_codes,
+                        "answers": flow.dns_answers[:20],
+                        "error_count": flow.dns_error_count,
+                    },
+                    "dhcp": {
+                        "message_types": flow.dhcp_message_types,
+                        "transaction_ids": flow.dhcp_transaction_ids[:10],
+                        "client_macs": flow.dhcp_client_macs[:10],
+                        "hostnames": flow.dhcp_hostnames[:10],
+                        "requested_ips": flow.dhcp_requested_ips[:10],
+                        "offered_ips": flow.dhcp_offered_ips[:10],
+                        "server_ids": flow.dhcp_server_ids[:10],
+                        "lease_times": flow.dhcp_lease_times[:10],
+                    },
                     "names": flow.names[:10],
                 }
                 for flow in flows
@@ -383,3 +434,7 @@ def _endpoint_sort_key(endpoint: tuple[str, int | None]) -> tuple[str, int]:
 
 def _round_optional(value: float | None, digits: int) -> float | None:
     return round(value, digits) if value is not None else None
+
+
+def _has_any_key(values: dict[str, int], wanted: set[str]) -> bool:
+    return any(any(item in key.upper() for item in wanted) for key in values)

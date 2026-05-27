@@ -25,7 +25,7 @@ Focus on symptoms such as low throughput over long duration, one-way traffic, la
 TCP retransmissions, duplicate ACKs, out-of-order delivery, resets, zero windows,
 UDP/ESP visibility limits, protocol or port blocking, MTU/path issues, congestion,
 shaping/policing, asymmetric routing, SIP call failures, SMB transfer inefficiency,
-and application handoff after redirects.
+DNS resolution failures, DHCP lease negotiation problems, and application handoff after redirects.
 
 For ESP/IPsec and other encrypted/datagram flows, explicitly state what cannot be proven from
 the metadata, but still reason from duration, bytes, throughput_mbps, directionality, packet
@@ -41,7 +41,10 @@ restatements of packet counts unless they support a hypothesis. Return concise J
 requested schema. For SIP, use the per-call trace to identify failed calls, caller/callee,
 failure response code, direction, likely cause category, and next checks. For SMB, assess whether
 file transfer behavior looks optimal or suboptimal using transfer_mbps, read/write operation counts,
-read/write bytes, SMB statuses/errors, file names, TCP issues, packet gaps, and duration."""
+read/write bytes, SMB statuses/errors, file names, TCP issues, packet gaps, and duration. For DNS,
+look for NXDOMAIN/SERVFAIL/refused or missing answers. For DHCP, look for incomplete
+discover/offer/request/ack exchanges, repeated requests, missing ACKs, server identifiers,
+lease details, and requested versus offered addresses."""
 
 
 def openai_client() -> OpenAI:
