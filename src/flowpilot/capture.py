@@ -207,7 +207,25 @@ def _layer_attr(packet: Any, layer_name: str, attr_name: str) -> str | None:
     if layer is None:
         return None
     value = getattr(layer, attr_name, None)
-    return str(value) if value else None
+    if value not in (None, ""):
+        return str(value)
+    value = _layer_field_value(layer, attr_name, layer_name=layer_name)
+    return str(value) if value not in (None, "") else None
+
+
+def _layer_field_value(layer: Any, attr_name: str, *, layer_name: str | None = None) -> Any:
+    fields = getattr(layer, "_all_fields", {})
+    candidates = [attr_name, attr_name.replace("_", ".")]
+    if layer_name:
+        candidates.extend(f"{layer_name}.{candidate}" for candidate in list(candidates))
+    for candidate in candidates:
+        value = fields.get(candidate)
+        if value not in (None, ""):
+            return value
+    for key, value in fields.items():
+        if key.lower().endswith(f".{attr_name.lower()}") and value not in (None, ""):
+            return value
+    return None
 
 
 def _dns_answers(packet: Any) -> list[str]:

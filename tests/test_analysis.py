@@ -752,6 +752,26 @@ def test_packet_to_observation_maps_smb2_ioctl_command() -> None:
     assert observation.smb_command == "SMB2ioctl"
 
 
+def test_packet_to_observation_reads_smb2_command_from_all_fields() -> None:
+    packet = SimpleNamespace(
+        ip=SimpleNamespace(src="10.0.0.10", dst="10.0.0.30"),
+        tcp=SimpleNamespace(srcport="55000", dstport="445"),
+        smb2=SimpleNamespace(_all_fields={"smb2.cmd": "9", "smb2.msg_id": "44"}),
+        layers=[
+            SimpleNamespace(layer_name="ip"),
+            SimpleNamespace(layer_name="tcp"),
+            SimpleNamespace(layer_name="smb2"),
+        ],
+        length="256",
+    )
+
+    observation = packet_to_observation(packet)
+
+    assert observation is not None
+    assert observation.smb_command == "SMB2write"
+    assert observation.smb_message_id == "44"
+
+
 def test_summarize_capture_tracks_dns_metadata() -> None:
     packets = [
         PacketObservation(
