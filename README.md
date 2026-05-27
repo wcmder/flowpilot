@@ -134,6 +134,15 @@ When LLM reasoning is enabled, FlowPilot prints `[info]` progress lines, renders
 the local summary first, and then sends derived metadata to the model. Raw packet
 payloads are not sent.
 
+Start an interactive follow-up chat after the first LLM report:
+
+```bash
+flowpilot analyze capture.pcap --chat
+```
+
+The chat reuses the same derived metadata and initial LLM report. Type `exit`,
+`quit`, or `q` to leave the prompt. `--chat` cannot be used with `--no-llm`.
+
 List models from the configured OpenAI or OpenAI-compatible endpoint:
 
 ```bash
@@ -161,6 +170,7 @@ Core options:
 | --- | --- |
 | `CAPTURE_PATH` | Path to a `.pcap` or `.pcapng` file. |
 | `--no-llm` | Only run local PyShark/TShark flow analysis. No metadata is sent to the LLM endpoint. |
+| `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--json PATH` | Write the summary and optional LLM report to a JSON file. |
 | `--packet-limit INTEGER` | Stop reading after this many packets. Useful for quick checks on very large captures. |

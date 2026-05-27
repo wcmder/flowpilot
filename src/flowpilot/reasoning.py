@@ -93,6 +93,60 @@ def reason_about_capture(
     return _reason_with_responses(client, summary, model=model, max_flows=max_flows)
 
 
+def chat_about_capture(
+    summary: CaptureSummary,
+    question: str,
+    *,
+    model: str = DEFAULT_MODEL,
+    max_flows: int = 25,
+    report: ReasoningReport | None = None,
+    history: list[dict[str, str]] | None = None,
+) -> str:
+    client = openai_client()
+    if LLM_API in {"chat", "chat_completions", "chat-completions"}:
+        return _chat_with_chat_completions(
+            client,
+            summary,
+            question,
+            model=model,
+            max_flows=max_flows,
+            report=report,
+            history=history,
+        )
+    if LLM_API == "auto":
+        try:
+            return _chat_with_responses(
+                client,
+                summary,
+                question,
+                model=model,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+            )
+        except APIStatusError as exc:
+            if exc.status_code != 404:
+                raise
+            return _chat_with_chat_completions(
+                client,
+                summary,
+                question,
+                model=model,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+            )
+    return _chat_with_responses(
+        client,
+        summary,
+        question,
+        model=model,
+        max_flows=max_flows,
+        report=report,
+        history=history,
+    )
+
+
 def _reason_with_responses(
     client: OpenAI,
     summary: CaptureSummary,
@@ -156,6 +210,95 @@ def _reason_with_chat_completions(
     if not content:
         raise RuntimeError("Chat completions response did not include message content.")
     return ReasoningReport.model_validate(_json_object(content))
+
+
+def _chat_with_responses(
+    client: OpenAI,
+    summary: CaptureSummary,
+    question: str,
+    *,
+    model: str,
+    max_flows: int,
+    report: ReasoningReport | None,
+    history: list[dict[str, str]] | None,
+) -> str:
+    _respect_llm_rate_limit()
+    response = client.responses.create(
+        model=model,
+        instructions=_chat_system_prompt(),
+        input=_chat_input(summary, question, max_flows=max_flows, report=report, history=history),
+    )
+    answer = getattr(response, "output_text", None)
+    if answer:
+        return str(answer)
+    return str(response)
+
+
+def _chat_with_chat_completions(
+    client: OpenAI,
+    summary: CaptureSummary,
+    question: str,
+    *,
+    model: str,
+    max_flows: int,
+    report: ReasoningReport | None,
+    history: list[dict[str, str]] | None,
+) -> str:
+    _respect_llm_rate_limit()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": _chat_system_prompt()},
+            *_chat_input(
+                summary,
+                question,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+            ),
+        ],
+    )
+    content = response.choices[0].message.content
+    if not content:
+        raise RuntimeError("Chat completions response did not include message content.")
+    return content
+
+
+def _chat_input(
+    summary: CaptureSummary,
+    question: str,
+    *,
+    max_flows: int,
+    report: ReasoningReport | None,
+    history: list[dict[str, str]] | None,
+) -> list[dict[str, str]]:
+    context = {
+        "summary": summary.compact(max_flows=max_flows),
+        "initial_reasoning": report.model_dump(mode="json") if report else None,
+    }
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                "Use this derived FlowPilot metadata as the fixed analysis context. "
+                "Do not assume access to raw packet payloads beyond this metadata.\n\n"
+                f"{json.dumps(context, indent=2, default=str)}"
+            ),
+        }
+    ]
+    messages.extend((history or [])[-12:])
+    messages.append({"role": "user", "content": question})
+    return messages
+
+
+def _chat_system_prompt() -> str:
+    return (
+        f"{SYSTEM_PROMPT}\n\n"
+        "You are now in interactive follow-up mode. Answer the user's question directly. "
+        "Use the provided metadata and prior reasoning as the source of truth. If the answer "
+        "cannot be proven from the metadata, say what is unknown and suggest the next check. "
+        "Do not return JSON unless the user explicitly asks for JSON."
+    )
 
 
 def _json_object(content: str) -> dict[str, Any]:

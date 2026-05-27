@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Prompt
 from rich.table import Table
 
 from .analysis import summarize_capture
@@ -18,7 +19,7 @@ from .filters import (
     filter_sip_calls_by_phone,
     include_redirect_related_flows,
 )
-from .reasoning import DEFAULT_MODEL, list_openai_models, reason_about_capture
+from .reasoning import DEFAULT_MODEL, chat_about_capture, list_openai_models, reason_about_capture
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
@@ -86,11 +87,20 @@ def analyze(
     max_flows: Annotated[int, typer.Option(help="Maximum top flows sent to the model.")] = 25,
     show_flows: Annotated[int, typer.Option(help="Maximum flows shown in the terminal.")] = 10,
     no_llm: Annotated[bool, typer.Option(help="Only print the local flow summary.")] = False,
+    chat: Annotated[
+        bool,
+        typer.Option(help="After LLM reasoning, open an interactive follow-up chat."),
+    ] = False,
     json_path: Annotated[
         Path | None, typer.Option("--json", help="Write a JSON report to this path.")
     ] = None,
 ) -> None:
     """Analyze a packet capture."""
+    if chat and no_llm:
+        raise typer.BadParameter(
+            "--chat requires LLM reasoning, so it cannot be used with --no-llm."
+        )
+
     observations = read_capture(
         capture_path,
         packet_limit=packet_limit,
@@ -144,6 +154,9 @@ def analyze(
             payload["reasoning"] = report.model_dump(mode="json")
         json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         console.print(f"[green]Wrote JSON report:[/green] {json_path}")
+
+    if chat and report:
+        _run_chat(summary, report=report, model=model, max_flows=max_flows)
 
 
 @app.command("models")
@@ -359,6 +372,42 @@ def _render_reasoning(report) -> None:
                 ),
                 title=finding.title,
             )
+        )
+
+
+def _run_chat(summary, *, report, model: str, max_flows: int) -> None:
+    _info("Interactive chat started. Ask follow-up questions, or type `exit` to quit.")
+    history: list[dict[str, str]] = []
+    while True:
+        try:
+            question = Prompt.ask("[bold cyan]flowpilot[/bold cyan]")
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            _info("Interactive chat ended.")
+            return
+
+        question = question.strip()
+        if not question:
+            continue
+        if question.lower() in {"exit", "quit", "q"}:
+            _info("Interactive chat ended.")
+            return
+
+        _info("Sending follow-up question to LLM.")
+        answer = chat_about_capture(
+            summary,
+            question,
+            model=model,
+            max_flows=max_flows,
+            report=report,
+            history=history,
+        )
+        console.print(Panel(answer, title="FlowPilot Chat"))
+        history.extend(
+            [
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": answer},
+            ]
         )
 
 
