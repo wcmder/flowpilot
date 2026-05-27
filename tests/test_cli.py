@@ -7,6 +7,7 @@ from flowpilot.cli import (
     _format_smb_counter_lines,
     _local_analysis_start_message,
     _packet_read_complete_message,
+    _parse_capinfos_packet_count,
 )
 
 
@@ -37,10 +38,34 @@ def test_local_analysis_start_message_handles_unknown_packet_count() -> None:
 
 
 def test_packet_read_complete_message_separates_raw_and_analyzable_counts() -> None:
-    assert _packet_read_complete_message(1_000, 170) == (
-        "Packet reading complete: 1000 raw packets read, "
-        "170 analyzable packets extracted, 830 packets skipped."
+    assert _packet_read_complete_message(
+        pyshark_packets=1_000,
+        analyzable_packets=170,
+        total_packets=2_000,
+    ) == (
+        "Packet reading complete: 2000 packets reported by capinfos, "
+        "1000 packets yielded by PyShark, 170 analyzable packets extracted, "
+        "830 yielded packets skipped."
     )
+
+
+def test_packet_read_complete_message_handles_unknown_total() -> None:
+    assert _packet_read_complete_message(
+        pyshark_packets=1_000,
+        analyzable_packets=170,
+        total_packets=None,
+    ) == (
+        "Packet reading complete: pcap packet total unavailable because capinfos was not "
+        "found or could not read it, 1000 packets yielded by PyShark, "
+        "170 analyzable packets extracted, 830 yielded packets skipped."
+    )
+
+
+def test_parse_capinfos_packet_count_reads_named_count_only() -> None:
+    output = "File name: capture-130mb.pcap\nPacket count: 1,234\n"
+
+    assert _parse_capinfos_packet_count(output) == 1234
+    assert _parse_capinfos_packet_count("File name: capture-130mb.pcap\n") is None
 
 
 def test_format_smb_counter_lines_labels_numeric_commands() -> None:

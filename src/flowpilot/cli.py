@@ -116,7 +116,13 @@ def analyze(
         progress_callback=progress,
     )
     observations = _materialize_observations(observations)
-    _info(_packet_read_complete_message(progress.packet_count, len(observations)))
+    _info(
+        _packet_read_complete_message(
+            pyshark_packets=progress.packet_count,
+            analyzable_packets=len(observations),
+            total_packets=total_packets,
+        )
+    )
     flow_filter = FlowFilter(
         host=host,
         peer=peer,
@@ -267,13 +273,27 @@ def _local_analysis_start_message(capture_path: Path, total_packets: int | None)
     return f"{message}."
 
 
-def _packet_read_complete_message(raw_packets: int, analyzable_packets: int) -> str:
-    skipped = max(raw_packets - analyzable_packets, 0)
+def _packet_read_complete_message(
+    *,
+    pyshark_packets: int,
+    analyzable_packets: int,
+    total_packets: int | None,
+) -> str:
+    skipped = max(pyshark_packets - analyzable_packets, 0)
+    if total_packets is not None:
+        return (
+            "Packet reading complete: "
+            f"{total_packets} packets reported by capinfos, "
+            f"{pyshark_packets} packets yielded by PyShark, "
+            f"{analyzable_packets} analyzable packets extracted, "
+            f"{skipped} yielded packets skipped."
+        )
     return (
         "Packet reading complete: "
-        f"{raw_packets} raw packets read, "
+        "pcap packet total unavailable because capinfos was not found or could not read it, "
+        f"{pyshark_packets} packets yielded by PyShark, "
         f"{analyzable_packets} analyzable packets extracted, "
-        f"{skipped} packets skipped."
+        f"{skipped} yielded packets skipped."
     )
 
 
@@ -311,7 +331,7 @@ def _progress_reporter(total_packets: int | None) -> _ProgressReporter:
 
 
 def _capture_packet_count(capture_path: Path) -> int | None:
-    capinfos = shutil.which("capinfos")
+    capinfos = _capinfos_path()
     if not capinfos:
         return None
     try:
@@ -326,12 +346,25 @@ def _capture_packet_count(capture_path: Path) -> int | None:
         return None
     if result.returncode != 0:
         return None
-    match = re.search(r"Number of packets:\s*([0-9,]+)", result.stdout)
-    if not match:
-        match = re.search(r"\b([0-9][0-9,]*)\b", result.stdout)
-    if not match:
-        return None
-    return int(match.group(1).replace(",", ""))
+    return _parse_capinfos_packet_count(result.stdout)
+
+
+def _capinfos_path() -> str | None:
+    path = shutil.which("capinfos")
+    if path:
+        return path
+    macos_app_path = Path("/Applications/Wireshark.app/Contents/MacOS/capinfos")
+    if macos_app_path.exists():
+        return str(macos_app_path)
+    return None
+
+
+def _parse_capinfos_packet_count(output: str) -> int | None:
+    for line in output.splitlines():
+        match = re.match(r"\s*(?:Number of packets|Packet count)\s*:\s*([0-9,]+)\s*$", line)
+        if match:
+            return int(match.group(1).replace(",", ""))
+    return None
 
 
 def _render_sip_details(summary, *, show_flows: int) -> None:
