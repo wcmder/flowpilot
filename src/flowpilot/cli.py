@@ -101,6 +101,7 @@ def analyze(
             "--chat requires LLM reasoning, so it cannot be used with --no-llm."
         )
 
+    _info(f"Local analysis started: reading {capture_path}.")
     observations = read_capture(
         capture_path,
         packet_limit=packet_limit,
