@@ -3,6 +3,7 @@ from pathlib import Path
 
 from flowpilot.cli import (
     _count_packets_in_capture,
+    _format_flow_issues,
     _format_smb_capabilities,
     _format_smb_counter_lines,
     _format_smb_transfer,
@@ -126,8 +127,8 @@ def test_format_smb_counter_lines_labels_numeric_statuses() -> None:
         },
         SMB_STATUS_NAMES,
     ) == (
-        "STATUS_SUCCESS(0x00000000): 2\n"
-        "STATUS_ACCESS_DENIED(0xc0000022): 1\n"
+        "STATUS_SUCCESS: 2\n"
+        "STATUS_ACCESS_DENIED: 1\n"
         "NTSTATUS_UNKNOWN(0xdeadbeef): 1"
     )
 
@@ -173,13 +174,39 @@ def test_format_smb_transfer_labels_payload_and_flow_rates() -> None:
 def test_format_smb_capabilities_shows_client_and_server_offers() -> None:
     flow = FlowSummary(
         key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
-        smb_client_capabilities=["dialect=0x0311", "signing enabled"],
-        smb_server_capabilities=["multi-channel", "encryption"],
+        smb_client_capabilities=["DFS", "dialect=0x0311", "signing enabled"],
+        smb_server_capabilities=["DFS", "multi-channel", "encryption"],
     )
 
     assert _format_smb_capabilities(flow) == (
-        "client dialect=0x0311\n"
-        "client signing enabled\n"
-        "server multi-channel\n"
-        "server encryption"
+        "DFS (c,s)\n"
+        "dialect=0x0311 (c)\n"
+        "signing enabled (c)\n"
+        "multi-channel (s)\n"
+        "encryption (s)"
+    )
+
+
+def test_format_flow_issues_does_not_show_informational_names() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        names=["example.com", "10.0.0.30:443"],
+    )
+
+    assert _format_flow_issues(flow) == ""
+
+
+def test_format_flow_issues_shows_counts_and_diagnostics() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        packet_count=5,
+        issue_counts={"tcp_retransmission": 2},
+        src_to_dst_packets=5,
+        dst_to_src_packets=0,
+    )
+
+    assert _format_flow_issues(flow) == (
+        "tcp_retransmission=2\n"
+        "one-way traffic observed\n"
+        "tcp retransmission rate above 1 percent"
     )

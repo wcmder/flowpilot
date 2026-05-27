@@ -111,39 +111,45 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         smb_status=_smb_value(packet, "nt_status") or _smb_value(packet, "status"),
         smb_session_id=_smb_value(packet, "sesid") or _smb_value(packet, "session_id"),
         smb_tree_id=_smb_value(packet, "tid") or _smb_value(packet, "tree_id"),
+        smb_file_id=_smb_file_id(packet),
         smb_filename=_smb_value(packet, "file") or _smb_value(packet, "filename"),
-        smb_read_length=_smb_int_value(
+        smb_read_length=_smb_transfer_length(
             packet,
             (
                 "read_length",
                 "read_count",
                 "read_data_len",
+                "read_data_length",
                 "data_len",
+                "data_len_low",
                 "data_size",
                 "file_rw_length",
                 "count",
+                "count_low",
+                "dc",
+                "tdc",
+                "bcc",
             ),
         ),
-        smb_write_length=_smb_int_value(
+        smb_write_length=_smb_transfer_length(
             packet,
             (
                 "write_length",
                 "write_count",
                 "write_data_len",
+                "write_data_length",
                 "data_len",
+                "data_len_low",
                 "data_size",
                 "file_rw_length",
                 "count",
+                "count_low",
+                "dc",
+                "tdc",
+                "bcc",
             ),
         ),
-        smb_file_offset=_smb_int_value(
-            packet,
-            (
-                "file_offset",
-                "offset",
-                "file_rw_offset",
-            ),
-        ),
+        smb_file_offset=_smb_file_offset(packet),
         smb_capabilities=_smb_capabilities(packet),
     )
 
@@ -230,11 +236,70 @@ def _smb_value(packet: Any, attr_name: str) -> str | None:
 
 
 def _smb_int_value(packet: Any, attr_names: tuple[str, ...]) -> int | None:
+    match = _smb_int_match(packet, attr_names)
+    return match[1] if match else None
+
+
+def _smb_int_match(packet: Any, attr_names: tuple[str, ...]) -> tuple[str, int] | None:
     for attr_name in attr_names:
         value = _safe_int(_smb_value(packet, attr_name))
         if value is not None:
+            return attr_name, value
+    return None
+
+
+def _smb_file_id(packet: Any) -> str | None:
+    return _first_smb_value(
+        packet,
+        (
+            "file_id",
+            "fid",
+            "fid_hash",
+            "server_fid",
+            "create_file_id",
+            "create_file_id_64b",
+        ),
+    )
+
+
+def _first_smb_value(packet: Any, attr_names: tuple[str, ...]) -> str | None:
+    for attr_name in attr_names:
+        value = _smb_value(packet, attr_name)
+        if value:
             return value
     return None
+
+
+def _smb_transfer_length(packet: Any, attr_names: tuple[str, ...]) -> int | None:
+    match = _smb_int_match(packet, attr_names)
+    if match is None:
+        return None
+    attr_name, length = match
+    base_name = attr_name.removesuffix("_low")
+    high = _smb_int_value(packet, (f"{base_name}_high",))
+    if high:
+        return length + (high << 32)
+    return length
+
+
+def _smb_file_offset(packet: Any) -> int | None:
+    match = _smb_int_match(
+        packet,
+        (
+            "file_offset",
+            "file_rw_offset",
+            "offset",
+            "offset_low",
+        ),
+    )
+    if match is None:
+        return None
+    attr_name, offset = match
+    base_name = attr_name.removesuffix("_low")
+    high = _smb_int_value(packet, (f"{base_name}_high",))
+    if high:
+        return offset + (high << 32)
+    return offset
 
 
 def _smb_capabilities(packet: Any) -> list[str]:

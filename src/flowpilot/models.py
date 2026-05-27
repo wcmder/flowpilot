@@ -125,6 +125,7 @@ class PacketObservation(BaseModel):
     smb_status: str | None = None
     smb_session_id: str | None = None
     smb_tree_id: str | None = None
+    smb_file_id: str | None = None
     smb_filename: str | None = None
     smb_read_length: int | None = None
     smb_write_length: int | None = None
@@ -205,6 +206,7 @@ class FlowSummary(BaseModel):
     smb_read_offset_inferred_ops: int = 0
     smb_write_offset_inferred_ops: int = 0
     smb_error_count: int = 0
+    smb_file_id_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     smb_last_read_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
     smb_last_write_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
     dns_queries: dict[str, int] = Field(default_factory=dict)

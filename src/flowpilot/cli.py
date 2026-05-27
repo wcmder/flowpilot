@@ -218,8 +218,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
         Panel.fit(
             f"Packets: {summary.packet_count}\n"
             f"Bytes: {summary.total_bytes}\n"
-            f"Flows: {summary.flow_count}\n"
-            f"Issues: {_format_issue_counts(summary.issue_counts)}",
+            f"Flows: {summary.flow_count}",
             title="FlowPilot Summary",
         )
     )
@@ -254,7 +253,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
                 ]
             ),
             _protocol_marker(flow),
-            _format_issue_counts(flow.issue_counts) or ", ".join(flow.names[:3]),
+            _format_flow_issues(flow),
         )
     console.print(table)
     _render_dns_details(summary, show_flows=show_flows)
@@ -721,6 +720,15 @@ def _format_issue_counts(issue_counts: dict[str, int]) -> str:
     return ", ".join(f"{name}={count}" for name, count in issue_counts.items())
 
 
+def _format_flow_issues(flow) -> str:
+    issue_lines = []
+    issue_counts = _format_issue_counts(flow.issue_counts)
+    if issue_counts:
+        issue_lines.append(issue_counts)
+    issue_lines.extend(flow.diagnostic_hints)
+    return "\n".join(dict.fromkeys(issue_lines))
+
+
 def _protocol_marker(flow) -> str:
     details = []
     if flow.sip_call_ids or flow.sip_methods or flow.sip_statuses:
@@ -793,9 +801,14 @@ def _format_smb_transfer(flow) -> str:
 
 
 def _format_smb_capabilities(flow) -> str:
+    capability_sources: dict[str, set[str]] = {}
+    for capability in flow.smb_client_capabilities:
+        capability_sources.setdefault(capability, set()).add("c")
+    for capability in flow.smb_server_capabilities:
+        capability_sources.setdefault(capability, set()).add("s")
     lines = [
-        *[f"client {capability}" for capability in flow.smb_client_capabilities[:10]],
-        *[f"server {capability}" for capability in flow.smb_server_capabilities[:10]],
+        f"{capability} ({','.join(source for source in ('c', 's') if source in sources)})"
+        for capability, sources in list(capability_sources.items())[:20]
     ]
     return "\n".join(lines)
 

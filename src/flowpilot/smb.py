@@ -113,6 +113,7 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
     _append_unique(flow, "smb_session_ids", packet.smb_session_id)
     _append_unique(flow, "smb_tree_ids", packet.smb_tree_id)
     _append_unique(flow, "smb_filenames", packet.smb_filename)
+    _record_smb_file_id_name(flow, packet)
     _record_smb_capabilities(flow, packet)
 
     command_label = smb_command_label(packet.smb_command).lower() if packet.smb_command else ""
@@ -162,8 +163,9 @@ def _record_smb_transfer(
     inferred_ops_field: str,
 ) -> None:
     setattr(flow, ops_field, getattr(flow, ops_field) + 1)
-    _append_unique(flow, filename_field, packet.smb_filename)
-    inferred_length = _infer_transfer_length_from_offset(flow, packet, last_offsets_field)
+    filename = _resolved_smb_filename(flow, packet)
+    _append_unique(flow, filename_field, filename)
+    inferred_length = _infer_transfer_length_from_offset(flow, packet, last_offsets_field, filename)
     if length is not None:
         setattr(flow, bytes_field, getattr(flow, bytes_field) + length)
     elif inferred_length is not None:
@@ -177,16 +179,30 @@ def _infer_transfer_length_from_offset(
     flow: FlowSummary,
     packet: PacketObservation,
     last_offsets_field: str,
+    filename: str | None,
 ) -> int | None:
     if packet.smb_file_offset is None:
         return None
-    file_key = packet.smb_filename or "<unknown>"
+    file_key = filename or packet.smb_file_id or "<unknown>"
     last_offsets = getattr(flow, last_offsets_field)
     previous_offset = last_offsets.get(file_key)
     last_offsets[file_key] = packet.smb_file_offset
     if previous_offset is None or packet.smb_file_offset <= previous_offset:
         return None
     return packet.smb_file_offset - previous_offset
+
+
+def _record_smb_file_id_name(flow: FlowSummary, packet: PacketObservation) -> None:
+    if packet.smb_file_id and packet.smb_filename:
+        flow.smb_file_id_names[packet.smb_file_id] = packet.smb_filename
+
+
+def _resolved_smb_filename(flow: FlowSummary, packet: PacketObservation) -> str | None:
+    if packet.smb_filename:
+        return packet.smb_filename
+    if packet.smb_file_id:
+        return flow.smb_file_id_names.get(packet.smb_file_id)
+    return None
 
 
 def _record_smb_capabilities(flow: FlowSummary, packet: PacketObservation) -> None:
@@ -215,6 +231,8 @@ def _append_unique(
 def smb_display_value(value: str, names: dict[str, str]) -> str:
     label = _lookup_smb_name(value, names)
     if label:
+        if names is SMB_STATUS_NAMES:
+            return label
         return f"{label}({value})"
     if names is SMB_STATUS_NAMES and _is_hex_value(value):
         return f"NTSTATUS_UNKNOWN({value})"

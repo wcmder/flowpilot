@@ -610,6 +610,53 @@ def test_summarize_capture_infers_smb_write_bytes_from_offsets() -> None:
     assert flow.smb_write_unknown_bytes_ops == 1
 
 
+def test_summarize_capture_maps_smb_transfer_filename_from_file_id() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="Create",
+            smb_status="0",
+            smb_file_id="0xabc",
+            smb_filename="\\\\share\\upload.bin",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="11",
+            smb_status="0",
+            smb_file_id="0xabc",
+            smb_file_offset=0,
+        ),
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="11",
+            smb_status="0",
+            smb_file_id="0xabc",
+            smb_file_offset=4096,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_write_filenames == ["\\\\share\\upload.bin"]
+    assert flow.smb_write_ops == 2
+    assert flow.smb_write_bytes == 4096
+    assert flow.smb_write_offset_inferred_ops == 1
+    assert flow.smb_write_unknown_bytes_ops == 1
+
+
 def test_summarize_capture_tracks_dns_metadata() -> None:
     packets = [
         PacketObservation(
