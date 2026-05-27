@@ -83,6 +83,75 @@ For providers with request-per-minute limits, set a client-side throttle:
 export FLOWPILOT_LLM_REQUESTS_PER_MINUTE="120"
 ```
 
+## Air-gapped setup with a wheelhouse
+
+For an air-gapped or restricted network, build a local Python wheelhouse on a
+machine that has internet access, then move the wheelhouse and FlowPilot source
+to the offline machine. Build the wheelhouse on the same OS, CPU architecture,
+and Python version as the target machine when possible.
+
+On the internet-connected build machine:
+
+```bash
+git clone <your-flowpilot-repo-url>
+cd FlowPilot
+python3 -m venv build-flowpilot
+source build-flowpilot/bin/activate
+python -m pip install --upgrade pip wheel
+python -m pip wheel -w wheelhouse ".[dev]"
+tar -czf flowpilot-wheelhouse.tgz wheelhouse
+```
+
+Move these items into the air-gapped network:
+
+- The FlowPilot repository/source directory.
+- `flowpilot-wheelhouse.tgz`.
+- A TShark/Wireshark installer approved for that network.
+
+On the air-gapped machine:
+
+```bash
+cd FlowPilot
+tar -xzf /path/to/flowpilot-wheelhouse.tgz
+python3 -m venv env-flowpilot
+source env-flowpilot/bin/activate
+python -m pip install --no-index --find-links wheelhouse -e ".[dev]"
+flowpilot --help
+```
+
+If you prefer a non-editable install, install the built package wheel instead:
+
+```bash
+python -m pip install --no-index --find-links wheelhouse "flowpilot[dev]"
+```
+
+TShark is still a system dependency and is not installed by the Python
+wheelhouse. After installing Wireshark/TShark, verify it is available:
+
+```bash
+tshark --version
+```
+
+For an internal OpenAI-compatible LLM gateway, create a local `.env` file on the
+air-gapped machine:
+
+```bash
+cp .env.example .env
+```
+
+Then set values such as:
+
+```bash
+OPENAI_API_KEY="your_internal_key"
+FLOWPILOT_OPENAI_BASE_URL="https://your-internal-llm-gateway.example/v1"
+FLOWPILOT_LLM_API="chat_completions"
+FLOWPILOT_MODEL="your-internal-model-name"
+FLOWPILOT_LLM_REQUESTS_PER_MINUTE="120"
+```
+
+Use `flowpilot models` to confirm the API key, base URL, and model endpoint work
+inside the restricted network.
+
 ## Usage
 
 Summarize a capture without calling the LLM:
