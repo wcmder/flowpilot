@@ -882,6 +882,57 @@ def test_packet_to_observation_reads_smb2_dotted_encryption_capability() -> None
     assert "encryption" in observation.smb_capabilities
 
 
+def test_packet_to_observation_expands_smb2_capability_mask() -> None:
+    packet = SimpleNamespace(
+        ip=SimpleNamespace(src="10.0.0.10", dst="10.0.0.30"),
+        tcp=SimpleNamespace(srcport="445", dstport="55000"),
+        smb2=SimpleNamespace(_all_fields={"smb2.capabilities": "0x0017"}),
+        layers=[
+            SimpleNamespace(layer_name="ip"),
+            SimpleNamespace(layer_name="tcp"),
+            SimpleNamespace(layer_name="smb2"),
+        ],
+        length="512",
+    )
+
+    observation = packet_to_observation(packet)
+
+    assert observation is not None
+    assert observation.smb_capabilities == [
+        "DFS",
+        "leasing",
+        "large MTU",
+        "persistent handles",
+    ]
+
+
+def test_packet_to_observation_expands_full_smb3_capability_mask() -> None:
+    packet = SimpleNamespace(
+        ip=SimpleNamespace(src="10.0.0.10", dst="10.0.0.30"),
+        tcp=SimpleNamespace(srcport="445", dstport="55000"),
+        smb2=SimpleNamespace(_all_fields={"smb2.capabilities": "0x007f"}),
+        layers=[
+            SimpleNamespace(layer_name="ip"),
+            SimpleNamespace(layer_name="tcp"),
+            SimpleNamespace(layer_name="smb2"),
+        ],
+        length="512",
+    )
+
+    observation = packet_to_observation(packet)
+
+    assert observation is not None
+    assert observation.smb_capabilities == [
+        "DFS",
+        "leasing",
+        "large MTU",
+        "multi-channel",
+        "persistent handles",
+        "directory leasing",
+        "encryption",
+    ]
+
+
 def test_summarize_capture_reports_smb_encryption_capability_on_both_sides() -> None:
     packets = [
         PacketObservation(

@@ -419,16 +419,42 @@ def _smb_capabilities(packet: Any) -> list[str]:
         for attr_name, label in fields:
             if _truthy_layer_attr(layer, attr_name):
                 capabilities.append(label)
+        if layer_name == "smb2":
+            capabilities.extend(_smb2_capability_mask_labels(layer))
         if layer_name == "smb2" and _smb2_encryption_capabilities(layer):
             capabilities.append("encryption")
     for label, value in (
         ("dialect", _smb_value(packet, "dialect") or _smb_value(packet, "dialect_name")),
         ("security_mode", _smb_value(packet, "sec_mode") or _smb_value(packet, "sm")),
-        ("capabilities", _smb_value(packet, "capabilities") or _smb_value(packet, "server_cap")),
     ):
         if value:
             capabilities.append(f"{label}={value}")
     return list(dict.fromkeys(capabilities))
+
+
+def _smb2_capability_mask_labels(layer: Any) -> list[str]:
+    capability_values = [
+        *_layer_attr_values_from_layer(layer, "capabilities"),
+        *_layer_attr_values_from_layer(layer, "server_cap"),
+    ]
+    labels = []
+    for capability_value in capability_values:
+        capability_mask = _safe_int(capability_value)
+        if capability_mask is None:
+            continue
+        labels.extend(
+            label
+            for bit, label in _SMB2_CAPABILITY_MASKS.items()
+            if capability_mask & bit
+        )
+    return labels
+
+
+def _layer_attr_values_from_layer(layer: Any, attr_name: str) -> list[str]:
+    value = getattr(layer, attr_name, None)
+    if value not in (None, ""):
+        return _string_values(value)
+    return _layer_field_values(layer, attr_name)
 
 
 def _smb2_encryption_capabilities(layer: Any) -> bool:
@@ -478,6 +504,17 @@ _SMB_CAPABILITY_FIELDS = {
         ("unix_capability_encryption", "unix encryption"),
         ("unix_capability_mandatory_crypto", "unix mandatory encryption"),
     ),
+}
+
+_SMB2_CAPABILITY_MASKS = {
+    0x0001: "DFS",
+    0x0002: "leasing",
+    0x0004: "large MTU",
+    0x0008: "multi-channel",
+    0x0010: "persistent handles",
+    0x0020: "directory leasing",
+    0x0040: "encryption",
+    0x0080: "notifications",
 }
 
 
