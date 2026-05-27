@@ -115,6 +115,8 @@ def analyze(
         tls_keylog_file=tls_keylog_file,
         progress_callback=progress,
     )
+    observations = _materialize_observations(observations)
+    _info(_packet_read_complete_message(progress.packet_count, len(observations)))
     flow_filter = FlowFilter(
         host=host,
         peer=peer,
@@ -126,19 +128,24 @@ def analyze(
         dst_port=dst_port,
     )
     if flow_filter.is_active and include_redirects:
-        all_observations = list(observations)
-        seed_observations = list(filter_observations(all_observations, flow_filter))
-        observations = include_redirect_related_flows(all_observations, seed_observations)
+        _info("Applying flow filters and redirect expansion.")
+        seed_observations = list(filter_observations(observations, flow_filter))
+        observations = include_redirect_related_flows(observations, seed_observations)
     elif flow_filter.is_active:
-        observations = filter_observations(observations, flow_filter)
+        _info("Applying flow filters.")
+        observations = list(filter_observations(observations, flow_filter))
     if sip_phone:
+        _info("Applying SIP phone filter.")
         observations = filter_sip_calls_by_phone(observations, sip_phone)
 
+    _info(f"Summarizing local metadata from {len(observations)} analyzable packets.")
     summary = summarize_capture(observations)
     _info(
         "Local analysis finished: "
-        f"{summary.packet_count} packets, {summary.flow_count} flows, {summary.total_bytes} bytes."
+        f"{summary.packet_count} analyzable packets, "
+        f"{summary.flow_count} flows, {summary.total_bytes} bytes."
     )
+    _info("Rendering local analysis tables.")
     _render_summary(summary, show_flows=show_flows)
     if no_llm:
         _info("LLM reasoning skipped because --no-llm was set.")
@@ -249,6 +256,10 @@ def _info(message: str) -> None:
     console.print(f"[cyan][info][/cyan] {message}")
 
 
+def _materialize_observations(observations) -> list:
+    return list(observations)
+
+
 def _local_analysis_start_message(capture_path: Path, total_packets: int | None) -> str:
     message = f"Local analysis started: reading {capture_path}"
     if total_packets is not None:
@@ -256,26 +267,47 @@ def _local_analysis_start_message(capture_path: Path, total_packets: int | None)
     return f"{message}."
 
 
-def _progress_reporter(total_packets: int | None):
-    last_report_at = 0.0
-    last_percent = -1
+def _packet_read_complete_message(raw_packets: int, analyzable_packets: int) -> str:
+    skipped = max(raw_packets - analyzable_packets, 0)
+    return (
+        "Packet reading complete: "
+        f"{raw_packets} raw packets read, "
+        f"{analyzable_packets} analyzable packets extracted, "
+        f"{skipped} packets skipped."
+    )
 
-    def report(packet_count: int) -> None:
-        nonlocal last_report_at, last_percent
+
+class _ProgressReporter:
+    def __init__(self, total_packets: int | None) -> None:
+        self.total_packets = total_packets
+        self.packet_count = 0
+        self._last_report_at = 0.0
+        self._last_percent = -1
+
+    def __call__(self, packet_count: int) -> None:
+        self.packet_count = packet_count
         now = time.monotonic()
-        if total_packets:
-            percent = min(int((packet_count / total_packets) * 100), 100)
-            if percent == last_percent or (percent < 100 and now - last_report_at < 5):
+        if self.total_packets:
+            percent = min(int((packet_count / self.total_packets) * 100), 100)
+            if (
+                percent == self._last_percent
+                or (percent < 100 and now - self._last_report_at < 5)
+            ):
                 return
-            last_percent = percent
-            _info(f"Local analysis progress: {percent}% ({packet_count}/{total_packets} packets).")
+            self._last_percent = percent
+            _info(
+                "Local analysis progress: "
+                f"{percent}% ({packet_count}/{self.total_packets} raw packets)."
+            )
         else:
-            if packet_count < 1_000 or now - last_report_at < 5:
+            if packet_count < 1_000 or now - self._last_report_at < 5:
                 return
-            _info(f"Local analysis progress: read {packet_count} packets.")
-        last_report_at = now
+            _info(f"Local analysis progress: read {packet_count} raw packets.")
+        self._last_report_at = now
 
-    return report
+
+def _progress_reporter(total_packets: int | None) -> _ProgressReporter:
+    return _ProgressReporter(total_packets)
 
 
 def _capture_packet_count(capture_path: Path) -> int | None:

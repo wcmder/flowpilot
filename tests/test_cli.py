@@ -6,6 +6,7 @@ from flowpilot.cli import (
     _format_esp_gap_distribution,
     _format_smb_counter_lines,
     _local_analysis_start_message,
+    _packet_read_complete_message,
 )
 
 
@@ -32,6 +33,13 @@ def test_local_analysis_start_message_includes_packet_count() -> None:
 def test_local_analysis_start_message_handles_unknown_packet_count() -> None:
     assert _local_analysis_start_message(Path("capture.pcap"), None) == (
         "Local analysis started: reading capture.pcap."
+    )
+
+
+def test_packet_read_complete_message_separates_raw_and_analyzable_counts() -> None:
+    assert _packet_read_complete_message(1_000, 170) == (
+        "Packet reading complete: 1000 raw packets read, "
+        "170 analyzable packets extracted, 830 packets skipped."
     )
 
 
