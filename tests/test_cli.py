@@ -3,12 +3,12 @@ from pathlib import Path
 
 from flowpilot.cli import (
     _count_packets_in_capture,
-    _format_esp_gap_distribution,
     _format_smb_counter_lines,
     _local_analysis_start_message,
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
 )
+from flowpilot.esp import format_esp_gap_distribution
 from flowpilot.smb import SMB_COMMAND_NAMES, SMB_STATUS_NAMES
 
 
@@ -19,11 +19,11 @@ def test_format_esp_gap_distribution_groups_missing_counts() -> None:
         {"after_sequence": 20, "next_sequence": 23, "gap": 2, "missing": 2},
     ]
 
-    assert _format_esp_gap_distribution(gaps) == "gap=1(x2) gap=2(x1)"
+    assert format_esp_gap_distribution(gaps) == "gap=1(x2) gap=2(x1)"
 
 
 def test_format_esp_gap_distribution_handles_no_gaps() -> None:
-    assert _format_esp_gap_distribution([]) == "none"
+    assert format_esp_gap_distribution([]) == "none"
 
 
 def test_local_analysis_start_message_includes_packet_count() -> None:

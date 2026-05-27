@@ -17,6 +17,8 @@ from rich.table import Table
 
 from .analysis import summarize_capture
 from .capture import read_capture
+from .dhcp import has_dhcp_ack
+from .esp import format_esp_sequences
 from .filters import (
     FlowFilter,
     filter_observations,
@@ -24,6 +26,7 @@ from .filters import (
     include_redirect_related_flows,
 )
 from .reasoning import DEFAULT_MODEL, chat_about_capture, list_openai_models, reason_about_capture
+from .sip import format_sip_trace
 from .smb import SMB_COMMAND_NAMES, SMB_STATUS_NAMES, smb_display_value
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
@@ -471,7 +474,7 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
                     _format_counter_lines(call.methods),
                     _format_counter_lines(call.statuses),
                     "\n".join(call.issues),
-                    _format_sip_trace(call.trace),
+                    format_sip_trace(call.trace),
                 )
         else:
             table.add_row(
@@ -584,7 +587,7 @@ def _render_dhcp_details(summary, *, show_flows: int) -> None:
             "\n".join(flow.dhcp_server_ids[:10]),
             "\n".join(flow.dhcp_lease_times[:10]),
             "dhcp exchange lacks ack in observed packets"
-            if flow.dhcp_message_types and not _has_counter_key(flow.dhcp_message_types, "ACK")
+            if flow.dhcp_message_types and not has_dhcp_ack(flow.dhcp_message_types)
             else "",
         )
     console.print(table)
@@ -750,34 +753,8 @@ def _protocol_marker(flow) -> str:
             f"offers={len(flow.dhcp_offered_ips)}"
         )
     if flow.esp_sequences:
-        details.append(_format_esp_sequences(flow.esp_sequences))
+        details.append(format_esp_sequences(flow.esp_sequences))
     return "\n".join(details)
-
-
-def _format_esp_sequences(sequences) -> str:
-    lines = []
-    for sequence in sequences[:6]:
-        lines.append(
-            f"{sequence.direction} "
-            f"pkts={sequence.packet_count} "
-            f"missing={sequence.missing_count} "
-            f"ooo={sequence.out_of_order_count} "
-            f"dup={sequence.duplicate_count} "
-            f"gaps={_format_esp_gap_distribution(sequence.gap_occurrences)}"
-        )
-    if len(sequences) > 6:
-        lines.append(f"... {len(sequences) - 6} more ESP directions/SPIs")
-    return "\n".join(lines)
-
-
-def _format_esp_gap_distribution(gaps: list[dict[str, int]]) -> str:
-    if not gaps:
-        return "none"
-    counts: dict[int, int] = {}
-    for gap in gaps:
-        missing = gap["missing"]
-        counts[missing] = counts.get(missing, 0) + 1
-    return " ".join(f"gap={missing}(x{count})" for missing, count in sorted(counts.items()))
 
 
 def _format_counter_lines(counts: dict[str, int]) -> str:
@@ -792,17 +769,6 @@ def _format_smb_counter_lines(counts: dict[str, int], names: dict[str, str]) -> 
     return "\n".join(
         f"{smb_display_value(value, names)}: {count}"
         for value, count in list(counts.items())[:10]
-    )
-
-
-def _has_counter_key(counts: dict[str, int], wanted: str) -> bool:
-    return any(wanted.upper() in key.upper() for key in counts)
-
-
-def _format_sip_trace(trace: list[dict[str, str | None]]) -> str:
-    return "\n".join(
-        f"{event.get('from_endpoint')} -> {event.get('to_endpoint')} {event.get('message')}"
-        for event in trace[:8]
     )
 
 
