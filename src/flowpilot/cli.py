@@ -495,7 +495,12 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
     rows = [
         (flow_ids[flow.key], flow)
         for flow in summary.flows[:show_flows]
-        if flow.smb_commands or flow.smb_statuses or flow.smb_filenames
+        if (
+            flow.smb_commands
+            or flow.smb_statuses
+            or flow.smb_filenames
+            or flow.smb_encrypted_packets
+        )
     ]
     if not rows:
         return
@@ -737,11 +742,12 @@ def _protocol_marker(flow) -> str:
             f"methods={sum(flow.sip_methods.values())} "
             f"statuses={sum(flow.sip_statuses.values())}"
         )
-    if flow.smb_commands or flow.smb_statuses or flow.smb_filenames:
+    if flow.smb_commands or flow.smb_statuses or flow.smb_filenames or flow.smb_encrypted_packets:
         details.append(
             f"SMB commands={sum(flow.smb_commands.values())} "
             f"statuses={sum(flow.smb_statuses.values())} "
-            f"files={len(flow.smb_filenames)}"
+            f"files={len(flow.smb_filenames)} "
+            f"encrypted={flow.smb_encrypted_packets}"
         )
     if flow.dns_queries or flow.dns_response_codes:
         details.append(

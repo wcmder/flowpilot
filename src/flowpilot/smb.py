@@ -106,14 +106,18 @@ def smb_command_label(command: str) -> str:
 
 
 def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
-    if packet.smb_command:
-        flow.smb_commands[packet.smb_command] = flow.smb_commands.get(packet.smb_command, 0) + 1
+    if packet.smb_encrypted:
+        flow.smb_encrypted_packets += 1
+    commands = _packet_smb_commands(packet)
+    for command in commands:
+        flow.smb_commands[command] = flow.smb_commands.get(command, 0) + 1
     if packet.smb_status:
         flow.smb_statuses[packet.smb_status] = flow.smb_statuses.get(packet.smb_status, 0) + 1
     _append_unique(flow, "smb_session_ids", packet.smb_session_id)
     _append_unique(flow, "smb_tree_ids", packet.smb_tree_id)
     _append_unique(flow, "smb_filenames", packet.smb_filename)
-    command_label = smb_command_label(packet.smb_command).lower() if packet.smb_command else ""
+    command_labels = [smb_command_label(command).lower() for command in commands]
+    command_label = " ".join(command_labels)
     _record_smb_create_filename(flow, packet, command_label)
     _record_smb_capabilities(flow, packet)
 
@@ -148,6 +152,11 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
         "SUCCESS",
     }:
         flow.smb_error_count += 1
+
+
+def _packet_smb_commands(packet: PacketObservation) -> list[str]:
+    commands = packet.smb_commands_seen or ([packet.smb_command] if packet.smb_command else [])
+    return list(dict.fromkeys(command for command in commands if command))
 
 
 def _record_smb_transfer(

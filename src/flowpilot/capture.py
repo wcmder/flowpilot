@@ -72,6 +72,8 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         for certificate in tls_certificates
     ]
 
+    smb_commands = _smb_commands(packet)
+
     return PacketObservation(
         timestamp=_timestamp(packet),
         src_ip=src_ip,
@@ -107,7 +109,8 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         sip_reason=_layer_attr(packet, "sip", "reason_phrase"),
         sip_from=_layer_attr(packet, "sip", "from_addr") or _layer_attr(packet, "sip", "from"),
         sip_to=_layer_attr(packet, "sip", "to_addr") or _layer_attr(packet, "sip", "to"),
-        smb_command=_smb_command(packet),
+        smb_command=smb_commands[0] if smb_commands else None,
+        smb_commands_seen=smb_commands,
         smb_status=_smb_value(packet, "nt_status") or _smb_value(packet, "status"),
         smb_message_id=_smb_value(packet, "msg_id") or _smb_value(packet, "mid"),
         smb_is_response=_smb_is_response(packet),
@@ -154,6 +157,7 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
             ),
         ),
         smb_file_offset=_smb_file_offset(packet),
+        smb_encrypted=_smb_encrypted(packet),
         smb_capabilities=_smb_capabilities(packet),
     )
 
@@ -203,17 +207,26 @@ def _ports(packet: Any, protocol: str) -> tuple[int | None, int | None]:
 
 
 def _layer_attr(packet: Any, layer_name: str, attr_name: str) -> str | None:
+    values = _layer_attr_values(packet, layer_name, attr_name)
+    return values[0] if values else None
+
+
+def _layer_attr_values(packet: Any, layer_name: str, attr_name: str) -> list[str]:
     layer = getattr(packet, layer_name, None)
     if layer is None:
-        return None
+        return []
     value = getattr(layer, attr_name, None)
     if value not in (None, ""):
-        return str(value)
-    value = _layer_field_value(layer, attr_name, layer_name=layer_name)
-    return str(value) if value not in (None, "") else None
+        return _string_values(value)
+    return _layer_field_values(layer, attr_name, layer_name=layer_name)
 
 
 def _layer_field_value(layer: Any, attr_name: str, *, layer_name: str | None = None) -> Any:
+    values = _layer_field_values(layer, attr_name, layer_name=layer_name)
+    return values[0] if values else None
+
+
+def _layer_field_values(layer: Any, attr_name: str, *, layer_name: str | None = None) -> list[str]:
     fields = getattr(layer, "_all_fields", {})
     candidates = [attr_name, attr_name.replace("_", ".")]
     if layer_name:
@@ -221,11 +234,35 @@ def _layer_field_value(layer: Any, attr_name: str, *, layer_name: str | None = N
     for candidate in candidates:
         value = fields.get(candidate)
         if value not in (None, ""):
-            return value
+            return _string_values(value)
     for key, value in fields.items():
-        if key.lower().endswith(f".{attr_name.lower()}") and value not in (None, ""):
-            return value
-    return None
+        key_text = key.lower()
+        attr_text = attr_name.lower()
+        dotted_attr_text = attr_name.replace("_", ".").lower()
+        if (
+            key_text.endswith(f".{attr_text}")
+            or key_text.endswith(f".{dotted_attr_text}")
+        ) and value not in (None, ""):
+            return _string_values(value)
+    return []
+
+
+def _string_values(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [item for item in (_string_value(item) for item in value) if item]
+    return [string_value] if (string_value := _string_value(value)) else []
+
+
+def _string_value(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    for attr_name in ("showname_value", "raw_value", "value"):
+        attr_value = getattr(value, attr_name, None)
+        if attr_value not in (None, ""):
+            return str(attr_value)
+    return str(value)
 
 
 def _dns_answers(packet: Any) -> list[str]:
@@ -249,14 +286,6 @@ def _dhcp_value(packet: Any, attr_name: str) -> str | None:
     return None
 
 
-def _smb_value(packet: Any, attr_name: str) -> str | None:
-    for layer_name in ("smb2", "smb"):
-        value = _layer_attr(packet, layer_name, attr_name)
-        if value:
-            return value
-    return None
-
-
 def _smb_int_value(packet: Any, attr_names: tuple[str, ...]) -> int | None:
     match = _smb_int_match(packet, attr_names)
     return match[1] if match else None
@@ -270,15 +299,31 @@ def _smb_int_match(packet: Any, attr_names: tuple[str, ...]) -> tuple[str, int] 
     return None
 
 
-def _smb_command(packet: Any) -> str | None:
+def _smb_commands(packet: Any) -> list[str]:
     smb2_layer = getattr(packet, "smb2", None)
-    smb2_command = _layer_attr(packet, "smb2", "cmd") or _layer_attr(packet, "smb2", "command")
-    if smb2_command:
-        return _SMB2_COMMAND_NAMES.get(smb2_command.lower(), smb2_command)
+    smb2_commands = [
+        *(_layer_attr_values(packet, "smb2", "cmd")),
+        *(_layer_attr_values(packet, "smb2", "command")),
+    ]
+    if smb2_commands:
+        return [_SMB2_COMMAND_NAMES.get(command.lower(), command) for command in smb2_commands]
     if smb2_layer is not None:
-        command = _smb_value(packet, "cmd") or _smb_value(packet, "command")
-        return _SMB2_COMMAND_NAMES.get(command.lower(), command) if command else None
-    return _layer_attr(packet, "smb", "cmd")
+        commands = [*(_smb_values(packet, "cmd")), *(_smb_values(packet, "command"))]
+        return [_SMB2_COMMAND_NAMES.get(command.lower(), command) for command in commands]
+    return _layer_attr_values(packet, "smb", "cmd")
+
+
+def _smb_value(packet: Any, attr_name: str) -> str | None:
+    values = _smb_values(packet, attr_name)
+    return values[0] if values else None
+
+
+def _smb_values(packet: Any, attr_name: str) -> list[str]:
+    for layer_name in ("smb2", "smb"):
+        values = _layer_attr_values(packet, layer_name, attr_name)
+        if values:
+            return values
+    return []
 
 
 def _smb_is_response(packet: Any) -> bool | None:
@@ -342,6 +387,29 @@ def _smb_file_offset(packet: Any) -> int | None:
     return offset
 
 
+def _smb_encrypted(packet: Any) -> bool:
+    smb2_layer = getattr(packet, "smb2", None)
+    if smb2_layer is None:
+        return False
+    encrypted_field_names = (
+        "encrypted",
+        "flags_encrypted",
+        "transform_header",
+        "transform_session_id",
+        "transform_signature",
+        "transform_nonce",
+        "transform_original_message_size",
+    )
+    if any(_truthy_layer_attr(smb2_layer, field_name) for field_name in encrypted_field_names):
+        return True
+    fields = getattr(smb2_layer, "_all_fields", {})
+    return any(
+        ("transform" in key.lower() or "encrypted" in key.lower())
+        and value not in (None, "", "0", "False", "false")
+        for key, value in fields.items()
+    )
+
+
 def _smb_capabilities(packet: Any) -> list[str]:
     capabilities = []
     for layer_name, fields in _SMB_CAPABILITY_FIELDS.items():
@@ -351,6 +419,8 @@ def _smb_capabilities(packet: Any) -> list[str]:
         for attr_name, label in fields:
             if _truthy_layer_attr(layer, attr_name):
                 capabilities.append(label)
+        if layer_name == "smb2" and _smb2_encryption_capabilities(layer):
+            capabilities.append("encryption")
     for label, value in (
         ("dialect", _smb_value(packet, "dialect") or _smb_value(packet, "dialect_name")),
         ("security_mode", _smb_value(packet, "sec_mode") or _smb_value(packet, "sm")),
@@ -359,6 +429,28 @@ def _smb_capabilities(packet: Any) -> list[str]:
         if value:
             capabilities.append(f"{label}={value}")
     return list(dict.fromkeys(capabilities))
+
+
+def _smb2_encryption_capabilities(layer: Any) -> bool:
+    encryption_capability_fields = (
+        "encryption_capabilities",
+        "encryption_capabilities_ciphers",
+        "encryption_context",
+        "negotiate_context_encryption_capabilities",
+        "neg_context_encryption_capabilities",
+    )
+    if any(_truthy_layer_attr(layer, field_name) for field_name in encryption_capability_fields):
+        return True
+    fields = getattr(layer, "_all_fields", {})
+    for key, value in fields.items():
+        key_text = key.lower()
+        values = " ".join(_string_values(value)).lower()
+        combined = f"{key_text} {values}"
+        if "encryption" in combined and ("capabil" in combined or "cipher" in combined):
+            return True
+        if "smb2_encryption_capabilities" in combined:
+            return True
+    return False
 
 
 _SMB_CAPABILITY_FIELDS = {
@@ -600,6 +692,9 @@ def _issue_tags(packet: Any, protocol: str) -> list[str]:
 
 def _truthy_layer_attr(layer: Any, attr_name: str) -> bool:
     value = getattr(layer, attr_name, None)
+    if value in (None, ""):
+        values = _layer_field_values(layer, attr_name)
+        return any(value not in ("0", "False", "false") for value in values)
     if value in (None, "", "0", "False", "false"):
         return False
     return True

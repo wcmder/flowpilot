@@ -122,6 +122,7 @@ class PacketObservation(BaseModel):
     sip_from: str | None = None
     sip_to: str | None = None
     smb_command: str | None = None
+    smb_commands_seen: list[str] = Field(default_factory=list)
     smb_status: str | None = None
     smb_message_id: str | None = None
     smb_is_response: bool | None = None
@@ -132,6 +133,7 @@ class PacketObservation(BaseModel):
     smb_read_length: int | None = None
     smb_write_length: int | None = None
     smb_file_offset: int | None = None
+    smb_encrypted: bool = False
     smb_capabilities: list[str] = Field(default_factory=list)
 
 
@@ -208,6 +210,7 @@ class FlowSummary(BaseModel):
     smb_read_offset_inferred_ops: int = 0
     smb_write_offset_inferred_ops: int = 0
     smb_error_count: int = 0
+    smb_encrypted_packets: int = 0
     smb_file_id_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     smb_pending_create_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     smb_last_read_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
@@ -307,10 +310,19 @@ class FlowSummary(BaseModel):
 
     @property
     def smb_diagnostic_hints(self) -> list[str]:
-        if not (self.smb_commands or self.smb_statuses or self.smb_filenames):
+        if not (
+            self.smb_commands
+            or self.smb_statuses
+            or self.smb_filenames
+            or self.smb_encrypted_packets
+        ):
             return []
 
         hints = []
+        if self.smb_encrypted_packets:
+            hints.append(
+                "smb3 encrypted traffic observed; filenames and read/write details are hidden"
+            )
         total_ops = self.smb_read_ops + self.smb_write_ops
         if self.smb_error_count:
             hints.append("smb errors observed")
@@ -405,6 +417,7 @@ class CaptureSummary(BaseModel):
                         "write_offset_inferred_ops": flow.smb_write_offset_inferred_ops,
                         "transfer_bytes": flow.smb_transfer_bytes,
                         "transfer_mbps": round(flow.smb_transfer_mbps, 3),
+                        "encrypted_packets": flow.smb_encrypted_packets,
                         "error_count": flow.smb_error_count,
                         "diagnostic_hints": flow.smb_diagnostic_hints,
                     },
