@@ -107,8 +107,10 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         sip_reason=_layer_attr(packet, "sip", "reason_phrase"),
         sip_from=_layer_attr(packet, "sip", "from_addr") or _layer_attr(packet, "sip", "from"),
         sip_to=_layer_attr(packet, "sip", "to_addr") or _layer_attr(packet, "sip", "to"),
-        smb_command=_smb_value(packet, "cmd"),
+        smb_command=_smb_command(packet),
         smb_status=_smb_value(packet, "nt_status") or _smb_value(packet, "status"),
+        smb_message_id=_smb_value(packet, "msg_id") or _smb_value(packet, "mid"),
+        smb_is_response=_smb_is_response(packet),
         smb_session_id=_smb_value(packet, "sesid") or _smb_value(packet, "session_id"),
         smb_tree_id=_smb_value(packet, "tid") or _smb_value(packet, "tree_id"),
         smb_file_id=_smb_file_id(packet),
@@ -120,6 +122,7 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
                 "read_count",
                 "read_data_len",
                 "read_data_length",
+                "data_length",
                 "data_len",
                 "data_len_low",
                 "data_size",
@@ -138,6 +141,7 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
                 "write_count",
                 "write_data_len",
                 "write_data_length",
+                "data_length",
                 "data_len",
                 "data_len_low",
                 "data_size",
@@ -248,6 +252,24 @@ def _smb_int_match(packet: Any, attr_names: tuple[str, ...]) -> tuple[str, int] 
     return None
 
 
+def _smb_command(packet: Any) -> str | None:
+    smb2_layer = getattr(packet, "smb2", None)
+    smb2_command = _layer_attr(packet, "smb2", "cmd") or _layer_attr(packet, "smb2", "command")
+    if smb2_command:
+        return _SMB2_COMMAND_NAMES.get(smb2_command.lower(), smb2_command)
+    if smb2_layer is not None:
+        command = _smb_value(packet, "cmd") or _smb_value(packet, "command")
+        return _SMB2_COMMAND_NAMES.get(command.lower(), command) if command else None
+    return _layer_attr(packet, "smb", "cmd")
+
+
+def _smb_is_response(packet: Any) -> bool | None:
+    response_flag = _first_smb_value(packet, ("flags_response", "flags_response_to"))
+    if response_flag is None:
+        return None
+    return response_flag not in {"0", "False", "false"}
+
+
 def _smb_file_id(packet: Any) -> str | None:
     return _first_smb_value(
         packet,
@@ -346,6 +368,48 @@ _SMB_CAPABILITY_FIELDS = {
         ("unix_capability_encryption", "unix encryption"),
         ("unix_capability_mandatory_crypto", "unix mandatory encryption"),
     ),
+}
+
+
+_SMB2_COMMAND_NAMES = {
+    "0": "SMB2negprot",
+    "0x0000": "SMB2negprot",
+    "1": "SMB2sesssetup",
+    "0x0001": "SMB2sesssetup",
+    "2": "SMB2logoff",
+    "0x0002": "SMB2logoff",
+    "3": "SMB2tcon",
+    "0x0003": "SMB2tcon",
+    "4": "SMB2tdis",
+    "0x0004": "SMB2tdis",
+    "5": "SMB2create",
+    "0x0005": "SMB2create",
+    "6": "SMB2close",
+    "0x0006": "SMB2close",
+    "7": "SMB2flush",
+    "0x0007": "SMB2flush",
+    "8": "SMB2read",
+    "0x0008": "SMB2read",
+    "9": "SMB2write",
+    "0x0009": "SMB2write",
+    "10": "SMB2lock",
+    "0x000a": "SMB2lock",
+    "11": "SMB2ioctl",
+    "0x000b": "SMB2ioctl",
+    "12": "SMB2cancel",
+    "0x000c": "SMB2cancel",
+    "13": "SMB2echo",
+    "0x000d": "SMB2echo",
+    "14": "SMB2querydir",
+    "0x000e": "SMB2querydir",
+    "15": "SMB2changenotify",
+    "0x000f": "SMB2changenotify",
+    "16": "SMB2queryinfo",
+    "0x0010": "SMB2queryinfo",
+    "17": "SMB2setinfo",
+    "0x0011": "SMB2setinfo",
+    "18": "SMB2oplockbreak",
+    "0x0012": "SMB2oplockbreak",
 }
 
 

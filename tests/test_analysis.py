@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 from flowpilot.analysis import summarize_capture
-from flowpilot.capture import _tshark_custom_parameters
+from flowpilot.capture import _tshark_custom_parameters, packet_to_observation
 from flowpilot.filters import (
     FlowFilter,
     filter_observations,
@@ -655,6 +656,100 @@ def test_summarize_capture_maps_smb_transfer_filename_from_file_id() -> None:
     assert flow.smb_write_bytes == 4096
     assert flow.smb_write_offset_inferred_ops == 1
     assert flow.smb_write_unknown_bytes_ops == 1
+
+
+def test_summarize_capture_maps_smb2_create_response_file_id_to_filename() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="SMB2create",
+            smb_status="0",
+            smb_message_id="42",
+            smb_filename="\\\\share\\upload.bin",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.30",
+            dst_ip="10.0.0.10",
+            src_port=445,
+            dst_port=55000,
+            protocol="TCP",
+            smb_command="SMB2create",
+            smb_status="0",
+            smb_message_id="42",
+            smb_file_id="0xabc",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="SMB2write",
+            smb_status="0",
+            smb_file_id="0xabc",
+            smb_write_length=4096,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_write_filenames == ["\\\\share\\upload.bin"]
+    assert flow.smb_write_ops == 1
+    assert flow.smb_write_bytes == 4096
+
+
+def test_packet_to_observation_reads_smb2_write_fields() -> None:
+    packet = SimpleNamespace(
+        ip=SimpleNamespace(src="10.0.0.10", dst="10.0.0.30"),
+        tcp=SimpleNamespace(srcport="55000", dstport="445"),
+        smb2=SimpleNamespace(
+            cmd="9",
+            msg_id="42",
+            file_id="0xabc",
+            offset="8192",
+            write_length="4096",
+            data_length="4096",
+        ),
+        layers=[
+            SimpleNamespace(layer_name="ip"),
+            SimpleNamespace(layer_name="tcp"),
+            SimpleNamespace(layer_name="smb2"),
+        ],
+        length="512",
+    )
+
+    observation = packet_to_observation(packet)
+
+    assert observation is not None
+    assert observation.smb_command == "SMB2write"
+    assert observation.smb_message_id == "42"
+    assert observation.smb_file_id == "0xabc"
+    assert observation.smb_file_offset == 8192
+    assert observation.smb_write_length == 4096
+
+
+def test_packet_to_observation_maps_smb2_ioctl_command() -> None:
+    packet = SimpleNamespace(
+        ip=SimpleNamespace(src="10.0.0.10", dst="10.0.0.30"),
+        tcp=SimpleNamespace(srcport="55000", dstport="445"),
+        smb2=SimpleNamespace(cmd="11", msg_id="43"),
+        layers=[
+            SimpleNamespace(layer_name="ip"),
+            SimpleNamespace(layer_name="tcp"),
+            SimpleNamespace(layer_name="smb2"),
+        ],
+        length="256",
+    )
+
+    observation = packet_to_observation(packet)
+
+    assert observation is not None
+    assert observation.smb_command == "SMB2ioctl"
 
 
 def test_summarize_capture_tracks_dns_metadata() -> None:

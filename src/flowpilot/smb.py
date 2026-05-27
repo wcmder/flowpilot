@@ -113,10 +113,10 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
     _append_unique(flow, "smb_session_ids", packet.smb_session_id)
     _append_unique(flow, "smb_tree_ids", packet.smb_tree_id)
     _append_unique(flow, "smb_filenames", packet.smb_filename)
-    _record_smb_file_id_name(flow, packet)
+    command_label = smb_command_label(packet.smb_command).lower() if packet.smb_command else ""
+    _record_smb_create_filename(flow, packet, command_label)
     _record_smb_capabilities(flow, packet)
 
-    command_label = smb_command_label(packet.smb_command).lower() if packet.smb_command else ""
     if "read" in command_label:
         _record_smb_transfer(
             flow,
@@ -195,6 +195,20 @@ def _infer_transfer_length_from_offset(
 def _record_smb_file_id_name(flow: FlowSummary, packet: PacketObservation) -> None:
     if packet.smb_file_id and packet.smb_filename:
         flow.smb_file_id_names[packet.smb_file_id] = packet.smb_filename
+    if packet.smb_file_id and packet.smb_message_id:
+        pending_filename = flow.smb_pending_create_names.get(packet.smb_message_id)
+        if pending_filename:
+            flow.smb_file_id_names[packet.smb_file_id] = pending_filename
+
+
+def _record_smb_create_filename(
+    flow: FlowSummary,
+    packet: PacketObservation,
+    command_label: str,
+) -> None:
+    if "create" in command_label and packet.smb_message_id and packet.smb_filename:
+        flow.smb_pending_create_names[packet.smb_message_id] = packet.smb_filename
+    _record_smb_file_id_name(flow, packet)
 
 
 def _resolved_smb_filename(flow: FlowSummary, packet: PacketObservation) -> str | None:
