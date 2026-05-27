@@ -522,6 +522,28 @@ def test_summarize_capture_tracks_smb_metadata() -> None:
     assert summary.compact()["top_flows"][0]["smb"]["transfer_bytes"] == 32768
 
 
+def test_summarize_capture_counts_numeric_smb_write_command() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="11",
+            smb_status="0",
+            smb_write_length=4096,
+        )
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_commands == {"11": 1}
+    assert flow.smb_write_ops == 1
+    assert flow.smb_write_bytes == 4096
+
+
 def test_summarize_capture_tracks_dns_metadata() -> None:
     packets = [
         PacketObservation(

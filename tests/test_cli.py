@@ -2,8 +2,6 @@ import struct
 from pathlib import Path
 
 from flowpilot.cli import (
-    _SMB_COMMAND_NAMES,
-    _SMB_STATUS_NAMES,
     _count_packets_in_capture,
     _format_esp_gap_distribution,
     _format_smb_counter_lines,
@@ -11,6 +9,7 @@ from flowpilot.cli import (
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
 )
+from flowpilot.smb import SMB_COMMAND_NAMES, SMB_STATUS_NAMES
 
 
 def test_format_esp_gap_distribution_groups_missing_counts() -> None:
@@ -101,12 +100,12 @@ def test_count_packets_in_pcapng(tmp_path) -> None:
 
 
 def test_format_smb_counter_lines_labels_numeric_commands() -> None:
-    assert _format_smb_counter_lines({"0": 2, "Read": 1}, _SMB_COMMAND_NAMES) == (
-        "SMBmkdir(0): 2\nRead: 1"
+    assert _format_smb_counter_lines({"0": 2, "11": 1, "Read": 1}, SMB_COMMAND_NAMES) == (
+        "SMBmkdir(0): 2\nSMBwrite(11): 1\nRead: 1"
     )
 
 
 def test_format_smb_counter_lines_labels_numeric_statuses() -> None:
-    assert _format_smb_counter_lines({"0x00000000": 2}, _SMB_STATUS_NAMES) == (
+    assert _format_smb_counter_lines({"0x00000000": 2}, SMB_STATUS_NAMES) == (
         "STATUS_SUCCESS(0x00000000): 2"
     )

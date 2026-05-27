@@ -12,6 +12,7 @@ from .models import (
     SipCallSummary,
     counter_to_sorted_dict,
 )
+from .smb import smb_command_label
 
 
 def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSummary:
@@ -125,10 +126,13 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
             flow.smb_tree_ids = [*flow.smb_tree_ids, packet.smb_tree_id][:25]
         if packet.smb_filename and packet.smb_filename not in flow.smb_filenames:
             flow.smb_filenames = [*flow.smb_filenames, packet.smb_filename][:25]
-        if packet.smb_command and "read" in packet.smb_command.lower():
+        smb_command_label_value = (
+            smb_command_label(packet.smb_command).lower() if packet.smb_command else ""
+        )
+        if "read" in smb_command_label_value:
             flow.smb_read_ops += 1
             flow.smb_read_bytes += packet.smb_read_length or 0
-        if packet.smb_command and "write" in packet.smb_command.lower():
+        if "write" in smb_command_label_value:
             flow.smb_write_ops += 1
             flow.smb_write_bytes += packet.smb_write_length or 0
         if packet.smb_status and packet.smb_status.upper() not in {

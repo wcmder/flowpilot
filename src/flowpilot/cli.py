@@ -24,6 +24,7 @@ from .filters import (
     include_redirect_related_flows,
 )
 from .reasoning import DEFAULT_MODEL, chat_about_capture, list_openai_models, reason_about_capture
+from .smb import SMB_COMMAND_NAMES, SMB_STATUS_NAMES, smb_display_value
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
@@ -507,8 +508,8 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
     for flow_id, flow in rows:
         table.add_row(
             str(flow_id),
-            _format_smb_counter_lines(flow.smb_commands, _SMB_COMMAND_NAMES),
-            _format_smb_counter_lines(flow.smb_statuses, _SMB_STATUS_NAMES),
+            _format_smb_counter_lines(flow.smb_commands, SMB_COMMAND_NAMES),
+            _format_smb_counter_lines(flow.smb_statuses, SMB_STATUS_NAMES),
             "\n".join(flow.smb_filenames[:10]),
             (
                 f"read {flow.smb_read_ops} ops / {flow.smb_read_bytes} bytes\n"
@@ -785,50 +786,13 @@ def _format_counter_lines(counts: dict[str, int]) -> str:
     return "\n".join(f"{key}: {value}" for key, value in list(counts.items())[:10])
 
 
-_SMB_COMMAND_NAMES = {
-    "0": "SMBmkdir",
-    "0x00": "SMBmkdir",
-    "1": "SMBrmdir",
-    "0x01": "SMBrmdir",
-    "2": "SMBopen",
-    "0x02": "SMBopen",
-    "3": "SMBcreate",
-    "0x03": "SMBcreate",
-    "4": "SMBclose",
-    "0x04": "SMBclose",
-    "5": "SMBflush",
-    "0x05": "SMBflush",
-    "6": "SMBunlink",
-    "0x06": "SMBunlink",
-    "7": "SMBmv",
-    "0x07": "SMBmv",
-    "8": "SMBgetatr",
-    "0x08": "SMBgetatr",
-    "9": "SMBsetatr",
-    "0x09": "SMBsetatr",
-}
-
-_SMB_STATUS_NAMES = {
-    "0": "STATUS_SUCCESS",
-    "0x00000000": "STATUS_SUCCESS",
-}
-
-
 def _format_smb_counter_lines(counts: dict[str, int], names: dict[str, str]) -> str:
     if not counts:
         return ""
     return "\n".join(
-        f"{_format_smb_value(value, names)}: {count}"
+        f"{smb_display_value(value, names)}: {count}"
         for value, count in list(counts.items())[:10]
     )
-
-
-def _format_smb_value(value: str, names: dict[str, str]) -> str:
-    normalized = value.lower()
-    label = names.get(value) or names.get(normalized)
-    if label:
-        return f"{label}({value})"
-    return value
 
 
 def _has_counter_key(counts: dict[str, int], wanted: str) -> bool:
