@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Annotated
@@ -101,11 +104,16 @@ def analyze(
             "--chat requires LLM reasoning, so it cannot be used with --no-llm."
         )
 
-    _info(f"Local analysis started: reading {capture_path}.")
+    total_packets = _capture_packet_count(capture_path)
+    if packet_limit is not None and total_packets is not None:
+        total_packets = min(total_packets, packet_limit)
+    _info(_local_analysis_start_message(capture_path, total_packets))
+    progress = _progress_reporter(total_packets)
     observations = read_capture(
         capture_path,
         packet_limit=packet_limit,
         tls_keylog_file=tls_keylog_file,
+        progress_callback=progress,
     )
     flow_filter = FlowFilter(
         host=host,
@@ -241,6 +249,59 @@ def _info(message: str) -> None:
     console.print(f"[cyan][info][/cyan] {message}")
 
 
+def _local_analysis_start_message(capture_path: Path, total_packets: int | None) -> str:
+    message = f"Local analysis started: reading {capture_path}"
+    if total_packets is not None:
+        message += f" ({total_packets} packets)"
+    return f"{message}."
+
+
+def _progress_reporter(total_packets: int | None):
+    last_report_at = 0.0
+    last_percent = -1
+
+    def report(packet_count: int) -> None:
+        nonlocal last_report_at, last_percent
+        now = time.monotonic()
+        if total_packets:
+            percent = min(int((packet_count / total_packets) * 100), 100)
+            if percent == last_percent or (percent < 100 and now - last_report_at < 5):
+                return
+            last_percent = percent
+            _info(f"Local analysis progress: {percent}% ({packet_count}/{total_packets} packets).")
+        else:
+            if packet_count < 1_000 or now - last_report_at < 5:
+                return
+            _info(f"Local analysis progress: read {packet_count} packets.")
+        last_report_at = now
+
+    return report
+
+
+def _capture_packet_count(capture_path: Path) -> int | None:
+    capinfos = shutil.which("capinfos")
+    if not capinfos:
+        return None
+    try:
+        result = subprocess.run(
+            [capinfos, "-c", str(capture_path)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    match = re.search(r"Number of packets:\s*([0-9,]+)", result.stdout)
+    if not match:
+        match = re.search(r"\b([0-9][0-9,]*)\b", result.stdout)
+    if not match:
+        return None
+    return int(match.group(1).replace(",", ""))
+
+
 def _render_sip_details(summary, *, show_flows: int) -> None:
     flow_ids = _flow_ids(summary.flows)
     rows = [
@@ -302,8 +363,6 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
     table.add_column("Flow ID", justify="right")
     table.add_column("Commands")
     table.add_column("Statuses")
-    table.add_column("Session IDs")
-    table.add_column("Tree IDs")
     table.add_column("Files")
     table.add_column("Transfer")
     table.add_column("Issue")
@@ -311,10 +370,8 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
     for flow_id, flow in rows:
         table.add_row(
             str(flow_id),
-            _format_counter_lines(flow.smb_commands),
-            _format_counter_lines(flow.smb_statuses),
-            "\n".join(flow.smb_session_ids[:10]),
-            "\n".join(flow.smb_tree_ids[:10]),
+            _format_smb_counter_lines(flow.smb_commands, _SMB_COMMAND_NAMES),
+            _format_smb_counter_lines(flow.smb_statuses, _SMB_STATUS_NAMES),
             "\n".join(flow.smb_filenames[:10]),
             (
                 f"read {flow.smb_read_ops} ops / {flow.smb_read_bytes} bytes\n"
@@ -589,6 +646,52 @@ def _format_counter_lines(counts: dict[str, int]) -> str:
     if not counts:
         return ""
     return "\n".join(f"{key}: {value}" for key, value in list(counts.items())[:10])
+
+
+_SMB_COMMAND_NAMES = {
+    "0": "SMBmkdir",
+    "0x00": "SMBmkdir",
+    "1": "SMBrmdir",
+    "0x01": "SMBrmdir",
+    "2": "SMBopen",
+    "0x02": "SMBopen",
+    "3": "SMBcreate",
+    "0x03": "SMBcreate",
+    "4": "SMBclose",
+    "0x04": "SMBclose",
+    "5": "SMBflush",
+    "0x05": "SMBflush",
+    "6": "SMBunlink",
+    "0x06": "SMBunlink",
+    "7": "SMBmv",
+    "0x07": "SMBmv",
+    "8": "SMBgetatr",
+    "0x08": "SMBgetatr",
+    "9": "SMBsetatr",
+    "0x09": "SMBsetatr",
+}
+
+_SMB_STATUS_NAMES = {
+    "0": "STATUS_SUCCESS",
+    "0x00000000": "STATUS_SUCCESS",
+}
+
+
+def _format_smb_counter_lines(counts: dict[str, int], names: dict[str, str]) -> str:
+    if not counts:
+        return ""
+    return "\n".join(
+        f"{_format_smb_value(value, names)}: {count}"
+        for value, count in list(counts.items())[:10]
+    )
+
+
+def _format_smb_value(value: str, names: dict[str, str]) -> str:
+    normalized = value.lower()
+    label = names.get(value) or names.get(normalized)
+    if label:
+        return f"{label}({value})"
+    return value
 
 
 def _has_counter_key(counts: dict[str, int], wanted: str) -> bool:

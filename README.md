@@ -179,9 +179,9 @@ split by Call-ID with separate caller, callee, and issue columns. SIP response
 codes in the 4xx, 5xx, and 6xx ranges are marked as call failure issues. Each
 SIP call also includes a compact call trace so the LLM can reason about call
 setup and failure direction. SMB details include read/write operations, transfer
-bytes, SMB transfer Mbps, statuses/errors, files, and hints for suboptimal file
-transfer behavior such as small read/write sizes, errors, low throughput, or
-large idle gaps.
+bytes, SMB transfer Mbps, readable command/status labels, files, and hints for
+suboptimal file transfer behavior such as small read/write sizes, errors, low
+throughput, or large idle gaps.
 DNS details include query names, query types, response codes, answers, and error
 counts such as NXDOMAIN/SERVFAIL/refused when visible. DHCP details include
 message types such as Discover/Offer/Request/ACK, client identifiers, requested

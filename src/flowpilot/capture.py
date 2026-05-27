@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -12,6 +12,7 @@ def read_capture(
     path: Path,
     packet_limit: int | None = None,
     tls_keylog_file: Path | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> Iterator[PacketObservation]:
     try:
         import pyshark
@@ -31,6 +32,8 @@ def read_capture(
         for index, packet in enumerate(capture):
             if packet_limit is not None and index >= packet_limit:
                 break
+            if progress_callback:
+                progress_callback(index + 1)
             observation = packet_to_observation(packet)
             if observation:
                 yield observation
