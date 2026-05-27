@@ -223,7 +223,7 @@ def test_filter_sip_calls_by_phone_keeps_matching_call_trace() -> None:
         ),
         PacketObservation(
             src_ip="10.0.0.10",
-            dst_ip="10.0.0.30",
+            dst_ip="10.0.0.10",
             src_port=5060,
             dst_port=5060,
             protocol="UDP",
@@ -487,18 +487,20 @@ def test_summarize_capture_tracks_smb_metadata() -> None:
             smb_session_id="0x111",
             smb_tree_id="0x222",
             smb_filename="\\\\share\\blocked.docx",
+            smb_capabilities=["dialect=0x0311", "signing enabled"],
         ),
         PacketObservation(
             timestamp=datetime(2026, 1, 1, 12, 2, 0),
-            src_ip="10.0.0.10",
-            dst_ip="10.0.0.30",
-            src_port=55000,
-            dst_port=445,
+            src_ip="10.0.0.30",
+            dst_ip="10.0.0.10",
+            src_port=445,
+            dst_port=55000,
             protocol="TCP",
             smb_command="Read",
             smb_status="STATUS_SUCCESS",
             smb_read_length=32768,
             smb_filename="\\\\share\\slow.bin",
+            smb_capabilities=["multi-channel"],
         )
     ]
 
@@ -518,6 +520,8 @@ def test_summarize_capture_tracks_smb_metadata() -> None:
     assert flow.smb_filenames == ["\\\\share\\blocked.docx", "\\\\share\\slow.bin"]
     assert flow.smb_read_filenames == ["\\\\share\\slow.bin"]
     assert flow.smb_write_filenames == []
+    assert flow.smb_client_capabilities == ["dialect=0x0311", "signing enabled"]
+    assert flow.smb_server_capabilities == ["multi-channel"]
     assert summary.compact()["top_flows"][0]["smb"]["statuses"] == {
         "STATUS_ACCESS_DENIED": 1,
         "STATUS_SUCCESS": 1,
@@ -568,6 +572,41 @@ def test_summarize_capture_tracks_smb_write_unknown_length() -> None:
 
     assert flow.smb_write_ops == 1
     assert flow.smb_write_bytes == 0
+    assert flow.smb_write_unknown_bytes_ops == 1
+
+
+def test_summarize_capture_infers_smb_write_bytes_from_offsets() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="11",
+            smb_status="0",
+            smb_filename="\\\\share\\upload.bin",
+            smb_file_offset=0,
+        ),
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="11",
+            smb_status="0",
+            smb_filename="\\\\share\\upload.bin",
+            smb_file_offset=4096,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_write_ops == 2
+    assert flow.smb_write_bytes == 4096
+    assert flow.smb_write_offset_inferred_ops == 1
     assert flow.smb_write_unknown_bytes_ops == 1
 
 

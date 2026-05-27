@@ -128,6 +128,8 @@ class PacketObservation(BaseModel):
     smb_filename: str | None = None
     smb_read_length: int | None = None
     smb_write_length: int | None = None
+    smb_file_offset: int | None = None
+    smb_capabilities: list[str] = Field(default_factory=list)
 
 
 class FlowKey(BaseModel, frozen=True):
@@ -192,13 +194,19 @@ class FlowSummary(BaseModel):
     smb_filenames: list[str] = Field(default_factory=list)
     smb_read_filenames: list[str] = Field(default_factory=list)
     smb_write_filenames: list[str] = Field(default_factory=list)
+    smb_client_capabilities: list[str] = Field(default_factory=list)
+    smb_server_capabilities: list[str] = Field(default_factory=list)
     smb_read_ops: int = 0
     smb_write_ops: int = 0
     smb_read_bytes: int = 0
     smb_write_bytes: int = 0
     smb_read_unknown_bytes_ops: int = 0
     smb_write_unknown_bytes_ops: int = 0
+    smb_read_offset_inferred_ops: int = 0
+    smb_write_offset_inferred_ops: int = 0
     smb_error_count: int = 0
+    smb_last_read_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
+    smb_last_write_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
     dns_queries: dict[str, int] = Field(default_factory=dict)
     dns_query_types: dict[str, int] = Field(default_factory=dict)
     dns_response_codes: dict[str, int] = Field(default_factory=dict)
@@ -380,12 +388,16 @@ class CaptureSummary(BaseModel):
                         "filenames": flow.smb_filenames[:10],
                         "read_filenames": flow.smb_read_filenames[:10],
                         "write_filenames": flow.smb_write_filenames[:10],
+                        "client_capabilities": flow.smb_client_capabilities[:20],
+                        "server_capabilities": flow.smb_server_capabilities[:20],
                         "read_ops": flow.smb_read_ops,
                         "write_ops": flow.smb_write_ops,
                         "read_bytes": flow.smb_read_bytes,
                         "write_bytes": flow.smb_write_bytes,
                         "read_unknown_bytes_ops": flow.smb_read_unknown_bytes_ops,
                         "write_unknown_bytes_ops": flow.smb_write_unknown_bytes_ops,
+                        "read_offset_inferred_ops": flow.smb_read_offset_inferred_ops,
+                        "write_offset_inferred_ops": flow.smb_write_offset_inferred_ops,
                         "transfer_bytes": flow.smb_transfer_bytes,
                         "transfer_mbps": round(flow.smb_transfer_mbps, 3),
                         "error_count": flow.smb_error_count,

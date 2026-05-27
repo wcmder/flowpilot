@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from .models import FlowSummary, PacketObservation
+
 SMB_COMMAND_NAMES = {
     "0": "SMBmkdir",
     "0x00": "SMBmkdir",
@@ -99,6 +103,113 @@ SMB_STATUS_NAMES = {
 
 def smb_command_label(command: str) -> str:
     return _lookup_smb_name(command, SMB_COMMAND_NAMES) or command
+
+
+def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
+    if packet.smb_command:
+        flow.smb_commands[packet.smb_command] = flow.smb_commands.get(packet.smb_command, 0) + 1
+    if packet.smb_status:
+        flow.smb_statuses[packet.smb_status] = flow.smb_statuses.get(packet.smb_status, 0) + 1
+    _append_unique(flow, "smb_session_ids", packet.smb_session_id)
+    _append_unique(flow, "smb_tree_ids", packet.smb_tree_id)
+    _append_unique(flow, "smb_filenames", packet.smb_filename)
+    _record_smb_capabilities(flow, packet)
+
+    command_label = smb_command_label(packet.smb_command).lower() if packet.smb_command else ""
+    if "read" in command_label:
+        _record_smb_transfer(
+            flow,
+            packet,
+            filename_field="smb_read_filenames",
+            last_offsets_field="smb_last_read_offset_by_file",
+            length=packet.smb_read_length,
+            bytes_field="smb_read_bytes",
+            ops_field="smb_read_ops",
+            unknown_ops_field="smb_read_unknown_bytes_ops",
+            inferred_ops_field="smb_read_offset_inferred_ops",
+        )
+    if "write" in command_label:
+        _record_smb_transfer(
+            flow,
+            packet,
+            filename_field="smb_write_filenames",
+            last_offsets_field="smb_last_write_offset_by_file",
+            length=packet.smb_write_length,
+            bytes_field="smb_write_bytes",
+            ops_field="smb_write_ops",
+            unknown_ops_field="smb_write_unknown_bytes_ops",
+            inferred_ops_field="smb_write_offset_inferred_ops",
+        )
+    if packet.smb_status and packet.smb_status.upper() not in {
+        "0",
+        "0x00000000",
+        "STATUS_SUCCESS",
+        "SUCCESS",
+    }:
+        flow.smb_error_count += 1
+
+
+def _record_smb_transfer(
+    flow: FlowSummary,
+    packet: PacketObservation,
+    *,
+    filename_field: str,
+    last_offsets_field: str,
+    length: int | None,
+    bytes_field: str,
+    ops_field: str,
+    unknown_ops_field: str,
+    inferred_ops_field: str,
+) -> None:
+    setattr(flow, ops_field, getattr(flow, ops_field) + 1)
+    _append_unique(flow, filename_field, packet.smb_filename)
+    inferred_length = _infer_transfer_length_from_offset(flow, packet, last_offsets_field)
+    if length is not None:
+        setattr(flow, bytes_field, getattr(flow, bytes_field) + length)
+    elif inferred_length is not None:
+        setattr(flow, bytes_field, getattr(flow, bytes_field) + inferred_length)
+        setattr(flow, inferred_ops_field, getattr(flow, inferred_ops_field) + 1)
+    else:
+        setattr(flow, unknown_ops_field, getattr(flow, unknown_ops_field) + 1)
+
+
+def _infer_transfer_length_from_offset(
+    flow: FlowSummary,
+    packet: PacketObservation,
+    last_offsets_field: str,
+) -> int | None:
+    if packet.smb_file_offset is None:
+        return None
+    file_key = packet.smb_filename or "<unknown>"
+    last_offsets = getattr(flow, last_offsets_field)
+    previous_offset = last_offsets.get(file_key)
+    last_offsets[file_key] = packet.smb_file_offset
+    if previous_offset is None or packet.smb_file_offset <= previous_offset:
+        return None
+    return packet.smb_file_offset - previous_offset
+
+
+def _record_smb_capabilities(flow: FlowSummary, packet: PacketObservation) -> None:
+    if not packet.smb_capabilities:
+        return
+    capability_field = (
+        "smb_server_capabilities" if packet.src_port in {139, 445} else "smb_client_capabilities"
+    )
+    for capability in packet.smb_capabilities:
+        _append_unique(flow, capability_field, capability)
+
+
+def _append_unique(
+    flow: FlowSummary,
+    field_name: str,
+    value: str | None,
+    limit: int = 25,
+) -> None:
+    if not value:
+        return
+    values = getattr(flow, field_name)
+    if value not in values:
+        setattr(flow, field_name, [*values, value][:limit])
 
 
 def smb_display_value(value: str, names: dict[str, str]) -> str:

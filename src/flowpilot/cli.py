@@ -18,6 +18,7 @@ from rich.table import Table
 from .analysis import summarize_capture
 from .capture import read_capture
 from .dhcp import has_dhcp_ack
+from .dns import dns_issue_summary
 from .esp import format_esp_sequences
 from .filters import (
     FlowFilter,
@@ -504,7 +505,7 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
     table.add_column("Flow ID", justify="right")
     table.add_column("Commands")
     table.add_column("Statuses")
-    table.add_column("Files")
+    table.add_column("Capabilities")
     table.add_column("Transfer")
     table.add_column("Issue")
 
@@ -513,7 +514,7 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
             str(flow_id),
             _format_smb_counter_lines(flow.smb_commands, SMB_COMMAND_NAMES),
             _format_smb_counter_lines(flow.smb_statuses, SMB_STATUS_NAMES),
-            _format_smb_transfer_files(flow),
+            _format_smb_capabilities(flow),
             _format_smb_transfer(flow),
             "\n".join(flow.smb_diagnostic_hints),
         )
@@ -545,7 +546,7 @@ def _render_dns_details(summary, *, show_flows: int) -> None:
             _format_counter_lines(flow.dns_query_types),
             _format_counter_lines(flow.dns_response_codes),
             "\n".join(flow.dns_answers[:10]),
-            "dns error responses observed" if flow.dns_error_count else "",
+            dns_issue_summary(flow.dns_response_codes),
         )
     console.print(table)
 
@@ -774,12 +775,16 @@ def _format_smb_transfer(flow) -> str:
                 flow.smb_read_ops,
                 flow.smb_read_bytes,
                 flow.smb_read_unknown_bytes_ops,
+                flow.smb_read_offset_inferred_ops,
+                [f"download {filename}" for filename in flow.smb_read_filenames[:10]],
             ),
             _format_smb_transfer_line(
                 "write",
                 flow.smb_write_ops,
                 flow.smb_write_bytes,
                 flow.smb_write_unknown_bytes_ops,
+                flow.smb_write_offset_inferred_ops,
+                [f"upload {filename}" for filename in flow.smb_write_filenames[:10]],
             ),
             f"smb payload {flow.smb_transfer_mbps:.3f} Mbps",
             f"flow total {flow.throughput_mbps:.3f} Mbps",
@@ -787,18 +792,32 @@ def _format_smb_transfer(flow) -> str:
     )
 
 
-def _format_smb_transfer_files(flow) -> str:
+def _format_smb_capabilities(flow) -> str:
     lines = [
-        *[f"download {filename}" for filename in flow.smb_read_filenames[:10]],
-        *[f"upload {filename}" for filename in flow.smb_write_filenames[:10]],
+        *[f"client {capability}" for capability in flow.smb_client_capabilities[:10]],
+        *[f"server {capability}" for capability in flow.smb_server_capabilities[:10]],
     ]
     return "\n".join(lines)
 
 
-def _format_smb_transfer_line(label: str, ops: int, byte_count: int, unknown_ops: int) -> str:
+def _format_smb_transfer_line(
+    label: str,
+    ops: int,
+    byte_count: int,
+    unknown_ops: int,
+    inferred_ops: int = 0,
+    files: list[str] | None = None,
+) -> str:
     line = f"{label} {ops} ops / {byte_count} bytes"
+    notes = []
+    if inferred_ops:
+        notes.append(f"{inferred_ops} ops inferred from offsets")
     if unknown_ops:
-        line += f" ({unknown_ops} ops length unavailable)"
+        notes.append(f"{unknown_ops} ops length unavailable")
+    if notes:
+        line += f" ({', '.join(notes)})"
+    if files:
+        line += "\n" + "\n".join(files)
     return line
 
 

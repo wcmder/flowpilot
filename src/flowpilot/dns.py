@@ -24,3 +24,29 @@ def record_dns(flow: FlowSummary, packet: PacketObservation) -> None:
 def is_dns_success(response_code: str) -> bool:
     normalized = response_code.lower()
     return normalized in {"0", "noerror", "no error"} or normalized.startswith("0 ")
+
+
+def dns_issue_summary(response_codes: dict[str, int]) -> str:
+    issues = []
+    for response_code in response_codes:
+        if is_dns_success(response_code):
+            continue
+        explanation = dns_response_explanation(response_code)
+        if explanation not in issues:
+            issues.append(explanation)
+    return "\n".join(issues)
+
+
+def dns_response_explanation(response_code: str) -> str:
+    normalized = response_code.lower()
+    if "nxdomain" in normalized or normalized.startswith("3"):
+        return "NXDOMAIN: queried name does not exist"
+    if "servfail" in normalized or normalized.startswith("2"):
+        return "SERVFAIL: DNS server failed to answer"
+    if "refused" in normalized or normalized.startswith("5"):
+        return "REFUSED: DNS server refused the query"
+    if "notimp" in normalized or normalized.startswith("4"):
+        return "NOTIMP: DNS server does not support the requested operation"
+    if "formerr" in normalized or normalized.startswith("1"):
+        return "FORMERR: DNS server could not understand the query"
+    return f"DNS error response: {response_code}"

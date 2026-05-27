@@ -136,6 +136,15 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
                 "count",
             ),
         ),
+        smb_file_offset=_smb_int_value(
+            packet,
+            (
+                "file_offset",
+                "offset",
+                "file_rw_offset",
+            ),
+        ),
+        smb_capabilities=_smb_capabilities(packet),
     )
 
 
@@ -226,6 +235,53 @@ def _smb_int_value(packet: Any, attr_names: tuple[str, ...]) -> int | None:
         if value is not None:
             return value
     return None
+
+
+def _smb_capabilities(packet: Any) -> list[str]:
+    capabilities = []
+    for layer_name, fields in _SMB_CAPABILITY_FIELDS.items():
+        layer = getattr(packet, layer_name, None)
+        if layer is None:
+            continue
+        for attr_name, label in fields:
+            if _truthy_layer_attr(layer, attr_name):
+                capabilities.append(label)
+    for label, value in (
+        ("dialect", _smb_value(packet, "dialect") or _smb_value(packet, "dialect_name")),
+        ("security_mode", _smb_value(packet, "sec_mode") or _smb_value(packet, "sm")),
+        ("capabilities", _smb_value(packet, "capabilities") or _smb_value(packet, "server_cap")),
+    ):
+        if value:
+            capabilities.append(f"{label}={value}")
+    return list(dict.fromkeys(capabilities))
+
+
+_SMB_CAPABILITY_FIELDS = {
+    "smb2": (
+        ("capabilities_dfs", "DFS"),
+        ("capabilities_leasing", "leasing"),
+        ("capabilities_large_mtu", "large MTU"),
+        ("capabilities_multi_channel", "multi-channel"),
+        ("capabilities_persistent_handles", "persistent handles"),
+        ("capabilities_directory_leasing", "directory leasing"),
+        ("capabilities_encryption", "encryption"),
+        ("capabilities_notifications", "notifications"),
+        ("sec_mode_sign_enabled", "signing enabled"),
+        ("sec_mode_sign_required", "signing required"),
+        ("ses_flags_encrypt", "session encryption"),
+        ("share_flags_encrypt_data", "share encryption required"),
+        ("share_flags_compress_data", "compressed IO"),
+    ),
+    "smb": (
+        ("server_cap_large_readx", "large ReadX"),
+        ("server_cap_large_writex", "large WriteX"),
+        ("flags2_compressed", "compression requested"),
+        ("unix_capability_large_read", "unix large read"),
+        ("unix_capability_large_write", "unix large write"),
+        ("unix_capability_encryption", "unix encryption"),
+        ("unix_capability_mandatory_crypto", "unix mandatory encryption"),
+    ),
+}
 
 
 def _tls_certificates(packet: Any) -> list[TlsCertificateObservation]:

@@ -14,7 +14,7 @@ from .models import (
     counter_to_sorted_dict,
 )
 from .sip import record_sip
-from .smb import smb_command_label
+from .smb import record_smb
 
 
 def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSummary:
@@ -89,42 +89,7 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
 
         record_sip(flow, packet)
 
-        if packet.smb_command:
-            flow.smb_commands[packet.smb_command] = flow.smb_commands.get(packet.smb_command, 0) + 1
-        if packet.smb_status:
-            flow.smb_statuses[packet.smb_status] = flow.smb_statuses.get(packet.smb_status, 0) + 1
-        if packet.smb_session_id and packet.smb_session_id not in flow.smb_session_ids:
-            flow.smb_session_ids = [*flow.smb_session_ids, packet.smb_session_id][:25]
-        if packet.smb_tree_id and packet.smb_tree_id not in flow.smb_tree_ids:
-            flow.smb_tree_ids = [*flow.smb_tree_ids, packet.smb_tree_id][:25]
-        if packet.smb_filename and packet.smb_filename not in flow.smb_filenames:
-            flow.smb_filenames = [*flow.smb_filenames, packet.smb_filename][:25]
-        smb_command_label_value = (
-            smb_command_label(packet.smb_command).lower() if packet.smb_command else ""
-        )
-        if "read" in smb_command_label_value:
-            flow.smb_read_ops += 1
-            if packet.smb_filename and packet.smb_filename not in flow.smb_read_filenames:
-                flow.smb_read_filenames = [*flow.smb_read_filenames, packet.smb_filename][:25]
-            if packet.smb_read_length is None:
-                flow.smb_read_unknown_bytes_ops += 1
-            else:
-                flow.smb_read_bytes += packet.smb_read_length
-        if "write" in smb_command_label_value:
-            flow.smb_write_ops += 1
-            if packet.smb_filename and packet.smb_filename not in flow.smb_write_filenames:
-                flow.smb_write_filenames = [*flow.smb_write_filenames, packet.smb_filename][:25]
-            if packet.smb_write_length is None:
-                flow.smb_write_unknown_bytes_ops += 1
-            else:
-                flow.smb_write_bytes += packet.smb_write_length
-        if packet.smb_status and packet.smb_status.upper() not in {
-            "0",
-            "0x00000000",
-            "STATUS_SUCCESS",
-            "SUCCESS",
-        }:
-            flow.smb_error_count += 1
+        record_smb(flow, packet)
 
         record_dns(flow, packet)
         record_dhcp(flow, packet)

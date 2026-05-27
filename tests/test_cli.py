@@ -3,14 +3,15 @@ from pathlib import Path
 
 from flowpilot.cli import (
     _count_packets_in_capture,
+    _format_smb_capabilities,
     _format_smb_counter_lines,
     _format_smb_transfer,
-    _format_smb_transfer_files,
     _format_smb_transfer_line,
     _local_analysis_start_message,
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
 )
+from flowpilot.dns import dns_issue_summary
 from flowpilot.esp import format_esp_gap_distribution
 from flowpilot.models import FlowKey, FlowSummary
 from flowpilot.smb import SMB_COMMAND_NAMES, SMB_STATUS_NAMES
@@ -28,6 +29,13 @@ def test_format_esp_gap_distribution_groups_missing_counts() -> None:
 
 def test_format_esp_gap_distribution_handles_no_gaps() -> None:
     assert format_esp_gap_distribution([]) == "none"
+
+
+def test_dns_issue_summary_explains_common_rcodes() -> None:
+    assert dns_issue_summary({"3 NXDOMAIN": 1, "2 SERVFAIL": 1, "0 NoError": 1}) == (
+        "NXDOMAIN: queried name does not exist\n"
+        "SERVFAIL: DNS server failed to answer"
+    )
 
 
 def test_local_analysis_start_message_includes_packet_count() -> None:
@@ -130,6 +138,24 @@ def test_format_smb_transfer_line_shows_unavailable_lengths() -> None:
     )
 
 
+def test_format_smb_transfer_line_shows_related_files() -> None:
+    assert _format_smb_transfer_line(
+        "write",
+        10,
+        4096,
+        0,
+        0,
+        ["upload \\\\share\\upload.bin"],
+    ) == "write 10 ops / 4096 bytes\nupload \\\\share\\upload.bin"
+
+
+def test_format_smb_transfer_line_shows_offset_inference() -> None:
+    assert _format_smb_transfer_line("write", 10, 36864, 1, 9) == (
+        "write 10 ops / 36864 bytes "
+        "(9 ops inferred from offsets, 1 ops length unavailable)"
+    )
+
+
 def test_format_smb_transfer_labels_payload_and_flow_rates() -> None:
     flow = FlowSummary(
         key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
@@ -144,14 +170,16 @@ def test_format_smb_transfer_labels_payload_and_flow_rates() -> None:
     assert "flow total 8.000 Mbps" in _format_smb_transfer(flow)
 
 
-def test_format_smb_transfer_files_only_shows_uploads_and_downloads() -> None:
+def test_format_smb_capabilities_shows_client_and_server_offers() -> None:
     flow = FlowSummary(
         key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
-        smb_filenames=["\\\\share\\metadata-only.txt"],
-        smb_read_filenames=["\\\\share\\download.bin"],
-        smb_write_filenames=["\\\\share\\upload.bin"],
+        smb_client_capabilities=["dialect=0x0311", "signing enabled"],
+        smb_server_capabilities=["multi-channel", "encryption"],
     )
 
-    assert _format_smb_transfer_files(flow) == (
-        "download \\\\share\\download.bin\nupload \\\\share\\upload.bin"
+    assert _format_smb_capabilities(flow) == (
+        "client dialect=0x0311\n"
+        "client signing enabled\n"
+        "server multi-channel\n"
+        "server encryption"
     )
