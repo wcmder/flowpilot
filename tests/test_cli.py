@@ -1,8 +1,10 @@
+import struct
 from pathlib import Path
 
 from flowpilot.cli import (
     _SMB_COMMAND_NAMES,
     _SMB_STATUS_NAMES,
+    _count_packets_in_capture,
     _format_esp_gap_distribution,
     _format_smb_counter_lines,
     _local_analysis_start_message,
@@ -66,6 +68,36 @@ def test_parse_capinfos_packet_count_reads_named_count_only() -> None:
 
     assert _parse_capinfos_packet_count(output) == 1234
     assert _parse_capinfos_packet_count("File name: capture-130mb.pcap\n") is None
+
+
+def test_count_packets_in_pcap(tmp_path) -> None:
+    capture = tmp_path / "tiny.pcap"
+    with capture.open("wb") as capture_file:
+        capture_file.write(b"\xd4\xc3\xb2\xa1")
+        capture_file.write(struct.pack("<HHIIII", 2, 4, 0, 0, 65535, 1))
+        for payload in (b"abc", b"defg"):
+            capture_file.write(struct.pack("<IIII", 0, 0, len(payload), len(payload)))
+            capture_file.write(payload)
+
+    assert _count_packets_in_capture(capture) == 2
+
+
+def test_count_packets_in_pcapng(tmp_path) -> None:
+    capture = tmp_path / "tiny.pcapng"
+    with capture.open("wb") as capture_file:
+        capture_file.write(struct.pack("<II", 0x0A0D0D0A, 28))
+        capture_file.write(b"\x4d\x3c\x2b\x1a")
+        capture_file.write(struct.pack("<HHqI", 1, 0, -1, 28))
+        for payload in (b"abc", b"defg"):
+            padded_length = (len(payload) + 3) // 4 * 4
+            block_length = 28 + padded_length + 4
+            capture_file.write(
+                struct.pack("<IIIIIII", 6, block_length, 0, 0, 0, len(payload), len(payload))
+            )
+            capture_file.write(payload.ljust(padded_length, b"\0"))
+            capture_file.write(struct.pack("<I", block_length))
+
+    assert _count_packets_in_capture(capture) == 2
 
 
 def test_format_smb_counter_lines_labels_numeric_commands() -> None:

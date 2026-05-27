@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import struct
 import subprocess
 import time
 from pathlib import Path
@@ -332,21 +333,22 @@ def _progress_reporter(total_packets: int | None) -> _ProgressReporter:
 
 def _capture_packet_count(capture_path: Path) -> int | None:
     capinfos = _capinfos_path()
-    if not capinfos:
-        return None
-    try:
-        result = subprocess.run(
-            [capinfos, "-c", str(capture_path)],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    return _parse_capinfos_packet_count(result.stdout)
+    if capinfos:
+        try:
+            result = subprocess.run(
+                [capinfos, "-c", "-M", str(capture_path)],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        if result and result.returncode == 0:
+            count = _parse_capinfos_packet_count(result.stdout)
+            if count is not None:
+                return count
+    return _count_packets_in_capture(capture_path)
 
 
 def _capinfos_path() -> str | None:
@@ -361,10 +363,80 @@ def _capinfos_path() -> str | None:
 
 def _parse_capinfos_packet_count(output: str) -> int | None:
     for line in output.splitlines():
-        match = re.match(r"\s*(?:Number of packets|Packet count)\s*:\s*([0-9,]+)\s*$", line)
+        match = re.match(
+            r"\s*(?:Number of packets|Packet count)\s*[:=]\s*([0-9,]+)\s*$",
+            line,
+        )
         if match:
             return int(match.group(1).replace(",", ""))
     return None
+
+
+def _count_packets_in_capture(capture_path: Path) -> int | None:
+    try:
+        with capture_path.open("rb") as capture_file:
+            magic = capture_file.read(4)
+            capture_file.seek(0)
+            if magic in {b"\xd4\xc3\xb2\xa1", b"\x4d\x3c\xb2\xa1"}:
+                return _count_packets_in_pcap(capture_file, "<")
+            if magic in {b"\xa1\xb2\xc3\xd4", b"\xa1\xb2\x3c\x4d"}:
+                return _count_packets_in_pcap(capture_file, ">")
+            if magic == b"\x0a\x0d\x0d\x0a":
+                return _count_packets_in_pcapng(capture_file)
+    except OSError:
+        return None
+    return None
+
+
+def _count_packets_in_pcap(capture_file, endian: str) -> int | None:
+    capture_file.seek(24)
+    count = 0
+    while True:
+        header = capture_file.read(16)
+        if not header:
+            return count
+        if len(header) < 16:
+            return None
+        _ts_sec, _ts_frac, captured_length, _original_length = struct.unpack(
+            f"{endian}IIII",
+            header,
+        )
+        if captured_length < 0:
+            return None
+        capture_file.seek(captured_length, 1)
+        count += 1
+
+
+def _count_packets_in_pcapng(capture_file) -> int | None:
+    endian = "<"
+    count = 0
+    while True:
+        header = capture_file.read(8)
+        if not header:
+            return count
+        if len(header) < 8:
+            return None
+        block_type, block_length = struct.unpack(f"{endian}II", header)
+        if block_type == 0x0A0D0D0A:
+            body = capture_file.read(4)
+            if len(body) < 4:
+                return None
+            if body == b"\x4d\x3c\x2b\x1a":
+                endian = "<"
+                block_length = struct.unpack(f"{endian}I", header[4:8])[0]
+            elif body == b"\x1a\x2b\x3c\x4d":
+                endian = ">"
+                block_length = struct.unpack(f"{endian}I", header[4:8])[0]
+            else:
+                return None
+            remaining = block_length - 12
+        else:
+            remaining = block_length - 8
+            if block_type in {0x00000003, 0x00000006}:
+                count += 1
+        if block_length < 12 or remaining < 4:
+            return None
+        capture_file.seek(remaining, 1)
 
 
 def _render_sip_details(summary, *, show_flows: int) -> None:
