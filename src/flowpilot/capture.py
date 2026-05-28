@@ -393,8 +393,6 @@ def _smb_encrypted(packet: Any) -> bool:
     if smb2_layer is None:
         return False
     encrypted_field_names = (
-        "encrypted",
-        "flags_encrypted",
         "transform_header",
         "transform_session_id",
         "transform_signature",
@@ -413,9 +411,7 @@ def _smb_encrypted(packet: Any) -> bool:
 
 def _is_smb_encrypted_payload_field(field_name: str) -> bool:
     field_name = field_name.lower()
-    if "capabil" in field_name or "cipher" in field_name:
-        return False
-    return "transform" in field_name or field_name.endswith(".encrypted")
+    return "transform" in field_name
 
 
 def _smb_capabilities(packet: Any) -> list[str]:

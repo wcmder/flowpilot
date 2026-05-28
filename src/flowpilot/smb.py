@@ -247,13 +247,16 @@ def _record_smb_transfer(
         packet,
         allow_packet_filename=allow_packet_filename,
     )
-    _append_unique(flow, filename_field, filename)
     inferred_length = _infer_transfer_length_from_offset(flow, packet, last_offsets_field, filename)
     if length is not None:
         setattr(flow, bytes_field, getattr(flow, bytes_field) + length)
+        if length > 0:
+            _append_unique(flow, filename_field, filename)
     elif inferred_length is not None:
         setattr(flow, bytes_field, getattr(flow, bytes_field) + inferred_length)
         setattr(flow, inferred_ops_field, getattr(flow, inferred_ops_field) + 1)
+        if inferred_length > 0:
+            _append_unique(flow, filename_field, filename)
     else:
         setattr(flow, unknown_ops_field, getattr(flow, unknown_ops_field) + 1)
 
