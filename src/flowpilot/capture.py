@@ -119,6 +119,23 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         smb_tree_id=_smb_value(packet, "tid") or _smb_value(packet, "tree_id"),
         smb_file_id=_smb_file_id(packet),
         smb_filename=_smb_value(packet, "file") or _smb_value(packet, "filename"),
+        smb_create_desired_access=_smb_int_value(
+            packet,
+            (
+                "create.desired_access",
+                "create_desired_access",
+                "desired_access",
+                "create_access_mask",
+            ),
+        ),
+        smb_create_file_attributes=_smb_int_value(
+            packet,
+            (
+                "create.file_attributes",
+                "create_file_attributes",
+                "file_attributes",
+            ),
+        ),
         smb_read_length=_smb_transfer_length(
             packet,
             (

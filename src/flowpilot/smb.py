@@ -181,7 +181,9 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
             ops_field="smb_read_ops",
             unknown_ops_field="smb_read_unknown_bytes_ops",
             inferred_ops_field="smb_read_offset_inferred_ops",
+            bytes_by_file_field="smb_read_bytes_by_file",
             allow_packet_filename=allow_packet_filename,
+            transfer_direction="read",
         )
     if "write" in command_label and _should_record_smb_transfer(
         commands,
@@ -198,7 +200,9 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
             ops_field="smb_write_ops",
             unknown_ops_field="smb_write_unknown_bytes_ops",
             inferred_ops_field="smb_write_offset_inferred_ops",
+            bytes_by_file_field="smb_write_bytes_by_file",
             allow_packet_filename=allow_packet_filename,
+            transfer_direction="write",
         )
     if packet.smb_status and packet.smb_status.upper() not in {
         "0",
@@ -239,24 +243,29 @@ def _record_smb_transfer(
     ops_field: str,
     unknown_ops_field: str,
     inferred_ops_field: str,
+    bytes_by_file_field: str,
     allow_packet_filename: bool,
+    transfer_direction: str,
 ) -> None:
     setattr(flow, ops_field, getattr(flow, ops_field) + 1)
     filename = _resolved_smb_filename(
         flow,
         packet,
         allow_packet_filename=allow_packet_filename,
+        transfer_direction=transfer_direction,
     )
     inferred_length = _infer_transfer_length_from_offset(flow, packet, last_offsets_field, filename)
     if length is not None:
         setattr(flow, bytes_field, getattr(flow, bytes_field) + length)
         if length > 0:
             _append_unique(flow, filename_field, filename)
+            _record_bytes_by_file(flow, bytes_by_file_field, filename, length)
     elif inferred_length is not None:
         setattr(flow, bytes_field, getattr(flow, bytes_field) + inferred_length)
         setattr(flow, inferred_ops_field, getattr(flow, inferred_ops_field) + 1)
         if inferred_length > 0:
             _append_unique(flow, filename_field, filename)
+            _record_bytes_by_file(flow, bytes_by_file_field, filename, inferred_length)
     else:
         setattr(flow, unknown_ops_field, getattr(flow, unknown_ops_field) + 1)
 
@@ -281,10 +290,29 @@ def _infer_transfer_length_from_offset(
 def _record_smb_file_id_name(flow: FlowSummary, packet: PacketObservation) -> None:
     if packet.smb_file_id and packet.smb_filename:
         flow.smb_file_id_names[packet.smb_file_id] = packet.smb_filename
+        _record_smb_file_id_transfer_names(flow, packet.smb_file_id, packet.smb_filename, packet)
     if packet.smb_file_id and packet.smb_message_id:
         pending_filename = flow.smb_pending_create_names.get(packet.smb_message_id)
         if pending_filename:
             flow.smb_file_id_names[packet.smb_file_id] = pending_filename
+        pending_read_filename = flow.smb_pending_create_read_names.get(packet.smb_message_id)
+        if pending_read_filename:
+            flow.smb_file_id_read_names[packet.smb_file_id] = pending_read_filename
+        pending_write_filename = flow.smb_pending_create_write_names.get(packet.smb_message_id)
+        if pending_write_filename:
+            flow.smb_file_id_write_names[packet.smb_file_id] = pending_write_filename
+
+
+def _record_bytes_by_file(
+    flow: FlowSummary,
+    field_name: str,
+    filename: str | None,
+    byte_count: int,
+) -> None:
+    if not filename:
+        return
+    bytes_by_file = getattr(flow, field_name)
+    bytes_by_file[filename] = bytes_by_file.get(filename, 0) + byte_count
 
 
 def _record_smb_create_filename(
@@ -294,7 +322,43 @@ def _record_smb_create_filename(
 ) -> None:
     if "create" in command_label and packet.smb_message_id and packet.smb_filename:
         flow.smb_pending_create_names[packet.smb_message_id] = packet.smb_filename
+        intents = _smb_create_transfer_intents(packet)
+        if "read" in intents:
+            flow.smb_pending_create_read_names[packet.smb_message_id] = packet.smb_filename
+        if "write" in intents:
+            flow.smb_pending_create_write_names[packet.smb_message_id] = packet.smb_filename
     _record_smb_file_id_name(flow, packet)
+
+
+def _record_smb_file_id_transfer_names(
+    flow: FlowSummary,
+    file_id: str,
+    filename: str,
+    packet: PacketObservation,
+) -> None:
+    intents = _smb_create_transfer_intents(packet)
+    if "read" in intents:
+        flow.smb_file_id_read_names[file_id] = filename
+    if "write" in intents:
+        flow.smb_file_id_write_names[file_id] = filename
+
+
+def _smb_create_transfer_intents(packet: PacketObservation) -> set[str]:
+    if _is_smb_directory_create(packet):
+        return set()
+    desired_access = packet.smb_create_desired_access
+    if desired_access is None:
+        return set()
+    intents = set()
+    if desired_access & 0x00000001:
+        intents.add("read")
+    if desired_access & 0x00000002 or desired_access & 0x00000004:
+        intents.add("write")
+    return intents
+
+
+def _is_smb_directory_create(packet: PacketObservation) -> bool:
+    return bool(packet.smb_create_file_attributes and packet.smb_create_file_attributes & 0x10)
 
 
 def _resolved_smb_filename(
@@ -302,11 +366,18 @@ def _resolved_smb_filename(
     packet: PacketObservation,
     *,
     allow_packet_filename: bool,
+    transfer_direction: str,
 ) -> str | None:
+    if packet.smb_file_id:
+        direction_names = (
+            flow.smb_file_id_read_names
+            if transfer_direction == "read"
+            else flow.smb_file_id_write_names
+        )
+        if filename := direction_names.get(packet.smb_file_id):
+            return filename
     if allow_packet_filename and packet.smb_filename:
         return packet.smb_filename
-    if packet.smb_file_id:
-        return flow.smb_file_id_names.get(packet.smb_file_id)
     return None
 
 
@@ -334,6 +405,10 @@ def _append_unique(
 
 
 def smb_display_value(value: str, names: dict[str, str]) -> str:
+    if names is SMB_STATUS_NAMES:
+        status_name = _status_name_from_display_value(value)
+        if status_name:
+            return status_name
     label = _lookup_smb_name(value, names)
     if label:
         if names is SMB_STATUS_NAMES:
@@ -342,6 +417,13 @@ def smb_display_value(value: str, names: dict[str, str]) -> str:
     if names is SMB_STATUS_NAMES and _is_hex_value(value):
         return f"NTSTATUS_UNKNOWN({value})"
     return value
+
+
+def _status_name_from_display_value(value: str) -> str | None:
+    status_name = value.split("(", maxsplit=1)[0].strip()
+    if status_name.upper().startswith("STATUS_"):
+        return status_name
+    return None
 
 
 def _lookup_smb_name(value: str, names: dict[str, str]) -> str | None:

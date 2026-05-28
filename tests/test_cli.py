@@ -139,6 +139,16 @@ def test_format_smb_counter_lines_labels_numeric_statuses() -> None:
     )
 
 
+def test_format_smb_counter_lines_removes_hex_from_preformatted_statuses() -> None:
+    assert _format_smb_counter_lines(
+        {
+            "STATUS_SUCCESS (0x00000000)": 2,
+            "STATUS_ACCESS_DENIED(0xc0000022)": 1,
+        },
+        SMB_STATUS_NAMES,
+    ) == "STATUS_SUCCESS: 2\nSTATUS_ACCESS_DENIED: 1"
+
+
 def test_format_smb_transfer_line_shows_unavailable_lengths() -> None:
     assert _format_smb_transfer_line("write", 10, 0, 10) == (
         "write 10 ops / 0 bytes (10 ops length unavailable)"
@@ -175,6 +185,28 @@ def test_format_smb_transfer_labels_payload_and_flow_rates() -> None:
 
     assert "smb payload 0.000 Mbps" in _format_smb_transfer(flow)
     assert "flow total 8.000 Mbps" in _format_smb_transfer(flow)
+
+
+def test_format_smb_transfer_hides_small_walkthrough_files() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        smb_read_ops=2,
+        smb_read_bytes=8192,
+        smb_read_bytes_by_file={"\\\\share\\preview.docx": 8192},
+    )
+
+    assert "download" not in _format_smb_transfer(flow)
+
+
+def test_format_smb_transfer_shows_large_download_files() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        smb_read_ops=20,
+        smb_read_bytes=2_097_152,
+        smb_read_bytes_by_file={"\\\\share\\download.iso": 2_097_152},
+    )
+
+    assert "download \\\\share\\download.iso (2.0 MiB)" in _format_smb_transfer(flow)
 
 
 def test_format_smb_capabilities_shows_client_and_server_offers() -> None:

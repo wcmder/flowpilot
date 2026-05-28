@@ -652,6 +652,8 @@ def test_summarize_capture_maps_smb_transfer_filename_from_file_id() -> None:
             smb_status="0",
             smb_file_id="0xabc",
             smb_filename="\\\\share\\upload.bin",
+            smb_create_desired_access=0x00000002,
+            smb_create_file_attributes=0x00000020,
         ),
         PacketObservation(
             src_ip="10.0.0.10",
@@ -699,6 +701,8 @@ def test_summarize_capture_maps_smb2_create_response_file_id_to_filename() -> No
             smb_status="0",
             smb_message_id="42",
             smb_filename="\\\\share\\upload.bin",
+            smb_create_desired_access=0x00000002,
+            smb_create_file_attributes=0x00000020,
         ),
         PacketObservation(
             src_ip="10.0.0.30",
@@ -730,6 +734,98 @@ def test_summarize_capture_maps_smb2_create_response_file_id_to_filename() -> No
     assert flow.smb_write_filenames == ["\\\\share\\upload.bin"]
     assert flow.smb_write_ops == 1
     assert flow.smb_write_bytes == 4096
+
+
+def test_summarize_capture_does_not_map_read_intent_create_as_upload() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="SMB2create",
+            smb_status="0",
+            smb_message_id="42",
+            smb_filename="\\\\share\\opened-for-read.txt",
+            smb_create_desired_access=0x00000001,
+            smb_create_file_attributes=0x00000020,
+        ),
+        PacketObservation(
+            src_ip="10.0.0.30",
+            dst_ip="10.0.0.10",
+            src_port=445,
+            dst_port=55000,
+            protocol="TCP",
+            smb_command="SMB2create",
+            smb_status="0",
+            smb_message_id="42",
+            smb_file_id="0xabc",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="SMB2write",
+            smb_status="0",
+            smb_file_id="0xabc",
+            smb_write_length=2_097_152,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_write_bytes == 2_097_152
+    assert flow.smb_write_bytes_by_file == {}
+
+
+def test_summarize_capture_does_not_map_directory_create_as_download() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="SMB2create",
+            smb_status="0",
+            smb_message_id="42",
+            smb_filename="\\\\share\\folder",
+            smb_create_desired_access=0x00000001,
+            smb_create_file_attributes=0x00000010,
+        ),
+        PacketObservation(
+            src_ip="10.0.0.30",
+            dst_ip="10.0.0.10",
+            src_port=445,
+            dst_port=55000,
+            protocol="TCP",
+            smb_command="SMB2create",
+            smb_status="0",
+            smb_message_id="42",
+            smb_file_id="0xabc",
+        ),
+        PacketObservation(
+            src_ip="10.0.0.30",
+            dst_ip="10.0.0.10",
+            src_port=445,
+            dst_port=55000,
+            protocol="TCP",
+            smb_command="SMB2read",
+            smb_status="0",
+            smb_file_id="0xabc",
+            smb_read_length=2_097_152,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_read_bytes == 2_097_152
+    assert flow.smb_read_bytes_by_file == {}
 
 
 def test_summarize_capture_counts_all_smb_commands_seen() -> None:
@@ -845,6 +941,35 @@ def test_packet_to_observation_reads_smb2_write_fields() -> None:
     assert observation.smb_file_id == "0xabc"
     assert observation.smb_file_offset == 8192
     assert observation.smb_write_length == 4096
+
+
+def test_packet_to_observation_reads_smb2_create_intent_fields() -> None:
+    packet = SimpleNamespace(
+        ip=SimpleNamespace(src="10.0.0.10", dst="10.0.0.30"),
+        tcp=SimpleNamespace(srcport="55000", dstport="445"),
+        smb2=SimpleNamespace(
+            _all_fields={
+                "smb2.cmd": "5",
+                "smb2.filename": "\\\\share\\download.bin",
+                "smb2.create.desired_access": "0x00000001",
+                "smb2.create.file_attributes": "0x00000020",
+            }
+        ),
+        layers=[
+            SimpleNamespace(layer_name="ip"),
+            SimpleNamespace(layer_name="tcp"),
+            SimpleNamespace(layer_name="smb2"),
+        ],
+        length="512",
+    )
+
+    observation = packet_to_observation(packet)
+
+    assert observation is not None
+    assert observation.smb_command == "SMB2create"
+    assert observation.smb_filename == "\\\\share\\download.bin"
+    assert observation.smb_create_desired_access == 0x00000001
+    assert observation.smb_create_file_attributes == 0x00000020
 
 
 def test_packet_to_observation_maps_smb2_ioctl_command() -> None:

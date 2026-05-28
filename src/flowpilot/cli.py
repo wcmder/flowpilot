@@ -32,6 +32,7 @@ from .smb import SMB1_COMMAND_NAMES, SMB_STATUS_NAMES, smb_display_value
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
+SMB_TRANSFER_FILE_MIN_BYTES = 1_048_576
 
 
 @app.callback()
@@ -789,7 +790,7 @@ def _format_smb_transfer(flow) -> str:
                 flow.smb_read_bytes,
                 flow.smb_read_unknown_bytes_ops,
                 flow.smb_read_offset_inferred_ops,
-                [f"download {filename}" for filename in flow.smb_read_filenames[:10]],
+                _format_smb_transfer_files("download", flow.smb_read_bytes_by_file),
             ),
             _format_smb_transfer_line(
                 "write",
@@ -797,12 +798,25 @@ def _format_smb_transfer(flow) -> str:
                 flow.smb_write_bytes,
                 flow.smb_write_unknown_bytes_ops,
                 flow.smb_write_offset_inferred_ops,
-                [f"upload {filename}" for filename in flow.smb_write_filenames[:10]],
+                _format_smb_transfer_files("upload", flow.smb_write_bytes_by_file),
             ),
             f"smb payload {flow.smb_transfer_mbps:.3f} Mbps",
             f"flow total {flow.throughput_mbps:.3f} Mbps",
         ]
     )
+
+
+def _format_smb_transfer_files(label: str, bytes_by_file: dict[str, int]) -> list[str]:
+    transferred_files = [
+        (filename, byte_count)
+        for filename, byte_count in bytes_by_file.items()
+        if byte_count >= SMB_TRANSFER_FILE_MIN_BYTES
+    ]
+    transferred_files.sort(key=lambda item: item[1], reverse=True)
+    return [
+        f"{label} {filename} ({_format_bytes(byte_count)})"
+        for filename, byte_count in transferred_files[:10]
+    ]
 
 
 def _format_smb_capabilities(flow) -> str:
@@ -837,6 +851,14 @@ def _format_smb_transfer_line(
     if files:
         line += "\n" + "\n".join(files)
     return line
+
+
+def _format_bytes(byte_count: int) -> str:
+    if byte_count >= 1_048_576:
+        return f"{byte_count / 1_048_576:.1f} MiB"
+    if byte_count >= 1024:
+        return f"{byte_count / 1024:.1f} KiB"
+    return f"{byte_count} bytes"
 
 
 def _validity(certificate) -> str:

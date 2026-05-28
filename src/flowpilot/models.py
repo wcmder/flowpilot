@@ -130,6 +130,8 @@ class PacketObservation(BaseModel):
     smb_tree_id: str | None = None
     smb_file_id: str | None = None
     smb_filename: str | None = None
+    smb_create_desired_access: int | None = None
+    smb_create_file_attributes: int | None = None
     smb_read_length: int | None = None
     smb_write_length: int | None = None
     smb_file_offset: int | None = None
@@ -211,8 +213,14 @@ class FlowSummary(BaseModel):
     smb_write_offset_inferred_ops: int = 0
     smb_error_count: int = 0
     smb_encrypted_packets: int = 0
+    smb_read_bytes_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
+    smb_write_bytes_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
     smb_file_id_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     smb_pending_create_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    smb_file_id_read_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    smb_file_id_write_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    smb_pending_create_read_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    smb_pending_create_write_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     smb_last_read_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
     smb_last_write_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
     dns_queries: dict[str, int] = Field(default_factory=dict)
