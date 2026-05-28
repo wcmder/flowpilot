@@ -108,7 +108,7 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
                 certificate.summary_key != existing.summary_key
                 for existing in flow.tls_certificates
             ):
-                flow.tls_certificates = [*flow.tls_certificates, certificate][:10]
+                flow.tls_certificates = [*flow.tls_certificates, certificate]
 
         flow_names = {packet.dns_query, packet.http_host, packet.tls_sni} - {None}
         if flow_names:

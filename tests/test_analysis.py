@@ -168,6 +168,40 @@ def test_summarize_capture_tracks_tcp_lost_segment_rate() -> None:
     assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.5
 
 
+def test_compact_metadata_keeps_protocol_detail_for_llm() -> None:
+    answers = [f"192.0.2.{index}" for index in range(30)]
+    packets = [
+        PacketObservation(
+            src_ip="192.0.2.53",
+            dst_ip="10.0.0.10",
+            src_port=53,
+            dst_port=53000,
+            protocol="UDP",
+            dns_query="files.example.com",
+            dns_response_code="0 NoError",
+            dns_answers=answers,
+        ),
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="SMB2read",
+            smb_filename="\\\\share\\download.iso",
+            smb_read_length=2_097_152,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    compact_flows = summary.compact(max_flows=2)["top_flows"]
+    dns_flow = next(flow for flow in compact_flows if flow["protocol"] == "UDP")
+    smb_flow = next(flow for flow in compact_flows if flow["protocol"] == "TCP")
+
+    assert dns_flow["dns"]["answers"] == answers
+    assert smb_flow["smb"]["read_bytes_by_file"] == {"\\\\share\\download.iso": 2_097_152}
+
+
 def test_summarize_capture_tracks_esp_spi_without_ports() -> None:
     packets = [
         PacketObservation(
@@ -487,6 +521,35 @@ def test_summarize_capture_tracks_tls_certificates() -> None:
     assert summary.compact()["top_flows"][0]["tls_certificates"][0]["issuer_cn"] == (
         "Example Intermediate CA"
     )
+
+
+def test_summarize_capture_sends_all_tls_certificates_to_compact_metadata() -> None:
+    certificates = [
+        TlsCertificateObservation(
+            presenter_ip="198.51.100.20",
+            presenter_port=443,
+            subject=f"CN=cert-{index}.example.com",
+            serial=str(index),
+        )
+        for index in range(12)
+    ]
+    packets = [
+        PacketObservation(
+            src_ip="198.51.100.20",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=50000,
+            protocol="TCP",
+            tls_certificates=certificates,
+        )
+    ]
+
+    summary = summarize_capture(packets)
+    compact_certificates = summary.compact()["top_flows"][0]["tls_certificates"]
+
+    assert len(summary.flows[0].tls_certificates) == 12
+    assert len(compact_certificates) == 12
+    assert compact_certificates[-1]["subject"] == "CN=cert-11.example.com"
 
 
 def test_summarize_capture_marks_second_cert_presenter_as_client() -> None:

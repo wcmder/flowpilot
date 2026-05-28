@@ -435,35 +435,37 @@ class CaptureSummary(BaseModel):
                             "one_way": flow.is_one_way,
                         },
                     },
-                    "esp_spis": flow.esp_spis[:10],
+                    "esp_spis": flow.esp_spis,
                     "esp_sequences": [
-                        sequence.compact() for sequence in flow.esp_sequences[:10]
+                        sequence.compact() for sequence in flow.esp_sequences
                     ],
-                    "redirect_locations": flow.redirect_locations[:10],
+                    "redirect_locations": flow.redirect_locations,
                     "tls_certificates": [
                         certificate.model_dump(mode="json")
-                        for certificate in flow.tls_certificates[:5]
+                        for certificate in flow.tls_certificates
                     ],
                     "sip": {
-                        "call_ids": flow.sip_call_ids[:10],
+                        "call_ids": flow.sip_call_ids,
                         "calls": [
                             call.model_dump(mode="json")
-                            for call in list(flow.sip_calls.values())[:10]
+                            for call in flow.sip_calls.values()
                         ],
                         "methods": flow.sip_methods,
                         "statuses": flow.sip_statuses,
-                        "participants": flow.sip_participants[:10],
+                        "participants": flow.sip_participants,
                     },
                     "smb": {
                         "commands": flow.smb_commands,
                         "statuses": flow.smb_statuses,
-                        "session_ids": flow.smb_session_ids[:10],
-                        "tree_ids": flow.smb_tree_ids[:10],
-                        "filenames": flow.smb_filenames[:10],
-                        "read_filenames": flow.smb_read_filenames[:10],
-                        "write_filenames": flow.smb_write_filenames[:10],
-                        "client_capabilities": flow.smb_client_capabilities[:20],
-                        "server_capabilities": flow.smb_server_capabilities[:20],
+                        "session_ids": flow.smb_session_ids,
+                        "tree_ids": flow.smb_tree_ids,
+                        "filenames": flow.smb_filenames,
+                        "read_filenames": flow.smb_read_filenames,
+                        "write_filenames": flow.smb_write_filenames,
+                        "read_bytes_by_file": flow.smb_read_bytes_by_file,
+                        "write_bytes_by_file": flow.smb_write_bytes_by_file,
+                        "client_capabilities": flow.smb_client_capabilities,
+                        "server_capabilities": flow.smb_server_capabilities,
                         "read_ops": flow.smb_read_ops,
                         "write_ops": flow.smb_write_ops,
                         "read_bytes": flow.smb_read_bytes,
@@ -482,20 +484,20 @@ class CaptureSummary(BaseModel):
                         "queries": flow.dns_queries,
                         "query_types": flow.dns_query_types,
                         "response_codes": flow.dns_response_codes,
-                        "answers": flow.dns_answers[:20],
+                        "answers": flow.dns_answers,
                         "error_count": flow.dns_error_count,
                     },
                     "dhcp": {
                         "message_types": flow.dhcp_message_types,
-                        "transaction_ids": flow.dhcp_transaction_ids[:10],
-                        "client_macs": flow.dhcp_client_macs[:10],
-                        "hostnames": flow.dhcp_hostnames[:10],
-                        "requested_ips": flow.dhcp_requested_ips[:10],
-                        "offered_ips": flow.dhcp_offered_ips[:10],
-                        "server_ids": flow.dhcp_server_ids[:10],
-                        "lease_times": flow.dhcp_lease_times[:10],
+                        "transaction_ids": flow.dhcp_transaction_ids,
+                        "client_macs": flow.dhcp_client_macs,
+                        "hostnames": flow.dhcp_hostnames,
+                        "requested_ips": flow.dhcp_requested_ips,
+                        "offered_ips": flow.dhcp_offered_ips,
+                        "server_ids": flow.dhcp_server_ids,
+                        "lease_times": flow.dhcp_lease_times,
                     },
-                    "names": flow.names[:10],
+                    "names": flow.names,
                 }
                 for flow in flows
             ],
