@@ -165,6 +165,10 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
     _record_smb_create_filename(flow, packet, command_label)
     _record_smb_capabilities(flow, packet)
 
+    if _is_smb_error_response(packet):
+        flow.smb_error_count += 1
+        return
+
     allow_packet_filename = len(commands) <= 1
     if "read" in command_label and _should_record_smb_transfer(
         commands,
@@ -184,6 +188,7 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
             bytes_by_file_field="smb_read_bytes_by_file",
             allow_packet_filename=allow_packet_filename,
             transfer_direction="read",
+            count_operation=packet.smb_is_response is not True,
         )
     if "write" in command_label and _should_record_smb_transfer(
         commands,
@@ -203,13 +208,9 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
             bytes_by_file_field="smb_write_bytes_by_file",
             allow_packet_filename=allow_packet_filename,
             transfer_direction="write",
+            count_operation=packet.smb_is_response is not True,
         )
-    if packet.smb_status and packet.smb_status.upper() not in {
-        "0",
-        "0x00000000",
-        "STATUS_SUCCESS",
-        "SUCCESS",
-    }:
+    if _is_smb_error_status(packet.smb_status):
         flow.smb_error_count += 1
 
 
@@ -246,8 +247,10 @@ def _record_smb_transfer(
     bytes_by_file_field: str,
     allow_packet_filename: bool,
     transfer_direction: str,
+    count_operation: bool,
 ) -> None:
-    setattr(flow, ops_field, getattr(flow, ops_field) + 1)
+    if count_operation:
+        setattr(flow, ops_field, getattr(flow, ops_field) + 1)
     filename = _resolved_smb_filename(
         flow,
         packet,
@@ -266,8 +269,23 @@ def _record_smb_transfer(
         if inferred_length > 0:
             _append_unique(flow, filename_field, filename)
             _record_bytes_by_file(flow, bytes_by_file_field, filename, inferred_length)
-    else:
+    elif count_operation:
         setattr(flow, unknown_ops_field, getattr(flow, unknown_ops_field) + 1)
+
+
+def _is_smb_error_response(packet: PacketObservation) -> bool:
+    return packet.smb_is_response is True and _is_smb_error_status(packet.smb_status)
+
+
+def _is_smb_error_status(status: str | None) -> bool:
+    if not status:
+        return False
+    return status.upper() not in {
+        "0",
+        "0X00000000",
+        "STATUS_SUCCESS",
+        "SUCCESS",
+    }
 
 
 def _infer_transfer_length_from_offset(

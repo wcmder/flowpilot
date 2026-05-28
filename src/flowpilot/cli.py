@@ -247,6 +247,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
             "\n".join(
                 [
                     f"rtx {_percent(flow.retransmission_rate)}",
+                    f"loss {_percent(flow.packet_loss_rate)}",
                     f"rtt {_rtt(flow)}",
                     f"rate {flow.packet_rate_per_second:.1f} pps",
                     f"thr {flow.throughput_mbps:.3f} Mbps",
@@ -710,9 +711,16 @@ def _percent(value: float) -> str:
 
 
 def _rtt(flow) -> str:
-    if flow.avg_rtt_ms is None:
+    if flow.median_rtt_ms is None:
         return "-"
-    return f"{flow.avg_rtt_ms:.1f}/{flow.rtt_max_ms:.1f} ms"
+    parts = [
+        f"med {flow.median_rtt_ms:.1f}",
+        f"p95 {flow.p95_rtt_ms:.1f}",
+        f"max {flow.rtt_max_ms:.1f}",
+    ]
+    if flow.initial_rtt_ms is not None:
+        parts.append(f"init {flow.initial_rtt_ms:.1f}")
+    return f"{'/'.join(parts)} ms"
 
 
 def _milliseconds(value: float | None) -> str:

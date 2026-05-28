@@ -67,7 +67,10 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
             rtt_ms = packet.rtt_seconds * 1000
             flow.rtt_sample_count += 1
             flow.rtt_total_ms += rtt_ms
+            flow.rtt_samples_ms = [*flow.rtt_samples_ms, rtt_ms]
             flow.rtt_max_ms = max(filter(None, [flow.rtt_max_ms, rtt_ms]), default=rtt_ms)
+        if packet.initial_rtt_seconds is not None:
+            flow.initial_rtt_ms = packet.initial_rtt_seconds * 1000
 
         if packet.src_ip == key.endpoint_a and (
             key.port_a is None or packet.src_port == key.port_a

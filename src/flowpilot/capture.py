@@ -85,6 +85,7 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         protocol=protocol,
         length=_safe_int(getattr(packet, "length", 0)) or 0,
         rtt_seconds=_tcp_rtt_seconds(packet),
+        initial_rtt_seconds=_tcp_initial_rtt_seconds(packet),
         issue_tags=_issue_tags(packet, protocol),
         esp_spi=_layer_attr(packet, "esp", "spi"),
         esp_sequence=_safe_int(_layer_attr(packet, "esp", "sequence")),
@@ -577,6 +578,13 @@ def _tcp_rtt_seconds(packet: Any) -> float | None:
     if tcp is None:
         return None
     return _safe_float(getattr(tcp, "analysis_ack_rtt", None))
+
+
+def _tcp_initial_rtt_seconds(packet: Any) -> float | None:
+    tcp = getattr(packet, "tcp", None)
+    if tcp is None:
+        return None
+    return _safe_float(getattr(tcp, "analysis_initial_rtt", None))
 
 
 def _safe_int(value: Any) -> int | None:

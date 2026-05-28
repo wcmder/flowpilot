@@ -96,6 +96,7 @@ class PacketObservation(BaseModel):
     protocol: str = "UNKNOWN"
     length: int = 0
     rtt_seconds: float | None = None
+    initial_rtt_seconds: float | None = None
     issue_tags: list[str] = Field(default_factory=list)
     esp_spi: str | None = None
     esp_sequence: int | None = None
@@ -183,6 +184,8 @@ class FlowSummary(BaseModel):
     rtt_sample_count: int = 0
     rtt_total_ms: float = 0.0
     rtt_max_ms: float | None = None
+    rtt_samples_ms: list[float] = Field(default_factory=list)
+    initial_rtt_ms: float | None = None
     max_interarrival_ms: float | None = None
     issue_counts: dict[str, int] = Field(default_factory=dict)
     esp_spis: list[str] = Field(default_factory=list)
@@ -270,10 +273,25 @@ class FlowSummary(BaseModel):
         return retransmissions / self.packet_count
 
     @property
+    def packet_loss_rate(self) -> float:
+        if self.packet_count == 0:
+            return 0.0
+        lost_segments = self.issue_counts.get("tcp_lost_segment", 0)
+        return lost_segments / self.packet_count
+
+    @property
     def avg_rtt_ms(self) -> float | None:
         if self.rtt_sample_count == 0:
             return None
         return self.rtt_total_ms / self.rtt_sample_count
+
+    @property
+    def median_rtt_ms(self) -> float | None:
+        return _percentile(self.rtt_samples_ms, 0.5)
+
+    @property
+    def p95_rtt_ms(self) -> float | None:
+        return _percentile(self.rtt_samples_ms, 0.95)
 
     @property
     def is_one_way(self) -> bool:
@@ -379,8 +397,12 @@ class CaptureSummary(BaseModel):
                     "byte_rate_per_second": round(flow.byte_rate_per_second, 3),
                     "throughput_mbps": round(flow.throughput_mbps, 3),
                     "retransmission_rate": round(flow.retransmission_rate, 4),
+                    "packet_loss_rate": round(flow.packet_loss_rate, 4),
                     "avg_rtt_ms": _round_optional(flow.avg_rtt_ms, 3),
+                    "median_rtt_ms": _round_optional(flow.median_rtt_ms, 3),
+                    "p95_rtt_ms": _round_optional(flow.p95_rtt_ms, 3),
                     "max_rtt_ms": _round_optional(flow.rtt_max_ms, 3),
+                    "initial_rtt_ms": _round_optional(flow.initial_rtt_ms, 3),
                     "one_way": flow.is_one_way,
                     "diagnostic_hints": flow.diagnostic_hints,
                     "issue_counts": flow.issue_counts,
@@ -478,6 +500,14 @@ def _endpoint_sort_key(endpoint: tuple[str, int | None]) -> tuple[str, int]:
 
 def _round_optional(value: float | None, digits: int) -> float | None:
     return round(value, digits) if value is not None else None
+
+
+def _percentile(values: list[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = int(round((len(ordered) - 1) * percentile))
+    return ordered[index]
 
 
 def _has_any_key(values: dict[str, int], wanted: set[str]) -> bool:

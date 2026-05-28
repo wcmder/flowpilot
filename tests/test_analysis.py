@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from flowpilot.analysis import summarize_capture
 from flowpilot.capture import _tshark_custom_parameters, packet_to_observation
+from flowpilot.cli import _rtt
 from flowpilot.filters import (
     FlowFilter,
     filter_observations,
@@ -24,6 +25,7 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
             protocol="TCP",
             length=120,
             rtt_seconds=0.025,
+            initial_rtt_seconds=0.02,
             issue_tags=["tcp_retransmission"],
             tls_sni="example.com",
         ),
@@ -54,11 +56,78 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
     assert summary.flows[0].packet_rate_per_second == 2.0
     assert summary.flows[0].byte_rate_per_second == 420.0
     assert summary.flows[0].retransmission_rate == 0.5
+    assert summary.flows[0].packet_loss_rate == 0.0
     assert summary.flows[0].avg_rtt_ms == 50.0
+    assert summary.flows[0].median_rtt_ms == 25.0
+    assert summary.flows[0].p95_rtt_ms == 75.0
     assert summary.flows[0].rtt_max_ms == 75.0
+    assert summary.flows[0].initial_rtt_ms == 20.0
     assert summary.flows[0].max_interarrival_ms == 1000.0
     assert summary.flows[0].is_one_way is False
     assert summary.compact()["top_flows"][0]["avg_rtt_ms"] == 50.0
+    assert summary.compact()["top_flows"][0]["median_rtt_ms"] == 25.0
+    assert summary.compact()["top_flows"][0]["p95_rtt_ms"] == 75.0
+    assert summary.compact()["top_flows"][0]["initial_rtt_ms"] == 20.0
+    assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.0
+
+
+def test_rtt_display_uses_median_p95_max_and_initial_rtt() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.5",
+            dst_ip="93.184.216.34",
+            src_port=54000,
+            dst_port=443,
+            protocol="TCP",
+            rtt_seconds=0.0002,
+            initial_rtt_seconds=0.02,
+        ),
+        PacketObservation(
+            src_ip="93.184.216.34",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=54000,
+            protocol="TCP",
+            rtt_seconds=0.02,
+        ),
+        PacketObservation(
+            src_ip="93.184.216.34",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=54000,
+            protocol="TCP",
+            rtt_seconds=0.0928,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert _rtt(summary.flows[0]) == "med 20.0/p95 92.8/max 92.8/init 20.0 ms"
+
+
+def test_summarize_capture_tracks_tcp_lost_segment_rate() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.5",
+            dst_ip="93.184.216.34",
+            src_port=54000,
+            dst_port=443,
+            protocol="TCP",
+            issue_tags=["tcp_lost_segment"],
+        ),
+        PacketObservation(
+            src_ip="93.184.216.34",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=54000,
+            protocol="TCP",
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert summary.flows[0].packet_loss_rate == 0.5
+    assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.5
 
 
 def test_summarize_capture_tracks_esp_spi_without_ports() -> None:
@@ -911,6 +980,62 @@ def test_summarize_capture_does_not_list_unknown_length_read_filename() -> None:
     assert flow.smb_read_ops == 1
     assert flow.smb_read_unknown_bytes_ops == 1
     assert flow.smb_read_filenames == []
+
+
+def test_summarize_capture_does_not_count_error_read_response_as_unknown_length() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.30",
+            dst_ip="10.0.0.10",
+            src_port=445,
+            dst_port=55000,
+            protocol="TCP",
+            smb_command="SMB2read",
+            smb_status="STATUS_END_OF_FILE",
+            smb_is_response=True,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_read_ops == 0
+    assert flow.smb_read_bytes == 0
+    assert flow.smb_read_unknown_bytes_ops == 0
+    assert flow.smb_error_count == 1
+
+
+def test_summarize_capture_does_not_count_success_response_as_operation() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_command="SMB2read",
+            smb_status="0",
+            smb_is_response=False,
+            smb_read_length=4096,
+        ),
+        PacketObservation(
+            src_ip="10.0.0.30",
+            dst_ip="10.0.0.10",
+            src_port=445,
+            dst_port=55000,
+            protocol="TCP",
+            smb_command="SMB2read",
+            smb_status="0",
+            smb_is_response=True,
+            smb_read_length=4096,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_read_ops == 1
+    assert flow.smb_read_unknown_bytes_ops == 0
 
 
 def test_packet_to_observation_reads_smb2_write_fields() -> None:
