@@ -511,7 +511,7 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
     table.add_column("Commands")
     table.add_column("Statuses")
     table.add_column("Capabilities")
-    table.add_column("Transfer")
+    table.add_column("Transfer", overflow="fold")
     table.add_column("Issue")
 
     for flow_id, flow in rows:

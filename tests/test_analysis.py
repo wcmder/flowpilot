@@ -166,6 +166,24 @@ def test_summarize_capture_tracks_tcp_lost_segment_rate() -> None:
     assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.5
 
 
+def test_packet_to_observation_counts_presence_only_tcp_lost_segment() -> None:
+    packet = SimpleNamespace(
+        ip=SimpleNamespace(src="10.0.0.5", dst="93.184.216.34"),
+        tcp=SimpleNamespace(
+            srcport="54000",
+            dstport="443",
+            _all_fields={"tcp.analysis.lost_segment": ""},
+        ),
+        layers=[],
+        length="100",
+    )
+
+    observation = packet_to_observation(packet)
+
+    assert observation is not None
+    assert observation.issue_tags == ["tcp_lost_segment"]
+
+
 def test_compact_metadata_keeps_protocol_detail_for_llm() -> None:
     answers = [f"192.0.2.{index}" for index in range(30)]
     packets = [

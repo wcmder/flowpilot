@@ -247,9 +247,7 @@ def _layer_field_value(layer: Any, attr_name: str, *, layer_name: str | None = N
 
 def _layer_field_values(layer: Any, attr_name: str, *, layer_name: str | None = None) -> list[str]:
     fields = getattr(layer, "_all_fields", {})
-    candidates = [attr_name, attr_name.replace("_", ".")]
-    if layer_name:
-        candidates.extend(f"{layer_name}.{candidate}" for candidate in list(candidates))
+    candidates = _layer_field_candidates(attr_name, layer_name=layer_name)
     for candidate in candidates:
         value = fields.get(candidate)
         if value not in (None, ""):
@@ -264,6 +262,16 @@ def _layer_field_values(layer: Any, attr_name: str, *, layer_name: str | None = 
         ) and value not in (None, ""):
             return _string_values(value)
     return []
+
+
+def _layer_field_candidates(attr_name: str, *, layer_name: str | None = None) -> list[str]:
+    candidates = [attr_name, attr_name.replace("_", ".")]
+    if "_" in attr_name:
+        prefix, suffix = attr_name.split("_", 1)
+        candidates.append(f"{prefix}.{suffix}")
+    if layer_name:
+        candidates.extend(f"{layer_name}.{candidate}" for candidate in list(candidates))
+    return list(dict.fromkeys(candidates))
 
 
 def _string_values(value: Any) -> list[str]:
@@ -548,19 +556,42 @@ def _issue_tags(packet: Any, protocol: str) -> list[str]:
     if tcp is None:
         return []
 
-    issue_fields = {
+    analysis_issue_fields = {
         "tcp_retransmission": ("analysis_retransmission", "analysis_fast_retransmission"),
         "tcp_out_of_order": ("analysis_out_of_order",),
         "tcp_duplicate_ack": ("analysis_duplicate_ack",),
         "tcp_lost_segment": ("analysis_lost_segment",),
         "tcp_zero_window": ("analysis_zero_window", "analysis_zero_window_probe"),
-        "tcp_reset": ("flags_reset",),
     }
-    return [
+    issue_tags = [
         tag
-        for tag, field_names in issue_fields.items()
-        if any(_truthy_layer_attr(tcp, field_name) for field_name in field_names)
+        for tag, field_names in analysis_issue_fields.items()
+        if any(_tcp_analysis_marker_present(tcp, field_name) for field_name in field_names)
     ]
+    if _truthy_layer_attr(tcp, "flags_reset"):
+        issue_tags.append("tcp_reset")
+    return issue_tags
+
+
+def _tcp_analysis_marker_present(layer: Any, attr_name: str) -> bool:
+    if _truthy_layer_attr(layer, attr_name):
+        return True
+
+    fields = getattr(layer, "_all_fields", {})
+    for candidate in _layer_field_candidates(attr_name, layer_name="tcp"):
+        if candidate in fields and fields[candidate] not in ("0", "False", "false"):
+            return True
+
+    attr_text = attr_name.lower()
+    dotted_attr_text = attr_name.replace("_", ".").lower()
+    for key, value in fields.items():
+        key_text = key.lower()
+        if (
+            key_text.endswith(f".{attr_text}")
+            or key_text.endswith(f".{dotted_attr_text}")
+        ) and value not in ("0", "False", "false"):
+            return True
+    return False
 
 
 def _truthy_layer_attr(layer: Any, attr_name: str) -> bool:
