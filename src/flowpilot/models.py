@@ -375,6 +375,13 @@ class CaptureSummary(BaseModel):
     def compact(self, max_flows: int = 25) -> dict[str, Any]:
         flows = sorted(self.flows, key=lambda flow: flow.byte_count, reverse=True)[:max_flows]
         return {
+            "analysis_focus": "network transport troubleshooting",
+            "transport_metric_notes": {
+                "loss": "tcp.analysis.lost_segment rate over observed flow packets",
+                "rtt": "tcp.analysis.ack_rtt median/p95/max plus tcp.analysis.initial_rtt",
+                "throughput": "observed bytes over first-to-last packet duration",
+                "limitations": "absence of a metric does not prove absence of a problem",
+            },
             "packet_count": self.packet_count,
             "total_bytes": self.total_bytes,
             "flow_count": self.flow_count,
@@ -406,6 +413,26 @@ class CaptureSummary(BaseModel):
                     "one_way": flow.is_one_way,
                     "diagnostic_hints": flow.diagnostic_hints,
                     "issue_counts": flow.issue_counts,
+                    "transport": {
+                        "duration_seconds": round(flow.duration_seconds, 3),
+                        "throughput_mbps": round(flow.throughput_mbps, 3),
+                        "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
+                        "retransmission_rate": round(flow.retransmission_rate, 4),
+                        "packet_loss_rate": round(flow.packet_loss_rate, 4),
+                        "tcp_issue_counts": _tcp_issue_counts(flow.issue_counts),
+                        "rtt": {
+                            "median_ms": _round_optional(flow.median_rtt_ms, 3),
+                            "p95_ms": _round_optional(flow.p95_rtt_ms, 3),
+                            "max_ms": _round_optional(flow.rtt_max_ms, 3),
+                            "initial_ms": _round_optional(flow.initial_rtt_ms, 3),
+                            "samples": flow.rtt_sample_count,
+                        },
+                        "directionality": {
+                            "src_to_dst_packets": flow.src_to_dst_packets,
+                            "dst_to_src_packets": flow.dst_to_src_packets,
+                            "one_way": flow.is_one_way,
+                        },
+                    },
                     "esp_spis": flow.esp_spis[:10],
                     "esp_sequences": [
                         sequence.compact() for sequence in flow.esp_sequences[:10]
@@ -500,6 +527,14 @@ def _endpoint_sort_key(endpoint: tuple[str, int | None]) -> tuple[str, int]:
 
 def _round_optional(value: float | None, digits: int) -> float | None:
     return round(value, digits) if value is not None else None
+
+
+def _tcp_issue_counts(issue_counts: dict[str, int]) -> dict[str, int]:
+    return {
+        issue_name: count
+        for issue_name, count in issue_counts.items()
+        if issue_name.startswith("tcp_")
+    }
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:
