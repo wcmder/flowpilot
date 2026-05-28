@@ -15,7 +15,7 @@ from flowpilot.cli import (
 from flowpilot.dns import dns_issue_summary
 from flowpilot.esp import format_esp_gap_distribution
 from flowpilot.models import FlowKey, FlowSummary
-from flowpilot.smb import SMB_COMMAND_NAMES, SMB_STATUS_NAMES
+from flowpilot.smb import SMB1_COMMAND_NAMES, SMB2_COMMAND_NAMES, SMB_STATUS_NAMES
 
 
 def test_format_esp_gap_distribution_groups_missing_counts() -> None:
@@ -113,8 +113,14 @@ def test_count_packets_in_pcapng(tmp_path) -> None:
 
 
 def test_format_smb_counter_lines_labels_numeric_commands() -> None:
-    assert _format_smb_counter_lines({"0": 2, "11": 1, "Read": 1}, SMB_COMMAND_NAMES) == (
+    assert _format_smb_counter_lines({"0": 2, "11": 1, "Read": 1}, SMB1_COMMAND_NAMES) == (
         "SMBmkdir(0): 2\nSMBwrite(11): 1\nRead: 1"
+    )
+
+
+def test_format_smb_counter_lines_labels_smb2_numeric_commands() -> None:
+    assert _format_smb_counter_lines({"8": 2, "9": 1, "11": 1}, SMB2_COMMAND_NAMES) == (
+        "SMB2read(8): 2\nSMB2write(9): 1\nSMB2ioctl(11): 1"
     )
 
 

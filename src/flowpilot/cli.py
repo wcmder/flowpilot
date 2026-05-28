@@ -28,7 +28,7 @@ from .filters import (
 )
 from .reasoning import DEFAULT_MODEL, chat_about_capture, list_openai_models, reason_about_capture
 from .sip import format_sip_trace
-from .smb import SMB_COMMAND_NAMES, SMB_STATUS_NAMES, smb_display_value
+from .smb import SMB1_COMMAND_NAMES, SMB_STATUS_NAMES, smb_display_value
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
@@ -516,7 +516,7 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
     for flow_id, flow in rows:
         table.add_row(
             str(flow_id),
-            _format_smb_counter_lines(flow.smb_commands, SMB_COMMAND_NAMES),
+            _format_smb_counter_lines(flow.smb_commands, SMB1_COMMAND_NAMES),
             _format_smb_counter_lines(flow.smb_statuses, SMB_STATUS_NAMES),
             _format_smb_capabilities(flow),
             _format_smb_transfer(flow),

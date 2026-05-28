@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .models import FlowSummary, PacketObservation
 
-SMB_COMMAND_NAMES = {
+SMB1_COMMAND_NAMES = {
     "0": "SMBmkdir",
     "0x00": "SMBmkdir",
     "1": "SMBrmdir",
@@ -65,6 +65,50 @@ SMB_COMMAND_NAMES = {
     "0xa2": "SMBntcreateX",
 }
 
+SMB2_COMMAND_NAMES = {
+    "0": "SMB2negprot",
+    "0x0000": "SMB2negprot",
+    "1": "SMB2sesssetup",
+    "0x0001": "SMB2sesssetup",
+    "2": "SMB2logoff",
+    "0x0002": "SMB2logoff",
+    "3": "SMB2tcon",
+    "0x0003": "SMB2tcon",
+    "4": "SMB2tdis",
+    "0x0004": "SMB2tdis",
+    "5": "SMB2create",
+    "0x0005": "SMB2create",
+    "6": "SMB2close",
+    "0x0006": "SMB2close",
+    "7": "SMB2flush",
+    "0x0007": "SMB2flush",
+    "8": "SMB2read",
+    "0x0008": "SMB2read",
+    "9": "SMB2write",
+    "0x0009": "SMB2write",
+    "10": "SMB2lock",
+    "0x000a": "SMB2lock",
+    "11": "SMB2ioctl",
+    "0x000b": "SMB2ioctl",
+    "12": "SMB2cancel",
+    "0x000c": "SMB2cancel",
+    "13": "SMB2echo",
+    "0x000d": "SMB2echo",
+    "14": "SMB2querydir",
+    "0x000e": "SMB2querydir",
+    "15": "SMB2changenotify",
+    "0x000f": "SMB2changenotify",
+    "16": "SMB2queryinfo",
+    "0x0010": "SMB2queryinfo",
+    "17": "SMB2setinfo",
+    "0x0011": "SMB2setinfo",
+    "18": "SMB2oplockbreak",
+    "0x0012": "SMB2oplockbreak",
+}
+
+# Backward-compatible alias for callers that only need SMB1 numeric fallback labels.
+SMB_COMMAND_NAMES = SMB1_COMMAND_NAMES
+
 SMB_STATUS_NAMES = {
     "0": "STATUS_SUCCESS",
     "0x00000000": "STATUS_SUCCESS",
@@ -102,7 +146,7 @@ SMB_STATUS_NAMES = {
 
 
 def smb_command_label(command: str) -> str:
-    return _lookup_smb_name(command, SMB_COMMAND_NAMES) or command
+    return _lookup_smb_name(command, SMB1_COMMAND_NAMES) or command
 
 
 def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
@@ -121,7 +165,12 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
     _record_smb_create_filename(flow, packet, command_label)
     _record_smb_capabilities(flow, packet)
 
-    if "read" in command_label:
+    allow_packet_filename = len(commands) <= 1
+    if "read" in command_label and _should_record_smb_transfer(
+        commands,
+        packet,
+        packet.smb_read_length,
+    ):
         _record_smb_transfer(
             flow,
             packet,
@@ -132,8 +181,13 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
             ops_field="smb_read_ops",
             unknown_ops_field="smb_read_unknown_bytes_ops",
             inferred_ops_field="smb_read_offset_inferred_ops",
+            allow_packet_filename=allow_packet_filename,
         )
-    if "write" in command_label:
+    if "write" in command_label and _should_record_smb_transfer(
+        commands,
+        packet,
+        packet.smb_write_length,
+    ):
         _record_smb_transfer(
             flow,
             packet,
@@ -144,6 +198,7 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
             ops_field="smb_write_ops",
             unknown_ops_field="smb_write_unknown_bytes_ops",
             inferred_ops_field="smb_write_offset_inferred_ops",
+            allow_packet_filename=allow_packet_filename,
         )
     if packet.smb_status and packet.smb_status.upper() not in {
         "0",
@@ -159,6 +214,20 @@ def _packet_smb_commands(packet: PacketObservation) -> list[str]:
     return list(dict.fromkeys(command for command in commands if command))
 
 
+def _should_record_smb_transfer(
+    commands: list[str],
+    packet: PacketObservation,
+    length: int | None,
+) -> bool:
+    if len(commands) <= 1:
+        return True
+    return (
+        length is not None
+        or packet.smb_file_offset is not None
+        or packet.smb_file_id is not None
+    )
+
+
 def _record_smb_transfer(
     flow: FlowSummary,
     packet: PacketObservation,
@@ -170,9 +239,14 @@ def _record_smb_transfer(
     ops_field: str,
     unknown_ops_field: str,
     inferred_ops_field: str,
+    allow_packet_filename: bool,
 ) -> None:
     setattr(flow, ops_field, getattr(flow, ops_field) + 1)
-    filename = _resolved_smb_filename(flow, packet)
+    filename = _resolved_smb_filename(
+        flow,
+        packet,
+        allow_packet_filename=allow_packet_filename,
+    )
     _append_unique(flow, filename_field, filename)
     inferred_length = _infer_transfer_length_from_offset(flow, packet, last_offsets_field, filename)
     if length is not None:
@@ -220,8 +294,13 @@ def _record_smb_create_filename(
     _record_smb_file_id_name(flow, packet)
 
 
-def _resolved_smb_filename(flow: FlowSummary, packet: PacketObservation) -> str | None:
-    if packet.smb_filename:
+def _resolved_smb_filename(
+    flow: FlowSummary,
+    packet: PacketObservation,
+    *,
+    allow_packet_filename: bool,
+) -> str | None:
+    if allow_packet_filename and packet.smb_filename:
         return packet.smb_filename
     if packet.smb_file_id:
         return flow.smb_file_id_names.get(packet.smb_file_id)

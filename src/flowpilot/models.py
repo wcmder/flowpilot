@@ -321,7 +321,8 @@ class FlowSummary(BaseModel):
         hints = []
         if self.smb_encrypted_packets:
             hints.append(
-                "smb3 encrypted traffic observed; filenames and read/write details are hidden"
+                "smb encrypted transform traffic observed; "
+                "filenames and read/write details are hidden"
             )
         total_ops = self.smb_read_ops + self.smb_write_ops
         if self.smb_error_count:

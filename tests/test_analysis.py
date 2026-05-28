@@ -724,6 +724,49 @@ def test_summarize_capture_counts_all_smb_commands_seen() -> None:
     assert flow.smb_write_bytes == 4096
 
 
+def test_summarize_capture_does_not_mark_create_filename_as_download() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_commands_seen=["SMB2create", "SMB2read"],
+            smb_filename="\\\\share\\opened-not-downloaded.txt",
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_commands == {"SMB2create": 1, "SMB2read": 1}
+    assert flow.smb_read_ops == 0
+    assert flow.smb_read_filenames == []
+
+
+def test_summarize_capture_counts_multi_command_read_without_create_filename() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.10",
+            dst_ip="10.0.0.30",
+            src_port=55000,
+            dst_port=445,
+            protocol="TCP",
+            smb_commands_seen=["SMB2create", "SMB2read"],
+            smb_filename="\\\\share\\opened-not-downloaded.txt",
+            smb_read_length=4096,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_read_ops == 1
+    assert flow.smb_read_bytes == 4096
+    assert flow.smb_read_filenames == []
+
+
 def test_packet_to_observation_reads_smb2_write_fields() -> None:
     packet = SimpleNamespace(
         ip=SimpleNamespace(src="10.0.0.10", dst="10.0.0.30"),
@@ -820,7 +863,7 @@ def test_packet_to_observation_reads_multiple_smb2_commands_from_all_fields() ->
     assert observation.smb_write_length == 4096
 
 
-def test_packet_to_observation_detects_smb3_encrypted_transform() -> None:
+def test_packet_to_observation_detects_smb_encrypted_transform() -> None:
     packet = SimpleNamespace(
         ip=SimpleNamespace(src="10.0.0.10", dst="10.0.0.30"),
         tcp=SimpleNamespace(srcport="55000", dstport="445"),
@@ -837,6 +880,26 @@ def test_packet_to_observation_detects_smb3_encrypted_transform() -> None:
 
     assert observation is not None
     assert observation.smb_encrypted is True
+
+
+def test_packet_to_observation_does_not_mark_encryption_capability_as_encrypted_payload() -> None:
+    packet = SimpleNamespace(
+        ip=SimpleNamespace(src="10.0.0.10", dst="10.0.0.30"),
+        tcp=SimpleNamespace(srcport="55000", dstport="445"),
+        smb2=SimpleNamespace(_all_fields={"smb2.capabilities.encryption": "1"}),
+        layers=[
+            SimpleNamespace(layer_name="ip"),
+            SimpleNamespace(layer_name="tcp"),
+            SimpleNamespace(layer_name="smb2"),
+        ],
+        length="512",
+    )
+
+    observation = packet_to_observation(packet)
+
+    assert observation is not None
+    assert observation.smb_encrypted is False
+    assert "encryption" in observation.smb_capabilities
 
 
 def test_packet_to_observation_reads_smb2_encryption_capabilities() -> None:
@@ -960,7 +1023,7 @@ def test_summarize_capture_reports_smb_encryption_capability_on_both_sides() -> 
     assert flow.smb_server_capabilities == ["encryption"]
 
 
-def test_summarize_capture_reports_smb3_encrypted_visibility_limit() -> None:
+def test_summarize_capture_reports_smb_encrypted_visibility_limit() -> None:
     packets = [
         PacketObservation(
             src_ip="10.0.0.10",
@@ -979,7 +1042,7 @@ def test_summarize_capture_reports_smb3_encrypted_visibility_limit() -> None:
     assert flow.smb_read_ops == 0
     assert flow.smb_write_ops == 0
     assert (
-        "smb3 encrypted traffic observed; filenames and read/write details are hidden"
+        "smb encrypted transform traffic observed; filenames and read/write details are hidden"
         in flow.smb_diagnostic_hints
     )
     assert summary.compact()["top_flows"][0]["smb"]["encrypted_packets"] == 1

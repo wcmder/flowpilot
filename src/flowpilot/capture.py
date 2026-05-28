@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import PacketObservation, TlsCertificateObservation
+from .smb import SMB2_COMMAND_NAMES
 
 
 def read_capture(
@@ -306,10 +307,10 @@ def _smb_commands(packet: Any) -> list[str]:
         *(_layer_attr_values(packet, "smb2", "command")),
     ]
     if smb2_commands:
-        return [_SMB2_COMMAND_NAMES.get(command.lower(), command) for command in smb2_commands]
+        return [SMB2_COMMAND_NAMES.get(command.lower(), command) for command in smb2_commands]
     if smb2_layer is not None:
         commands = [*(_smb_values(packet, "cmd")), *(_smb_values(packet, "command"))]
-        return [_SMB2_COMMAND_NAMES.get(command.lower(), command) for command in commands]
+        return [SMB2_COMMAND_NAMES.get(command.lower(), command) for command in commands]
     return _layer_attr_values(packet, "smb", "cmd")
 
 
@@ -404,10 +405,17 @@ def _smb_encrypted(packet: Any) -> bool:
         return True
     fields = getattr(smb2_layer, "_all_fields", {})
     return any(
-        ("transform" in key.lower() or "encrypted" in key.lower())
+        _is_smb_encrypted_payload_field(key)
         and value not in (None, "", "0", "False", "false")
         for key, value in fields.items()
     )
+
+
+def _is_smb_encrypted_payload_field(field_name: str) -> bool:
+    field_name = field_name.lower()
+    if "capabil" in field_name or "cipher" in field_name:
+        return False
+    return "transform" in field_name or field_name.endswith(".encrypted")
 
 
 def _smb_capabilities(packet: Any) -> list[str]:
@@ -515,48 +523,6 @@ _SMB2_CAPABILITY_MASKS = {
     0x0020: "directory leasing",
     0x0040: "encryption",
     0x0080: "notifications",
-}
-
-
-_SMB2_COMMAND_NAMES = {
-    "0": "SMB2negprot",
-    "0x0000": "SMB2negprot",
-    "1": "SMB2sesssetup",
-    "0x0001": "SMB2sesssetup",
-    "2": "SMB2logoff",
-    "0x0002": "SMB2logoff",
-    "3": "SMB2tcon",
-    "0x0003": "SMB2tcon",
-    "4": "SMB2tdis",
-    "0x0004": "SMB2tdis",
-    "5": "SMB2create",
-    "0x0005": "SMB2create",
-    "6": "SMB2close",
-    "0x0006": "SMB2close",
-    "7": "SMB2flush",
-    "0x0007": "SMB2flush",
-    "8": "SMB2read",
-    "0x0008": "SMB2read",
-    "9": "SMB2write",
-    "0x0009": "SMB2write",
-    "10": "SMB2lock",
-    "0x000a": "SMB2lock",
-    "11": "SMB2ioctl",
-    "0x000b": "SMB2ioctl",
-    "12": "SMB2cancel",
-    "0x000c": "SMB2cancel",
-    "13": "SMB2echo",
-    "0x000d": "SMB2echo",
-    "14": "SMB2querydir",
-    "0x000e": "SMB2querydir",
-    "15": "SMB2changenotify",
-    "0x000f": "SMB2changenotify",
-    "16": "SMB2queryinfo",
-    "0x0010": "SMB2queryinfo",
-    "17": "SMB2setinfo",
-    "0x0011": "SMB2setinfo",
-    "18": "SMB2oplockbreak",
-    "0x0012": "SMB2oplockbreak",
 }
 
 
