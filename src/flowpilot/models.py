@@ -278,8 +278,6 @@ class FlowSummary(BaseModel):
             hints.append("one-way traffic observed")
         if self.duration_seconds >= 60 and self.throughput_mbps < 2:
             hints.append("low average throughput for long-lived flow")
-        if self.max_interarrival_ms is not None and self.max_interarrival_ms >= 5_000:
-            hints.append("large inter-packet gap observed")
         if self.retransmission_rate >= 0.01:
             hints.append("tcp retransmission rate above 1 percent")
         if self.issue_counts.get("tcp_zero_window", 0) > 0:
@@ -375,7 +373,6 @@ class CaptureSummary(BaseModel):
                     "retransmission_rate": round(flow.retransmission_rate, 4),
                     "avg_rtt_ms": _round_optional(flow.avg_rtt_ms, 3),
                     "max_rtt_ms": _round_optional(flow.rtt_max_ms, 3),
-                    "max_interarrival_ms": _round_optional(flow.max_interarrival_ms, 3),
                     "one_way": flow.is_one_way,
                     "diagnostic_hints": flow.diagnostic_hints,
                     "issue_counts": flow.issue_counts,

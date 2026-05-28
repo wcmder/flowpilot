@@ -93,6 +93,35 @@ def test_summarize_capture_tracks_esp_spi_without_ports() -> None:
     assert "diagnostic_hints" in summary.compact()["top_flows"][0]
 
 
+def test_summarize_capture_does_not_flag_large_interpacket_gap() -> None:
+    packets = [
+        PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+            src_ip="10.0.0.5",
+            dst_ip="93.184.216.34",
+            src_port=54000,
+            dst_port=443,
+            protocol="TCP",
+            length=120,
+        ),
+        PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 0, 10),
+            src_ip="93.184.216.34",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=54000,
+            protocol="TCP",
+            length=120,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert summary.flows[0].max_interarrival_ms == 10_000
+    assert "large inter-packet gap observed" not in summary.flows[0].diagnostic_hints
+    assert "max_interarrival_ms" not in summary.compact()["top_flows"][0]
+
+
 def test_summarize_capture_tracks_esp_sequence_anomalies() -> None:
     start = datetime(2026, 1, 1, 12, 0, 0)
     packets = [

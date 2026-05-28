@@ -247,7 +247,6 @@ def _render_summary(summary, *, show_flows: int) -> None:
                 [
                     f"rtx {_percent(flow.retransmission_rate)}",
                     f"rtt {_rtt(flow)}",
-                    f"gap {_milliseconds(flow.max_interarrival_ms)}",
                     f"rate {flow.packet_rate_per_second:.1f} pps",
                     f"thr {flow.throughput_mbps:.3f} Mbps",
                 ]
