@@ -64,9 +64,10 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
     assert summary.flows[0].initial_rtt_ms == 20.0
     assert summary.flows[0].max_interarrival_ms == 1000.0
     assert summary.flows[0].is_one_way is False
-    assert summary.compact()["top_flows"][0]["avg_rtt_ms"] == 50.0
-    assert summary.compact()["top_flows"][0]["median_rtt_ms"] == 25.0
-    assert summary.compact()["top_flows"][0]["p95_rtt_ms"] == 75.0
+    assert "avg_rtt_ms" not in summary.compact()["top_flows"][0]
+    assert "median_rtt_ms" not in summary.compact()["top_flows"][0]
+    assert "p95_rtt_ms" not in summary.compact()["top_flows"][0]
+    assert "max_rtt_ms" not in summary.compact()["top_flows"][0]
     assert summary.compact()["top_flows"][0]["initial_rtt_ms"] == 20.0
     assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.0
     assert summary.compact()["analysis_focus"] == "network transport troubleshooting"
@@ -78,11 +79,8 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
         "packet_loss_rate": 0.0,
         "tcp_issue_counts": {"tcp_retransmission": 1},
         "rtt": {
-            "median_ms": 25.0,
-            "p95_ms": 75.0,
-            "max_ms": 75.0,
             "initial_ms": 20.0,
-            "samples": 2,
+            "ack_rtt_excluded": True,
         },
         "directionality": {
             "src_to_dst_packets": 1,
@@ -123,7 +121,7 @@ def test_rtt_display_uses_median_p95_max_and_initial_rtt() -> None:
 
     summary = summarize_capture(packets)
 
-    assert _rtt(summary.flows[0]) == "init 20.0/med 20.0/p95 92.8/max 92.8 ms"
+    assert _rtt(summary.flows[0]) == "init 20.0 ms\nack med/p95/max 20.0/92.8/92.8 ms"
 
 
 def test_rtt_display_shows_init_na_when_missing() -> None:
@@ -140,7 +138,7 @@ def test_rtt_display_shows_init_na_when_missing() -> None:
 
     summary = summarize_capture(packets)
 
-    assert _rtt(summary.flows[0]) == "init n/a/med 20.0/p95 20.0/max 20.0 ms"
+    assert _rtt(summary.flows[0]) == "init n/a\nack med/p95/max 20.0/20.0/20.0 ms"
 
 
 def test_summarize_capture_tracks_tcp_lost_segment_rate() -> None:

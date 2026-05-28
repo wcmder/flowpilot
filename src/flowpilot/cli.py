@@ -711,17 +711,14 @@ def _percent(value: float) -> str:
 
 
 def _rtt(flow) -> str:
+    initial = f"{flow.initial_rtt_ms:.1f} ms" if flow.initial_rtt_ms is not None else "n/a"
     if flow.median_rtt_ms is None:
-        initial = f"{flow.initial_rtt_ms:.1f} ms" if flow.initial_rtt_ms is not None else "n/a"
         return f"init {initial}\nack n/a"
-    initial = f"{flow.initial_rtt_ms:.1f}" if flow.initial_rtt_ms is not None else "n/a"
-    parts = [
-        f"init {initial}",
-        f"med {flow.median_rtt_ms:.1f}",
-        f"p95 {flow.p95_rtt_ms:.1f}",
-        f"max {flow.rtt_max_ms:.1f}",
-    ]
-    return f"{'/'.join(parts)} ms"
+    return (
+        f"init {initial}\n"
+        f"ack med/p95/max {flow.median_rtt_ms:.1f}/"
+        f"{flow.p95_rtt_ms:.1f}/{flow.rtt_max_ms:.1f} ms"
+    )
 
 
 def _milliseconds(value: float | None) -> str:

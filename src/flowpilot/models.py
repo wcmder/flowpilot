@@ -380,7 +380,10 @@ class CaptureSummary(BaseModel):
             "analysis_focus": "network transport troubleshooting",
             "transport_metric_notes": {
                 "loss": "tcp.analysis.lost_segment rate over observed flow packets",
-                "rtt": "tcp.analysis.ack_rtt median/p95/max plus tcp.analysis.initial_rtt",
+                "rtt": (
+                    "only tcp.analysis.initial_rtt is sent to LLM; tcp.analysis.ack_rtt "
+                    "is capture-position dependent and excluded"
+                ),
                 "throughput": "observed bytes over first-to-last packet duration",
                 "limitations": "absence of a metric does not prove absence of a problem",
             },
@@ -407,10 +410,6 @@ class CaptureSummary(BaseModel):
                     "throughput_mbps": round(flow.throughput_mbps, 3),
                     "retransmission_rate": round(flow.retransmission_rate, 4),
                     "packet_loss_rate": round(flow.packet_loss_rate, 4),
-                    "avg_rtt_ms": _round_optional(flow.avg_rtt_ms, 3),
-                    "median_rtt_ms": _round_optional(flow.median_rtt_ms, 3),
-                    "p95_rtt_ms": _round_optional(flow.p95_rtt_ms, 3),
-                    "max_rtt_ms": _round_optional(flow.rtt_max_ms, 3),
                     "initial_rtt_ms": _round_optional(flow.initial_rtt_ms, 3),
                     "one_way": flow.is_one_way,
                     "diagnostic_hints": flow.diagnostic_hints,
@@ -423,11 +422,8 @@ class CaptureSummary(BaseModel):
                         "packet_loss_rate": round(flow.packet_loss_rate, 4),
                         "tcp_issue_counts": _tcp_issue_counts(flow.issue_counts),
                         "rtt": {
-                            "median_ms": _round_optional(flow.median_rtt_ms, 3),
-                            "p95_ms": _round_optional(flow.p95_rtt_ms, 3),
-                            "max_ms": _round_optional(flow.rtt_max_ms, 3),
                             "initial_ms": _round_optional(flow.initial_rtt_ms, 3),
-                            "samples": flow.rtt_sample_count,
+                            "ack_rtt_excluded": True,
                         },
                         "directionality": {
                             "src_to_dst_packets": flow.src_to_dst_packets,
