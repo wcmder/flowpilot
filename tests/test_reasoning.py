@@ -47,3 +47,93 @@ def test_chat_input_includes_metadata_report_and_recent_history() -> None:
     assert "ESP flow looks slow." in messages[0]["content"]
     assert messages[1]["content"] == "question 2"
     assert messages[-1] == {"role": "user", "content": "what should I check?"}
+
+
+def test_chat_completions_reasoning_handles_empty_message_content(monkeypatch) -> None:
+    class _Message:
+        content = None
+
+    class _Choice:
+        message = _Message()
+
+    class _Response:
+        choices = [_Choice()]
+
+    class _Completions:
+        @staticmethod
+        def create(**_kwargs):
+            return _Response()
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+    monkeypatch.setattr(reasoning, "LLM_REQUESTS_PER_MINUTE", 0)
+
+    report = reasoning._reason_with_chat_completions(
+        _Client(),
+        summary,
+        model="test-model",
+        max_flows=25,
+    )
+
+    assert report.risk_level == "unknown"
+    assert "did not include message content" in report.executive_summary
+
+
+def test_chat_followup_handles_empty_message_content(monkeypatch) -> None:
+    class _Message:
+        content = None
+
+    class _Choice:
+        message = _Message()
+
+    class _Response:
+        choices = [_Choice()]
+
+    class _Completions:
+        @staticmethod
+        def create(**_kwargs):
+            return _Response()
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+    monkeypatch.setattr(reasoning, "LLM_REQUESTS_PER_MINUTE", 0)
+
+    answer = reasoning._chat_with_chat_completions(
+        _Client(),
+        summary,
+        "what happened?",
+        model="test-model",
+        max_flows=25,
+        report=None,
+        history=None,
+    )
+
+    assert "did not include message content" in answer

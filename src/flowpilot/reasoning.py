@@ -178,7 +178,9 @@ def _reason_with_responses(
         ],
         text_format=ReasoningReport,
     )
-    return response.output_parsed
+    if response.output_parsed:
+        return response.output_parsed
+    return _empty_llm_report("Responses API returned no parsed reasoning content.")
 
 
 def _reason_with_chat_completions(
@@ -212,7 +214,7 @@ def _reason_with_chat_completions(
     )
     content = response.choices[0].message.content
     if not content:
-        raise RuntimeError("Chat completions response did not include message content.")
+        return _empty_llm_report("Chat completions response did not include message content.")
     return ReasoningReport.model_validate(_json_object(content))
 
 
@@ -264,8 +266,22 @@ def _chat_with_chat_completions(
     )
     content = response.choices[0].message.content
     if not content:
-        raise RuntimeError("Chat completions response did not include message content.")
+        return "The LLM response did not include message content. Try rerunning the question."
     return content
+
+
+def _empty_llm_report(reason: str) -> ReasoningReport:
+    return ReasoningReport(
+        executive_summary=(
+            "LLM reasoning did not return usable content. Local FlowPilot analysis completed; "
+            f"{reason}"
+        ),
+        risk_level="unknown",
+        findings=[],
+        next_questions=[
+            "Retry LLM reasoning or run with --no-llm to review local transport metrics.",
+        ],
+    )
 
 
 def _chat_input(
