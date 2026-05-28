@@ -1053,6 +1053,7 @@ def test_summarize_capture_does_not_count_success_response_as_operation() -> Non
             protocol="TCP",
             smb_command="SMB2read",
             smb_status="0",
+            smb_message_id="42",
             smb_is_response=False,
             smb_read_length=4096,
         ),
@@ -1064,6 +1065,7 @@ def test_summarize_capture_does_not_count_success_response_as_operation() -> Non
             protocol="TCP",
             smb_command="SMB2read",
             smb_status="0",
+            smb_message_id="42",
             smb_is_response=True,
             smb_read_length=4096,
         ),
@@ -1073,6 +1075,30 @@ def test_summarize_capture_does_not_count_success_response_as_operation() -> Non
     flow = summary.flows[0]
 
     assert flow.smb_read_ops == 1
+    assert flow.smb_read_unknown_bytes_ops == 0
+
+
+def test_summarize_capture_counts_visible_success_response_as_operation() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.30",
+            dst_ip="10.0.0.10",
+            src_port=445,
+            dst_port=55000,
+            protocol="TCP",
+            smb_command="SMB2read",
+            smb_status="0",
+            smb_message_id="42",
+            smb_is_response=True,
+            smb_read_length=4096,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.smb_read_ops == 1
+    assert flow.smb_read_bytes == 4096
     assert flow.smb_read_unknown_bytes_ops == 0
 
 

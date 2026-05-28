@@ -188,7 +188,6 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
             bytes_by_file_field="smb_read_bytes_by_file",
             allow_packet_filename=allow_packet_filename,
             transfer_direction="read",
-            count_operation=packet.smb_is_response is not True,
         )
     if "write" in command_label and _should_record_smb_transfer(
         commands,
@@ -208,7 +207,6 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
             bytes_by_file_field="smb_write_bytes_by_file",
             allow_packet_filename=allow_packet_filename,
             transfer_direction="write",
-            count_operation=packet.smb_is_response is not True,
         )
     if _is_smb_error_status(packet.smb_status):
         flow.smb_error_count += 1
@@ -247,8 +245,8 @@ def _record_smb_transfer(
     bytes_by_file_field: str,
     allow_packet_filename: bool,
     transfer_direction: str,
-    count_operation: bool,
 ) -> None:
+    count_operation = _should_count_smb_transfer_operation(flow, packet, transfer_direction, length)
     if count_operation:
         setattr(flow, ops_field, getattr(flow, ops_field) + 1)
     filename = _resolved_smb_filename(
@@ -271,6 +269,27 @@ def _record_smb_transfer(
             _record_bytes_by_file(flow, bytes_by_file_field, filename, inferred_length)
     elif count_operation:
         setattr(flow, unknown_ops_field, getattr(flow, unknown_ops_field) + 1)
+
+
+def _should_count_smb_transfer_operation(
+    flow: FlowSummary,
+    packet: PacketObservation,
+    transfer_direction: str,
+    length: int | None,
+) -> bool:
+    counted_ids = (
+        flow.smb_counted_read_message_ids
+        if transfer_direction == "read"
+        else flow.smb_counted_write_message_ids
+    )
+    if packet.smb_message_id:
+        if packet.smb_message_id in counted_ids:
+            return False
+        counted_ids.add(packet.smb_message_id)
+        return True
+    if packet.smb_is_response is True:
+        return length is not None
+    return True
 
 
 def _is_smb_error_response(packet: PacketObservation) -> bool:

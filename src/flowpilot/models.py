@@ -224,6 +224,8 @@ class FlowSummary(BaseModel):
     smb_file_id_write_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     smb_pending_create_read_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     smb_pending_create_write_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    smb_counted_read_message_ids: set[str] = Field(default_factory=set, exclude=True)
+    smb_counted_write_message_ids: set[str] = Field(default_factory=set, exclude=True)
     smb_last_read_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
     smb_last_write_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
     dns_queries: dict[str, int] = Field(default_factory=dict)
