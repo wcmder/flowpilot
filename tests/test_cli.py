@@ -3,6 +3,7 @@ from pathlib import Path
 
 from flowpilot.cli import (
     _count_packets_in_capture,
+    _direction,
     _format_flow_issues,
     _format_smb_capabilities,
     _format_smb_counter_lines,
@@ -253,3 +254,15 @@ def test_format_flow_issues_shows_counts_and_diagnostics() -> None:
 
 def test_percent_keeps_small_nonzero_rates_visible() -> None:
     assert _percent(48 / 100_000) == "0.048%"
+
+
+def test_direction_shows_packet_and_byte_split() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        src_to_dst_packets=5,
+        dst_to_src_packets=2,
+        src_to_dst_bytes=10_000,
+        dst_to_src_bytes=500,
+    )
+
+    assert _direction(flow) == "pkts 5/2\nbytes 10000/500"

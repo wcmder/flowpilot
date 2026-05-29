@@ -85,6 +85,8 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
         "directionality": {
             "src_to_dst_packets": 1,
             "dst_to_src_packets": 1,
+            "src_to_dst_bytes": 120,
+            "dst_to_src_bytes": 300,
             "one_way": False,
         },
     }

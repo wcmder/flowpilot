@@ -701,9 +701,11 @@ def _certificate_endpoint(flow, certificate) -> str:
 
 
 def _direction(flow) -> str:
+    packet_split = f"pkts {flow.src_to_dst_packets}/{flow.dst_to_src_packets}"
+    byte_split = f"bytes {flow.src_to_dst_bytes}/{flow.dst_to_src_bytes}"
     if flow.is_one_way:
-        return "one-way"
-    return f"{flow.src_to_dst_packets}/{flow.dst_to_src_packets}"
+        return f"one-way\n{packet_split}\n{byte_split}"
+    return f"{packet_split}\n{byte_split}"
 
 
 def _percent(value: float) -> str:

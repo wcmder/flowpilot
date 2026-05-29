@@ -181,6 +181,8 @@ class FlowSummary(BaseModel):
     last_seen: datetime | None = None
     src_to_dst_packets: int = 0
     dst_to_src_packets: int = 0
+    src_to_dst_bytes: int = 0
+    dst_to_src_bytes: int = 0
     rtt_sample_count: int = 0
     rtt_total_ms: float = 0.0
     rtt_max_ms: float | None = None
@@ -404,6 +406,8 @@ class CaptureSummary(BaseModel):
                     "bytes": flow.byte_count,
                     "src_to_dst_packets": flow.src_to_dst_packets,
                     "dst_to_src_packets": flow.dst_to_src_packets,
+                    "src_to_dst_bytes": flow.src_to_dst_bytes,
+                    "dst_to_src_bytes": flow.dst_to_src_bytes,
                     "duration_seconds": round(flow.duration_seconds, 3),
                     "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
                     "byte_rate_per_second": round(flow.byte_rate_per_second, 3),
@@ -428,6 +432,8 @@ class CaptureSummary(BaseModel):
                         "directionality": {
                             "src_to_dst_packets": flow.src_to_dst_packets,
                             "dst_to_src_packets": flow.dst_to_src_packets,
+                            "src_to_dst_bytes": flow.src_to_dst_bytes,
+                            "dst_to_src_bytes": flow.dst_to_src_bytes,
                             "one_way": flow.is_one_way,
                         },
                     },

@@ -76,8 +76,10 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
             key.port_a is None or packet.src_port == key.port_a
         ):
             flow.src_to_dst_packets += 1
+            flow.src_to_dst_bytes += packet.length
         else:
             flow.dst_to_src_packets += 1
+            flow.dst_to_src_bytes += packet.length
 
         for issue_tag in packet.issue_tags:
             flow.issue_counts[issue_tag] = flow.issue_counts.get(issue_tag, 0) + 1
