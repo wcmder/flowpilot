@@ -707,7 +707,12 @@ def _direction(flow) -> str:
 
 
 def _percent(value: float) -> str:
-    return f"{value * 100:.1f}%"
+    percent = value * 100
+    if percent == 0:
+        return "0%"
+    if percent < 0.1:
+        return f"{percent:.3f}%"
+    return f"{percent:.1f}%"
 
 
 def _rtt(flow) -> str:

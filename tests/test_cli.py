@@ -11,6 +11,7 @@ from flowpilot.cli import (
     _local_analysis_start_message,
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
+    _percent,
 )
 from flowpilot.dns import dns_issue_summary
 from flowpilot.esp import format_esp_gap_distribution
@@ -248,3 +249,7 @@ def test_format_flow_issues_shows_counts_and_diagnostics() -> None:
         "one-way traffic observed\n"
         "tcp retransmission rate above 1 percent"
     )
+
+
+def test_percent_keeps_small_nonzero_rates_visible() -> None:
+    assert _percent(48 / 100_000) == "0.048%"
