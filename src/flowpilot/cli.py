@@ -238,8 +238,8 @@ def _render_summary(summary, *, show_flows: int) -> None:
         table.add_row(
             str(flow_ids[flow.key]),
             (
-                f"{flow.key.protocol} "
-                f"{_endpoint(flow.key.endpoint_a, flow.key.port_a)} <-> "
+                f"{flow.key.protocol}\n"
+                f"{_endpoint(flow.key.endpoint_a, flow.key.port_a)} <->\n"
                 f"{_endpoint(flow.key.endpoint_b, flow.key.port_b)}"
             ),
             f"{flow.packet_count} pkts\n{flow.byte_count} bytes",
