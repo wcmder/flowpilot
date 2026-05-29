@@ -227,7 +227,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
     table = Table(title="Top Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
     table.add_column("Flow")
-    table.add_column("Traffic", justify="right")
+    table.add_column("Traffic")
     table.add_column("Direction")
     table.add_column("Metrics")
     table.add_column("Protocol")
@@ -242,7 +242,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
                 f"{_endpoint(flow.key.endpoint_a, flow.key.port_a)} <->\n"
                 f"{_endpoint(flow.key.endpoint_b, flow.key.port_b)}"
             ),
-            f"{flow.packet_count} pkts\n{flow.byte_count} bytes",
+            _traffic(flow),
             _direction(flow),
             "\n".join(
                 [
@@ -706,6 +706,10 @@ def _direction(flow) -> str:
     if flow.is_one_way:
         return f"one-way\n{packet_split}\n{byte_split}"
     return f"{packet_split}\n{byte_split}"
+
+
+def _traffic(flow) -> str:
+    return f"pkts {flow.packet_count}\nbytes {flow.byte_count}"
 
 
 def _percent(value: float) -> str:

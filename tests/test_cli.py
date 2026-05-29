@@ -13,6 +13,7 @@ from flowpilot.cli import (
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
     _percent,
+    _traffic,
 )
 from flowpilot.dns import dns_issue_summary
 from flowpilot.esp import format_esp_gap_distribution
@@ -266,3 +267,13 @@ def test_direction_shows_packet_and_byte_split() -> None:
     )
 
     assert _direction(flow) == "pkts 5/2\nbytes 10000/500"
+
+
+def test_traffic_matches_direction_label_style() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        packet_count=7,
+        byte_count=10_500,
+    )
+
+    assert _traffic(flow) == "pkts 7\nbytes 10500"
