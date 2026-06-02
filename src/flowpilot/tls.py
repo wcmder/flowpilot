@@ -12,14 +12,13 @@ def tls_sni(packet: Any) -> str | None:
 
 
 def tls_certificates(packet: Any) -> list[TlsCertificateObservation]:
-    layer = getattr(packet, "x509sat", None) or getattr(packet, "x509if", None)
     tls = (
         getattr(packet, "tls", None)
         or getattr(packet, "ssl", None)
         or getattr(packet, "dtls", None)
     )
 
-    certificates = _certificate_from_x509_layer(layer)
+    certificates = _certificates_from_x509_layers(packet)
     if certificates:
         return certificates
 
@@ -47,6 +46,13 @@ def tls_certificates(packet: Any) -> list[TlsCertificateObservation]:
     if any([fallback.subject, fallback.issuer, fallback.serial, fallback.fingerprint_sha256]):
         return [fallback]
     return []
+
+
+def _certificates_from_x509_layers(packet: Any) -> list[TlsCertificateObservation]:
+    certificates = []
+    for layer_name in ("x509af", "x509sat", "x509if"):
+        certificates.extend(_certificate_from_x509_layer(getattr(packet, layer_name, None)))
+    return certificates
 
 
 def _certificates_from_raw_handshake(layer: Any) -> list[TlsCertificateObservation]:
@@ -97,16 +103,21 @@ def _certificate_from_der_hex(raw_certificate: str) -> TlsCertificateObservation
 def _certificate_from_x509_layer(layer: Any) -> list[TlsCertificateObservation]:
     if layer is None:
         return []
+    subject = _first_layer_value(
+        layer,
+        ("subject", "x509af_subject", "x509sat_printableString"),
+    )
+    issuer = _first_layer_value(layer, ("issuer", "x509af_issuer"))
     certificate = TlsCertificateObservation(
         presenter_ip=None,
         presenter_port=None,
-        subject=_first_layer_value(layer, ("subject", "x509sat_printableString")),
-        subject_cn=None,
-        issuer=_first_layer_value(layer, ("issuer",)),
-        issuer_cn=None,
+        subject=subject,
+        subject_cn=_common_name_from_text(subject),
+        issuer=issuer,
+        issuer_cn=_common_name_from_text(issuer),
         serial=_first_layer_value(layer, ("serialNumber", "serialnumber")),
-        not_before=_first_layer_value(layer, ("utcTime", "notbefore")),
-        not_after=_first_layer_value(layer, ("generalizedTime", "notafter")),
+        not_before=_first_layer_value(layer, ("utcTime", "notbefore", "notBefore")),
+        not_after=_first_layer_value(layer, ("generalizedTime", "notafter", "notAfter")),
         san_dns=_split_values(_first_layer_value(layer, ("dNSName", "dnsname"))),
         fingerprint_sha256=_first_layer_value(layer, ("fingerprint_sha256",)),
     )
@@ -127,6 +138,16 @@ def _name_common_name(name: Any) -> str | None:
     return attributes[0].value
 
 
+def _common_name_from_text(value: str | None) -> str | None:
+    if not value:
+        return None
+    for part in value.split(","):
+        part = part.strip()
+        if part.lower().startswith("cn="):
+            return part[3:].strip()
+    return None
+
+
 def _layer_attr(packet: Any, layer_name: str, attr_name: str) -> str | None:
     layer = getattr(packet, layer_name, None)
     if layer is None:
@@ -141,7 +162,11 @@ def _first_layer_value(layer: Any, attr_names: tuple[str, ...]) -> str | None:
     for attr_name in attr_names:
         value = getattr(layer, attr_name, None)
         if value:
-            return str(value)
+            values = _field_strings(value)
+            return values[0] if values else str(value)
+        values = _all_field_values(layer, attr_name)
+        if values:
+            return values[0]
     return None
 
 

@@ -11,7 +11,7 @@ from flowpilot.filters import (
     include_redirect_related_flows,
 )
 from flowpilot.models import PacketObservation, TlsCertificateObservation
-from flowpilot.tls import _all_field_values
+from flowpilot.tls import _all_field_values, tls_certificates
 
 
 def test_summarize_capture_groups_bidirectional_flow() -> None:
@@ -482,6 +482,26 @@ def test_tls_field_values_include_reassembled_field_objects() -> None:
     )
 
     assert _all_field_values(layer, "handshake.certificate") == ["aa:bb", "cc:dd"]
+
+
+def test_tls_certificates_include_x509af_layer_fields() -> None:
+    packet = SimpleNamespace(
+        x509af=SimpleNamespace(
+            _all_fields={
+                "x509af.subject": "CN=server.example.com,O=Example",
+                "x509af.issuer": "CN=Example Issuing CA,O=Example",
+                "x509af.serialNumber": "01:02",
+                "x509af.validity.notBefore": "2026-01-01",
+                "x509af.validity.notAfter": "2027-01-01",
+            }
+        )
+    )
+
+    certificates = tls_certificates(packet)
+
+    assert len(certificates) == 1
+    assert certificates[0].subject_cn == "server.example.com"
+    assert certificates[0].issuer_cn == "Example Issuing CA"
 
 
 def test_include_redirect_related_flows_adds_redirect_target_flow() -> None:
