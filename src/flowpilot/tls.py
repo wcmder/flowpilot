@@ -11,6 +11,32 @@ def tls_sni(packet: Any) -> str | None:
     )
 
 
+def tls_alert(packet: Any) -> tuple[str | None, str | None]:
+    layer = (
+        getattr(packet, "tls", None)
+        or getattr(packet, "ssl", None)
+        or getattr(packet, "dtls", None)
+    )
+    return (
+        _first_layer_value(
+            layer,
+            (
+                "alert_message_level",
+                "alert_level",
+                "record_alert_level",
+            ),
+        ),
+        _first_layer_value(
+            layer,
+            (
+                "alert_message_desc",
+                "alert_description",
+                "record_alert_description",
+            ),
+        ),
+    )
+
+
 def tls_certificates(packet: Any) -> list[TlsCertificateObservation]:
     tls = (
         getattr(packet, "tls", None)

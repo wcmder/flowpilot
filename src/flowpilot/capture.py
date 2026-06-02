@@ -7,7 +7,7 @@ from typing import Any
 
 from .models import PacketObservation
 from .smb import SMB2_COMMAND_NAMES
-from .tls import tls_certificates, tls_sni
+from .tls import tls_alert, tls_certificates, tls_sni
 
 
 def read_capture(
@@ -78,6 +78,7 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
     ]
 
     smb_commands = _smb_commands(packet)
+    tls_alert_level, tls_alert_description = tls_alert(packet)
 
     return PacketObservation(
         timestamp=_timestamp(packet),
@@ -89,7 +90,10 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         length=_safe_int(getattr(packet, "length", 0)) or 0,
         rtt_seconds=_tcp_rtt_seconds(packet),
         initial_rtt_seconds=_tcp_initial_rtt_seconds(packet),
-        issue_tags=_issue_tags(packet, protocol),
+        issue_tags=[
+            *_issue_tags(packet, protocol),
+            *_tls_issue_tags(tls_alert_level, tls_alert_description),
+        ],
         esp_spi=_layer_attr(packet, "esp", "spi"),
         esp_sequence=_safe_int(_layer_attr(packet, "esp", "sequence")),
         dns_query=_layer_attr(packet, "dns", "qry_name"),
@@ -107,6 +111,8 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         http_host=_layer_attr(packet, "http", "host"),
         http_location=_layer_attr(packet, "http", "location"),
         tls_sni=tls_sni(packet),
+        tls_alert_level=tls_alert_level,
+        tls_alert_description=tls_alert_description,
         tls_certificates=certificates,
         sip_call_id=_layer_attr(packet, "sip", "call_id"),
         sip_method=_layer_attr(packet, "sip", "method"),
@@ -182,6 +188,16 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         smb_encrypted=_smb_encrypted(packet),
         smb_capabilities=_smb_capabilities(packet),
     )
+
+
+def _tls_issue_tags(level: str | None, description: str | None) -> list[str]:
+    if not level and not description:
+        return []
+    tags = ["tls_alert"]
+    alert_text = f"{level or ''} {description or ''}".lower()
+    if "fatal" in alert_text or alert_text.startswith("2"):
+        tags.append("tls_fatal_alert")
+    return tags
 
 
 def observations_from_iterable(packets: Iterable[Any]) -> Iterator[PacketObservation]:

@@ -115,6 +115,8 @@ class PacketObservation(BaseModel):
     http_host: str | None = None
     http_location: str | None = None
     tls_sni: str | None = None
+    tls_alert_level: str | None = None
+    tls_alert_description: str | None = None
     tls_certificates: list[TlsCertificateObservation] = Field(default_factory=list)
     sip_call_id: str | None = None
     sip_method: str | None = None
@@ -198,6 +200,7 @@ class FlowSummary(BaseModel):
     redirect_locations: list[str] = Field(default_factory=list)
     tls_certificates: list[TlsCertificateObservation] = Field(default_factory=list)
     tls_snis: list[str] = Field(default_factory=list)
+    tls_alerts: dict[str, int] = Field(default_factory=dict)
     sip_call_ids: list[str] = Field(default_factory=list)
     sip_calls: dict[str, SipCallSummary] = Field(default_factory=dict)
     sip_methods: dict[str, int] = Field(default_factory=dict)
@@ -318,6 +321,10 @@ class FlowSummary(BaseModel):
             hints.append("tcp receiver window pressure observed")
         if self.issue_counts.get("tcp_reset", 0) > 0:
             hints.append("tcp reset observed")
+        if self.issue_counts.get("tls_fatal_alert", 0) > 0:
+            hints.append("tls fatal alert observed")
+        elif self.issue_counts.get("tls_alert", 0) > 0:
+            hints.append("tls alert observed")
         if any(sequence.has_anomalies for sequence in self.esp_sequences):
             hints.append("esp sequence anomaly observed")
         if self.dns_error_count:
@@ -451,6 +458,7 @@ class CaptureSummary(BaseModel):
                         for certificate in flow.tls_certificates
                     ],
                     "tls_snis": flow.tls_snis,
+                    "tls_alerts": flow.tls_alerts,
                     "sip": {
                         "call_ids": flow.sip_call_ids,
                         "calls": [

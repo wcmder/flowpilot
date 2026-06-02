@@ -729,6 +729,7 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
     table.add_column("Role", overflow="fold")
     table.add_column("Endpoint", overflow="fold")
     table.add_column("SNI", overflow="fold")
+    table.add_column("Alerts", overflow="fold")
     table.add_column("Subject CN", overflow="fold")
     table.add_column("Issuer CN", overflow="fold")
     table.add_column("Validity", overflow="fold")
@@ -741,11 +742,12 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
             certificate.presenter_role if certificate else "-",
             _certificate_endpoint(flow, certificate) if certificate else _flow_endpoint_text(flow),
             "\n".join(flow.tls_snis[:5]) or "-",
+            _format_counter_lines(flow.tls_alerts),
             (certificate.subject_cn or certificate.subject or "-") if certificate else "-",
             (certificate.issuer_cn or certificate.issuer or "-") if certificate else "-",
             _validity(certificate) if certificate else "-",
             ", ".join(certificate.san_dns[:5]) if certificate else "-",
-            "" if certificate else "tls observed but certificate not extracted",
+            _tls_issue_text(flow, certificate),
         )
     console.print(table)
 
@@ -760,9 +762,17 @@ def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object, obj
                 (flow_ids[id(flow)], flow, certificate)
                 for certificate in flow.tls_certificates
             )
-        elif flow.tls_snis or _likely_tls_flow(flow):
+        elif flow.tls_snis or flow.tls_alerts or _likely_tls_flow(flow):
             observed_tls_rows.append((flow_ids[id(flow)], flow, None))
     return [*certificate_rows, *observed_tls_rows][:show_flows]
+
+
+def _tls_issue_text(flow, certificate) -> str:
+    if flow.issue_counts.get("tls_fatal_alert", 0):
+        return "tls fatal alert observed"
+    if flow.issue_counts.get("tls_alert", 0):
+        return "tls alert observed"
+    return "" if certificate else "tls observed but certificate not extracted"
 
 
 def _likely_tls_flow(flow) -> bool:
@@ -984,8 +994,11 @@ def _protocol_marker(flow) -> str:
             f"clients={len(flow.dhcp_client_macs)} "
             f"offers={len(flow.dhcp_offered_ips)}"
         )
-    if flow.tls_snis or flow.tls_certificates:
-        details.append(f"TLS sni={len(flow.tls_snis)} certs={len(flow.tls_certificates)}")
+    if flow.tls_snis or flow.tls_certificates or flow.tls_alerts:
+        details.append(
+            f"TLS sni={len(flow.tls_snis)} "
+            f"certs={len(flow.tls_certificates)} alerts={sum(flow.tls_alerts.values())}"
+        )
     if flow.esp_sequences:
         details.append(format_esp_sequences(flow.esp_sequences))
     return "\n".join(details)

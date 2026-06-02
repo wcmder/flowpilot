@@ -101,6 +101,9 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
 
         if packet.tls_sni and packet.tls_sni not in flow.tls_snis:
             flow.tls_snis = [*flow.tls_snis, packet.tls_sni]
+        if packet.tls_alert_level or packet.tls_alert_description:
+            alert = _tls_alert_label(packet.tls_alert_level, packet.tls_alert_description)
+            flow.tls_alerts[alert] = flow.tls_alerts.get(alert, 0) + 1
 
         presenter_roles = _certificate_presenter_roles(flow)
         for certificate in packet.tls_certificates:
@@ -146,3 +149,9 @@ def _next_certificate_role(roles: dict[tuple[str | None, int | None], str]) -> s
     if "client" not in roles.values():
         return "client"
     return "peer"
+
+
+def _tls_alert_label(level: str | None, description: str | None) -> str:
+    if level and description:
+        return f"{level} {description}"
+    return level or description or "alert"

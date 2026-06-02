@@ -11,7 +11,7 @@ from flowpilot.filters import (
     include_redirect_related_flows,
 )
 from flowpilot.models import PacketObservation, TlsCertificateObservation
-from flowpilot.tls import _all_field_values, tls_certificates
+from flowpilot.tls import _all_field_values, tls_alert, tls_certificates
 
 
 def test_summarize_capture_groups_bidirectional_flow() -> None:
@@ -504,6 +504,17 @@ def test_tls_certificates_include_x509af_layer_fields() -> None:
     assert certificates[0].issuer_cn == "Example Issuing CA"
 
 
+def test_tls_alert_reads_level_and_description() -> None:
+    packet = SimpleNamespace(
+        tls=SimpleNamespace(
+            alert_message_level="Fatal (2)",
+            alert_message_desc="Certificate Unknown (46)",
+        )
+    )
+
+    assert tls_alert(packet) == ("Fatal (2)", "Certificate Unknown (46)")
+
+
 def test_include_redirect_related_flows_adds_redirect_target_flow() -> None:
     seed = PacketObservation(
         src_ip="10.0.0.5",
@@ -584,6 +595,31 @@ def test_summarize_capture_tracks_tls_certificates() -> None:
     assert summary.compact()["top_flows"][0]["tls_certificates"][0]["issuer_cn"] == (
         "Example Intermediate CA"
     )
+
+
+def test_summarize_capture_tracks_tls_alerts_for_llm_metadata() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="198.51.100.20",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=50000,
+            protocol="TCP",
+            tls_alert_level="Fatal (2)",
+            tls_alert_description="Close Notify (0)",
+            issue_tags=["tls_alert", "tls_fatal_alert"],
+        )
+    ]
+
+    summary = summarize_capture(packets)
+    flow = summary.flows[0]
+
+    assert flow.tls_alerts == {"Fatal (2) Close Notify (0)": 1}
+    assert flow.issue_counts == {"tls_alert": 1, "tls_fatal_alert": 1}
+    assert "tls fatal alert observed" in flow.diagnostic_hints
+    assert summary.compact()["top_flows"][0]["tls_alerts"] == {
+        "Fatal (2) Close Notify (0)": 1
+    }
 
 
 def test_summarize_capture_sends_all_tls_certificates_to_compact_metadata() -> None:

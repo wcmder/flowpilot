@@ -364,6 +364,34 @@ def test_tls_detail_rows_include_sni_without_certificate() -> None:
     assert rows == [(1, flow, None)]
 
 
+def test_tls_detail_rows_include_alert_without_certificate() -> None:
+    flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="203.0.113.10",
+            port_a=50000,
+            port_b=443,
+            protocol="TCP",
+        ),
+        tls_alerts={"Fatal (2) Close Notify (0)": 1},
+        issue_counts={"tls_alert": 1, "tls_fatal_alert": 1},
+    )
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=1,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[flow],
+    )
+
+    rows = _tls_detail_rows(summary, show_flows=10)
+
+    assert rows == [(1, flow, None)]
+
+
 def test_tls_detail_rows_use_object_position_when_flow_keys_repeat() -> None:
     key = FlowKey(
         endpoint_a="10.0.0.10",
