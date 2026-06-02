@@ -31,6 +31,7 @@ from .filters import (
 from .reasoning import DEFAULT_MODEL, chat_about_capture, list_openai_models, reason_about_capture
 from .sip import format_sip_trace
 from .smb import SMB1_COMMAND_NAMES, SMB_STATUS_NAMES, smb_display_value
+from .workflow import run_agent_chat, run_agent_reasoning_state
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
@@ -102,6 +103,16 @@ def analyze(
     chat: Annotated[
         bool,
         typer.Option(help="After LLM reasoning, open an interactive follow-up chat."),
+    ] = False,
+    agent: Annotated[
+        bool,
+        typer.Option(
+            "--agent",
+            help=(
+                "Route LLM reasoning and chat through a LangGraph workflow. Local packet "
+                "analysis remains deterministic."
+            ),
+        ),
     ] = False,
     json_path: Annotated[
         Path | None, typer.Option("--json", help="Write a JSON report to this path.")
@@ -199,7 +210,21 @@ def analyze(
                 "Raw packet payloads are not sent."
             )
             llm_started_at = time.perf_counter()
-            report = reason_about_capture(summary, model=model, max_flows=max_flows)
+            agent_evidence = []
+            if agent:
+                _info("LangGraph agent workflow started.")
+                agent_state = run_agent_reasoning_state(
+                    summary,
+                    capture_path=capture_path,
+                    model=model,
+                    max_flows=max_flows,
+                )
+                report = agent_state["report"]
+                agent_evidence = agent_state.get("deep_evidence", [])
+                if agent_evidence:
+                    _info(f"LangGraph gathered {len(agent_evidence)} deep evidence result(s).")
+            else:
+                report = reason_about_capture(summary, model=model, max_flows=max_flows)
             llm_elapsed = time.perf_counter() - llm_started_at
             _info(f"LLM reasoning finished in {llm_elapsed:.2f}s.")
 
@@ -214,7 +239,14 @@ def analyze(
             console.print(f"[green]Wrote JSON report:[/green] {json_path}")
 
         if chat and report:
-            _run_chat(summary, report=report, model=model, max_flows=max_flows)
+            _run_chat(
+                summary,
+                report=report,
+                model=model,
+                max_flows=max_flows,
+                agent=agent,
+                additional_evidence=agent_evidence if agent else None,
+            )
     finally:
         if session:
             session.close()
@@ -708,7 +740,15 @@ def _render_reasoning(report) -> None:
         )
 
 
-def _run_chat(summary, *, report, model: str, max_flows: int) -> None:
+def _run_chat(
+    summary,
+    *,
+    report,
+    model: str,
+    max_flows: int,
+    agent: bool = False,
+    additional_evidence: list[dict] | None = None,
+) -> None:
     _info("Interactive chat started. Ask follow-up questions, or type `exit` to quit.")
     history: list[dict[str, str]] = []
     while True:
@@ -727,14 +767,25 @@ def _run_chat(summary, *, report, model: str, max_flows: int) -> None:
             return
 
         _info("Sending follow-up question to LLM.")
-        answer = chat_about_capture(
-            summary,
-            question,
-            model=model,
-            max_flows=max_flows,
-            report=report,
-            history=history,
-        )
+        if agent:
+            answer = run_agent_chat(
+                summary,
+                question,
+                model=model,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+                additional_evidence=additional_evidence,
+            )
+        else:
+            answer = chat_about_capture(
+                summary,
+                question,
+                model=model,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+            )
         console.print(Panel(answer, title="FlowPilot Chat"))
         history.extend(
             [

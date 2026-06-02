@@ -1,9 +1,11 @@
 # FlowPilot
 
 FlowPilot is an agentic data-flow troubleshooting tool for packet captures. It
-uses PyShark/TShark to extract network conversations and the OpenAI Responses
-API to reason about transfer problems such as TCP retransmissions, UDP reachability,
-ESP/IPsec flows, one-way traffic, resets, zero windows, and possible path issues.
+uses PyShark/TShark to extract network conversations and OpenAI-compatible LLM
+reasoning to diagnose transfer problems such as TCP retransmissions, UDP
+reachability, ESP/IPsec flows, one-way traffic, resets, zero windows, and possible
+path issues. Optional LangGraph agent mode routes LLM reasoning and follow-up
+chat through a stateful workflow that can be extended with targeted rereads.
 
 ## What it does
 
@@ -24,11 +26,13 @@ ESP/IPsec flows, one-way traffic, resets, zero windows, and possible path issues
   and DNS error indicators when visible.
 - Extracts DHCP metadata such as message types, transaction IDs, client MACs,
   hostnames, requested/offered IPs, server IDs, and lease times when visible.
-- Calculates local troubleshooting metrics such as retransmission rate, RTT
-  average/max when available, one-way flow detection, packet rate, and maximum
-  inter-packet gap.
+- Calculates local troubleshooting metrics such as retransmission/loss rates,
+  local RTT fields when available, one-way flow detection, packet rate, and
+  throughput.
 - Optionally asks an OpenAI model to reason over the flow summary and return
   likely network causes, evidence, and next troubleshooting actions.
+- Optionally uses LangGraph for agentic LLM reasoning and interactive follow-up
+  chat while keeping packet analysis deterministic.
 
 ## Requirements
 
@@ -219,6 +223,25 @@ flowpilot analyze capture.pcap --chat
 The chat reuses the same derived metadata and initial LLM report. Type `exit`,
 `quit`, or `q` to leave the prompt. `--chat` cannot be used with `--no-llm`.
 
+Run LLM reasoning and chat through the LangGraph workflow:
+
+```bash
+flowpilot analyze capture.pcap --agent --chat
+```
+
+Agent mode runs local packet analysis first, then uses a LangGraph state graph to
+route deeper evidence before final LLM reasoning. The deterministic router calls
+allow-listed tools when protocol symptoms need packet-header detail:
+`deep_tcp_flow` for TCP loss, retransmission, reset, zero-window, one-way, or
+low-throughput indicators, and `deep_udp_flow` for DNS/DHCP errors, incomplete
+DHCP exchanges, visible DNS transactions, or one-way UDP flows. The TCP tool
+sends sequence, ACK, flags, window, TCP length, and Wireshark TCP analysis
+markers. The UDP tool sends UDP ports, length, checksum status, DNS transaction
+ID/query/type/rcode/answers/timing, and DHCP transaction/message/client/server/
+lease metadata. The LLM can also request these tools for a specific Flow ID
+through structured `evidence_requests`; FlowPilot only honors allow-listed tools
+and caps reread loops.
+
 List models from the configured OpenAI or OpenAI-compatible endpoint:
 
 ```bash
@@ -247,6 +270,7 @@ Core options:
 | `CAPTURE_PATH` | Path to a `.pcap` or `.pcapng` file. |
 | `--no-llm` | Only run local PyShark/TShark flow analysis. No metadata is sent to the LLM endpoint. |
 | `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
+| `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. The agent can run allow-listed deep TCP/UDP rereads with packet-header and DNS/DHCP transaction fields for selected flows. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--json PATH` | Write the summary and optional LLM report to a JSON file. |
 | `--cache-pcap` | Copy the capture into a temporary FlowPilot session workspace before analysis. This preserves full captured packet bytes and headers for future agentic rereads during the run. |

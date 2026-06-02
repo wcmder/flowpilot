@@ -515,11 +515,18 @@ class AnalysisFinding(BaseModel):
     recommended_action: str
 
 
+class EvidenceRequest(BaseModel):
+    tool: str = Field(description="Allowed tool name such as deep_tcp_flow or deep_udp_flow.")
+    flow_id: int | None = Field(default=None, description="Flow ID from the Top Flows table.")
+    reason: str
+
+
 class ReasoningReport(BaseModel):
     executive_summary: str
     risk_level: str
     findings: list[AnalysisFinding] = Field(default_factory=list)
     next_questions: list[str] = Field(default_factory=list)
+    evidence_requests: list[EvidenceRequest] = Field(default_factory=list)
 
 
 def counter_to_sorted_dict(counter: Counter[str], limit: int) -> dict[str, int]:

@@ -12,6 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "FlowPilot" }]
 dependencies = [
   "cryptography>=42.0.0",
+  "langgraph>=0.2.0",
   "openai>=1.93.0",
   "pydantic>=2.8.0",
   "python-dotenv>=1.0.1",

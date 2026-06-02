@@ -45,7 +45,11 @@ file transfer behavior looks optimal or suboptimal using transfer_mbps, read/wri
 read/write bytes, SMB statuses/errors, file names, TCP issues, RTT/loss/retransmits, and duration.
 For DNS, look for NXDOMAIN/SERVFAIL/refused or missing answers. For DHCP, look for incomplete
 discover/offer/request/ack exchanges, repeated requests, missing ACKs, server identifiers,
-lease details, and requested versus offered addresses."""
+lease details, and requested versus offered addresses.
+
+If more packet evidence is needed, request only allow-listed tools in evidence_requests.
+Allowed tools: deep_tcp_flow, deep_udp_flow. Use deep_udp_flow for UDP, DNS, or DHCP
+transaction/header details. Include the Flow ID and a concise reason. Do not invent tools."""
 
 
 def openai_client() -> OpenAI:
@@ -73,6 +77,7 @@ def reason_about_capture(
     *,
     model: str = DEFAULT_MODEL,
     max_flows: int = 25,
+    additional_evidence: list[dict[str, Any]] | None = None,
 ) -> ReasoningReport:
     client = openai_client()
     if LLM_API in {"chat", "chat_completions", "chat-completions"}:
@@ -81,10 +86,17 @@ def reason_about_capture(
             summary,
             model=model,
             max_flows=max_flows,
+            additional_evidence=additional_evidence,
         )
     if LLM_API == "auto":
         try:
-            return _reason_with_responses(client, summary, model=model, max_flows=max_flows)
+            return _reason_with_responses(
+                client,
+                summary,
+                model=model,
+                max_flows=max_flows,
+                additional_evidence=additional_evidence,
+            )
         except APIStatusError as exc:
             if exc.status_code != 404:
                 raise
@@ -93,8 +105,15 @@ def reason_about_capture(
                 summary,
                 model=model,
                 max_flows=max_flows,
+                additional_evidence=additional_evidence,
             )
-    return _reason_with_responses(client, summary, model=model, max_flows=max_flows)
+    return _reason_with_responses(
+        client,
+        summary,
+        model=model,
+        max_flows=max_flows,
+        additional_evidence=additional_evidence,
+    )
 
 
 def chat_about_capture(
@@ -105,6 +124,7 @@ def chat_about_capture(
     max_flows: int = 25,
     report: ReasoningReport | None = None,
     history: list[dict[str, str]] | None = None,
+    additional_evidence: list[dict[str, Any]] | None = None,
 ) -> str:
     client = openai_client()
     if LLM_API in {"chat", "chat_completions", "chat-completions"}:
@@ -116,6 +136,7 @@ def chat_about_capture(
             max_flows=max_flows,
             report=report,
             history=history,
+            additional_evidence=additional_evidence,
         )
     if LLM_API == "auto":
         try:
@@ -127,6 +148,7 @@ def chat_about_capture(
                 max_flows=max_flows,
                 report=report,
                 history=history,
+                additional_evidence=additional_evidence,
             )
         except APIStatusError as exc:
             if exc.status_code != 404:
@@ -139,6 +161,7 @@ def chat_about_capture(
                 max_flows=max_flows,
                 report=report,
                 history=history,
+                additional_evidence=additional_evidence,
             )
     return _chat_with_responses(
         client,
@@ -148,6 +171,7 @@ def chat_about_capture(
         max_flows=max_flows,
         report=report,
         history=history,
+        additional_evidence=additional_evidence,
     )
 
 
@@ -157,6 +181,7 @@ def _reason_with_responses(
     *,
     model: str,
     max_flows: int,
+    additional_evidence: list[dict[str, Any]] | None = None,
 ) -> ReasoningReport:
     _respect_llm_rate_limit()
     response = client.responses.parse(
@@ -172,7 +197,7 @@ def _reason_with_responses(
                     "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
                     "SMB transfer inefficiency or errors, "
                     "and certificate/redirect clues.\n\n"
-                    f"{json.dumps(summary.compact(max_flows=max_flows), indent=2, default=str)}"
+                    f"{_reasoning_payload(summary, max_flows, additional_evidence)}"
                 ),
             }
         ],
@@ -189,6 +214,7 @@ def _reason_with_chat_completions(
     *,
     model: str,
     max_flows: int,
+    additional_evidence: list[dict[str, Any]] | None = None,
 ) -> ReasoningReport:
     _respect_llm_rate_limit()
     response = client.chat.completions.create(
@@ -206,7 +232,7 @@ def _reason_with_chat_completions(
                     "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
                     "SMB transfer inefficiency or errors, "
                     "and certificate/redirect clues.\n\n"
-                    f"{json.dumps(summary.compact(max_flows=max_flows), indent=2, default=str)}"
+                    f"{_reasoning_payload(summary, max_flows, additional_evidence)}"
                 ),
             },
         ],
@@ -227,12 +253,20 @@ def _chat_with_responses(
     max_flows: int,
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
+    additional_evidence: list[dict[str, Any]] | None = None,
 ) -> str:
     _respect_llm_rate_limit()
     response = client.responses.create(
         model=model,
         instructions=_chat_system_prompt(),
-        input=_chat_input(summary, question, max_flows=max_flows, report=report, history=history),
+        input=_chat_input(
+            summary,
+            question,
+            max_flows=max_flows,
+            report=report,
+            history=history,
+            additional_evidence=additional_evidence,
+        ),
     )
     answer = getattr(response, "output_text", None)
     if answer:
@@ -249,6 +283,7 @@ def _chat_with_chat_completions(
     max_flows: int,
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
+    additional_evidence: list[dict[str, Any]] | None = None,
 ) -> str:
     _respect_llm_rate_limit()
     response = client.chat.completions.create(
@@ -261,6 +296,7 @@ def _chat_with_chat_completions(
                 max_flows=max_flows,
                 report=report,
                 history=history,
+                additional_evidence=additional_evidence,
             ),
         ],
     )
@@ -291,10 +327,12 @@ def _chat_input(
     max_flows: int,
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
+    additional_evidence: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     context = {
         "summary": summary.compact(max_flows=max_flows),
         "initial_reasoning": report.model_dump(mode="json") if report else None,
+        "additional_tool_evidence": additional_evidence or [],
     }
     messages = [
         {
@@ -309,6 +347,18 @@ def _chat_input(
     messages.extend((history or [])[-12:])
     messages.append({"role": "user", "content": question})
     return messages
+
+
+def _reasoning_payload(
+    summary: CaptureSummary,
+    max_flows: int,
+    additional_evidence: list[dict[str, Any]] | None,
+) -> str:
+    payload = {
+        "summary": summary.compact(max_flows=max_flows),
+        "additional_tool_evidence": additional_evidence or [],
+    }
+    return json.dumps(payload, indent=2, default=str)
 
 
 def _chat_system_prompt() -> str:
