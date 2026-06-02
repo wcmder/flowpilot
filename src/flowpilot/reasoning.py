@@ -386,7 +386,7 @@ def _chat_with_chat_completions(
             ),
         ],
     )
-    content = response.choices[0].message.content
+    content = _message_content_text(response.choices[0].message.content)
     if not content:
         return "The LLM response did not include message content. Try rerunning the question."
     return content
@@ -456,10 +456,19 @@ def _agent_chat_with_chat_completions(
         ],
         response_format={"type": "json_object"},
     )
-    content = response.choices[0].message.content
+    content = _message_content_text(response.choices[0].message.content)
     if not content:
         return AgentChatResponse(
-            answer="Chat completions response did not include message content."
+            answer=_agent_chat_plain_fallback(
+                client,
+                summary,
+                question,
+                model=model,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+                additional_evidence=additional_evidence,
+            )
         )
     try:
         parsed = _json_object(content)
@@ -471,6 +480,57 @@ def _agent_chat_with_chat_completions(
         return AgentChatResponse.model_validate(parsed)
     except ValidationError:
         return AgentChatResponse(answer=content)
+
+
+def _agent_chat_plain_fallback(
+    client: OpenAI,
+    summary: CaptureSummary,
+    question: str,
+    *,
+    model: str,
+    max_flows: int,
+    report: ReasoningReport | None,
+    history: list[dict[str, str]] | None,
+    additional_evidence: list[dict[str, Any]] | None = None,
+) -> str:
+    _respect_llm_rate_limit()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    f"{SYSTEM_PROMPT}\n\n"
+                    "You are in interactive follow-up mode. Answer in plain text only. "
+                    "Do not return JSON. If additional_tool_evidence is present, use it "
+                    "as the newest and most specific packet evidence."
+                ),
+            },
+            *_chat_input(
+                summary,
+                question,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+                additional_evidence=additional_evidence,
+            ),
+            {
+                "role": "user",
+                "content": (
+                    "Provide the final answer now in plain text. If deep evidence was "
+                    "provided, cite what it shows and do not say the tool is unavailable."
+                ),
+            },
+        ],
+    )
+    content = _message_content_text(response.choices[0].message.content)
+    if content:
+        return content
+    return (
+        "Agent chat ran the requested deep evidence path, but the LLM provider returned "
+        "empty message content for both the structured chat request and the plain-text "
+        "fallback request."
+    )
 
 
 def _empty_llm_report(reason: str) -> ReasoningReport:
@@ -561,6 +621,22 @@ def _json_object(content: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("Expected model response to be a JSON object.")
     return parsed
+
+
+def _message_content_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text") or item.get("content") or ""))
+            else:
+                parts.append(str(item))
+        return "\n".join(part for part in parts if part).strip()
+    return str(content).strip()
 
 
 def _respect_llm_rate_limit() -> None:
