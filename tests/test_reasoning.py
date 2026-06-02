@@ -144,7 +144,8 @@ def test_chat_followup_handles_empty_message_content(monkeypatch) -> None:
         history=None,
     )
 
-    assert "did not include message content" in answer
+    assert "LLM chat returned no usable text" in answer
+    assert "--agent --chat" in answer
 
 
 def test_agent_chat_completions_uses_plain_text_fallback(monkeypatch) -> None:

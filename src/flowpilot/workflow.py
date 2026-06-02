@@ -388,9 +388,10 @@ def _explicit_chat_tool_requests(state: FlowPilotAgentState) -> list[dict[str, A
     question = state.get("question", "")
     requests = []
     for tool in ALLOWED_TOOLS:
-        if tool not in question:
+        tool_pattern = _tool_name_pattern(tool)
+        if not re.search(tool_pattern, question, flags=re.IGNORECASE):
             continue
-        flow_id = _explicit_flow_id(question, tool)
+        flow_id = _explicit_flow_id(question, tool_pattern)
         if flow_id is None:
             continue
         request = {
@@ -403,16 +404,20 @@ def _explicit_chat_tool_requests(state: FlowPilotAgentState) -> list[dict[str, A
     return requests
 
 
-def _explicit_flow_id(question: str, tool: str) -> int | None:
+def _explicit_flow_id(question: str, tool_pattern: str) -> int | None:
     patterns = [
-        rf"{re.escape(tool)}\D{{0,80}}(?:flow(?:\s+id)?|id)\D{{0,20}}(\d+)",
-        rf"(?:flow(?:\s+id)?|id)\D{{0,20}}(\d+)\D{{0,80}}{re.escape(tool)}",
+        rf"{tool_pattern}\D{{0,80}}(?:flow(?:\s+id)?|id)\D{{0,20}}(\d+)",
+        rf"(?:flow(?:\s+id)?|id)\D{{0,20}}(\d+)\D{{0,80}}{tool_pattern}",
     ]
     for pattern in patterns:
         match = re.search(pattern, question, flags=re.IGNORECASE)
         if match:
             return int(match.group(1))
     return None
+
+
+def _tool_name_pattern(tool: str) -> str:
+    return r"\b" + r"[\s_-]+".join(re.escape(part) for part in tool.split("_")) + r"\b"
 
 
 def _valid_tool_requests(

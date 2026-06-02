@@ -388,7 +388,10 @@ def _chat_with_chat_completions(
     )
     content = _message_content_text(response.choices[0].message.content)
     if not content:
-        return "The LLM response did not include message content. Try rerunning the question."
+        return _empty_chat_message(
+            "Plain chat-completions request returned an empty assistant message. "
+            "For deep tools, run with --agent --chat and include a tool name plus Flow ID."
+        )
     return content
 
 
@@ -637,6 +640,13 @@ def _message_content_text(content: Any) -> str:
                 parts.append(str(item))
         return "\n".join(part for part in parts if part).strip()
     return str(content).strip()
+
+
+def _empty_chat_message(reason: str) -> str:
+    return (
+        "LLM chat returned no usable text. "
+        f"{reason}"
+    )
 
 
 def _respect_llm_rate_limit() -> None:

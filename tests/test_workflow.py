@@ -213,6 +213,38 @@ def test_explicit_chat_tool_requests_parse_flow_id_before_tool(tmp_path) -> None
     ]
 
 
+def test_explicit_chat_tool_requests_parse_spaced_tool_name(tmp_path) -> None:
+    state = {
+        "capture_path": tmp_path / "capture.pcap",
+        "question": "run deep tls flow for flow 1",
+        "completed_tool_requests": [],
+    }
+
+    assert workflow._explicit_chat_tool_requests(state) == [
+        {
+            "tool": "deep_tls_flow",
+            "flow_id": 1,
+            "reason": "User explicitly requested deep_tls_flow for Flow ID 1.",
+        }
+    ]
+
+
+def test_explicit_chat_tool_requests_parse_hyphenated_tool_name(tmp_path) -> None:
+    state = {
+        "capture_path": tmp_path / "capture.pcap",
+        "question": "For flow id 8 run deep-tcp-flow",
+        "completed_tool_requests": [],
+    }
+
+    assert workflow._explicit_chat_tool_requests(state) == [
+        {
+            "tool": "deep_tcp_flow",
+            "flow_id": 8,
+            "reason": "User explicitly requested deep_tcp_flow for Flow ID 8.",
+        }
+    ]
+
+
 def test_tool_result_error_detail_includes_message_and_filter() -> None:
     detail = workflow._tool_result_error_detail(
         {
