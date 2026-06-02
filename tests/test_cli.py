@@ -6,17 +6,20 @@ from flowpilot.cli import (
     _CachedCaptureSession,
     _count_packets_in_capture,
     _direction,
+    _expiration,
     _format_agent_evidence_counts,
     _format_flow_issues,
     _format_smb_capabilities,
     _format_smb_counter_lines,
     _format_smb_transfer,
     _format_smb_transfer_line,
+    _format_tls_certificates,
     _local_analysis_start_message,
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
     _percent,
     _tls_detail_rows,
+    _tls_issue_text,
     _traffic,
 )
 from flowpilot.dns import dns_issue_summary
@@ -361,7 +364,7 @@ def test_tls_detail_rows_include_sni_without_certificate() -> None:
 
     rows = _tls_detail_rows(summary, show_flows=10)
 
-    assert rows == [(1, flow, None)]
+    assert rows == [(1, flow)]
 
 
 def test_tls_detail_rows_include_alert_without_certificate() -> None:
@@ -389,7 +392,75 @@ def test_tls_detail_rows_include_alert_without_certificate() -> None:
 
     rows = _tls_detail_rows(summary, show_flows=10)
 
-    assert rows == [(1, flow, None)]
+    assert rows == [(1, flow)]
+
+
+def test_tls_expiration_shows_only_not_after() -> None:
+    certificate = TlsCertificateObservation(
+        not_before="2026-01-01T00:00:00+00:00",
+        not_after="2027-01-01T00:00:00+00:00",
+    )
+
+    assert _expiration(certificate) == "2027-01-01T00:00:00+00:00"
+
+
+def test_tls_issue_text_lists_flow_issues_on_new_lines() -> None:
+    flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="203.0.113.10",
+            port_a=50000,
+            port_b=443,
+            protocol="TCP",
+        ),
+        issue_counts={"tls_alert": 1, "tls_fatal_alert": 1},
+    )
+
+    assert _tls_issue_text(flow) == (
+        "tls fatal alert observed\n"
+        "tls observed but certificate not extracted"
+    )
+
+
+def test_format_tls_certificates_lists_chain_one_cert_per_line() -> None:
+    flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="203.0.113.10",
+            port_a=50000,
+            port_b=443,
+            protocol="TCP",
+        ),
+        tls_certificates=[
+            TlsCertificateObservation(
+                presenter_role="server",
+                presenter_ip="203.0.113.10",
+                presenter_port=443,
+                subject_cn="api.example.com",
+                issuer_cn="Example Issuing CA",
+                not_after="2027-01-01T00:00:00+00:00",
+                san_dns=["api.example.com"],
+            ),
+            TlsCertificateObservation(
+                presenter_role="server",
+                presenter_ip="203.0.113.10",
+                presenter_port=443,
+                subject_cn="Example Issuing CA",
+                issuer_cn="Example Root CA",
+                not_after="2000-01-01T00:00:00+00:00",
+            ),
+        ],
+    )
+
+    assert _format_tls_certificates(flow) == (
+        "cert 1 / role=server / endpoint=203.0.113.10:443 / "
+        "subject=api.example.com / issuer=Example Issuing CA / "
+        "expiration=2027-01-01T00:00:00+00:00 / san=api.example.com\n"
+        "cert 2 / role=server / endpoint=203.0.113.10:443 / "
+        "subject=Example Issuing CA / issuer=Example Root CA / "
+        "expiration=2000-01-01T00:00:00+00:00 / san=- / "
+        "issue=certificate expired 2000-01-01T00:00:00+00:00"
+    )
 
 
 def test_tls_detail_rows_use_object_position_when_flow_keys_repeat() -> None:
@@ -468,8 +539,7 @@ def test_tls_detail_rows_prioritize_certificates_within_top_flow_slice() -> None
 
     rows = _tls_detail_rows(summary, show_flows=2)
 
-    assert rows[0][0] == 2
-    assert rows[0][2].subject_cn == "api.example.com"
+    assert rows[0] == (2, cert_flow)
 
 
 def test_percent_keeps_small_nonzero_rates_visible() -> None:
