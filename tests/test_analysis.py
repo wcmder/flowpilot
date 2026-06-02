@@ -11,6 +11,7 @@ from flowpilot.filters import (
     include_redirect_related_flows,
 )
 from flowpilot.models import PacketObservation, TlsCertificateObservation
+from flowpilot.tls import _all_field_values
 
 
 def test_summarize_capture_groups_bidirectional_flow() -> None:
@@ -459,6 +460,28 @@ def test_tshark_custom_parameters_include_tls_keylog(tmp_path) -> None:
     assert params is not None
     assert f"tls.keylog_file:{keylog_file}" in params
     assert "tcp.desegment_tcp_streams:TRUE" in params
+
+
+def test_tshark_custom_parameters_enable_tls_reassembly_without_keylog() -> None:
+    params = _tshark_custom_parameters(None)
+
+    assert params is not None
+    assert "tcp.desegment_tcp_streams:TRUE" in params
+    assert "tls.desegment_ssl_records:TRUE" in params
+    assert "tls.desegment_ssl_application_data:TRUE" in params
+
+
+def test_tls_field_values_include_reassembled_field_objects() -> None:
+    layer = SimpleNamespace(
+        _all_fields={
+            "tls.handshake.certificate": [
+                SimpleNamespace(show="aa:bb"),
+                SimpleNamespace(showname_value="cc:dd"),
+            ]
+        }
+    )
+
+    assert _all_field_values(layer, "handshake.certificate") == ["aa:bb", "cc:dd"]
 
 
 def test_include_redirect_related_flows_adds_redirect_target_flow() -> None:

@@ -149,12 +149,28 @@ def _all_field_values(layer: Any, field_suffix: str) -> list[str]:
     if layer is None:
         return []
     fields = getattr(layer, "_all_fields", {})
-    values = [
-        value
-        for key, value in fields.items()
-        if key.lower().endswith(field_suffix.lower()) and isinstance(value, str)
-    ]
+    values = []
+    for key, value in fields.items():
+        if key.lower().endswith(field_suffix.lower()):
+            values.extend(_field_strings(value))
     return values
+
+
+def _field_strings(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        values = []
+        for item in value:
+            values.extend(_field_strings(item))
+        return values
+    for attr_name in ("show", "showname_value", "raw_value"):
+        attr_value = getattr(value, attr_name, None)
+        if isinstance(attr_value, str):
+            return [attr_value]
+    return []
 
 
 def _split_values(value: str | None) -> list[str]:

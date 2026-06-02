@@ -44,19 +44,22 @@ def read_capture(
 
 
 def _tshark_custom_parameters(tls_keylog_file: Path | None) -> list[str] | None:
+    parameters = [
+        "-o",
+        "tcp.desegment_tcp_streams:TRUE",
+        "-o",
+        "tls.desegment_ssl_records:TRUE",
+        "-o",
+        "tls.desegment_ssl_application_data:TRUE",
+    ]
     if tls_keylog_file is None:
-        return None
+        return parameters
     if not tls_keylog_file.exists():
         raise FileNotFoundError(tls_keylog_file)
     return [
         "-o",
         f"tls.keylog_file:{tls_keylog_file}",
-        "-o",
-        "tls.desegment_ssl_records:TRUE",
-        "-o",
-        "tls.desegment_ssl_application_data:TRUE",
-        "-o",
-        "tcp.desegment_tcp_streams:TRUE",
+        *parameters,
     ]
 
 
