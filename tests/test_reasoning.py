@@ -147,6 +147,104 @@ def test_chat_followup_handles_empty_message_content(monkeypatch) -> None:
     assert "did not include message content" in answer
 
 
+def test_agent_chat_completions_uses_plain_text_fallback(monkeypatch) -> None:
+    class _Message:
+        content = "I need more TLS detail, but the response is not JSON."
+
+    class _Choice:
+        message = _Message()
+
+    class _Response:
+        choices = [_Choice()]
+
+    class _Completions:
+        @staticmethod
+        def create(**_kwargs):
+            return _Response()
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+    monkeypatch.setattr(reasoning, "LLM_REQUESTS_PER_MINUTE", 0)
+
+    response = reasoning._agent_chat_with_chat_completions(
+        _Client(),
+        summary,
+        "what happened?",
+        model="test-model",
+        max_flows=25,
+        report=None,
+        history=None,
+    )
+
+    assert response.answer == "I need more TLS detail, but the response is not JSON."
+    assert response.evidence_requests == []
+
+
+def test_agent_chat_completions_accepts_evidence_requests_without_answer(monkeypatch) -> None:
+    class _Message:
+        content = (
+            '{"evidence_requests":[{"tool":"deep_tls_flow","flow_id":2,'
+            '"reason":"Need TLS alert details."}]}'
+        )
+
+    class _Choice:
+        message = _Message()
+
+    class _Response:
+        choices = [_Choice()]
+
+    class _Completions:
+        @staticmethod
+        def create(**_kwargs):
+            return _Response()
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+    monkeypatch.setattr(reasoning, "LLM_REQUESTS_PER_MINUTE", 0)
+
+    response = reasoning._agent_chat_with_chat_completions(
+        _Client(),
+        summary,
+        "use deep_tls_flow for flow 2",
+        model="test-model",
+        max_flows=25,
+        report=None,
+        history=None,
+    )
+
+    assert response.answer == ""
+    assert response.evidence_requests[0].tool == "deep_tls_flow"
+    assert response.evidence_requests[0].flow_id == 2
+
+
 def test_reasoning_returns_fallback_on_llm_timeout(monkeypatch) -> None:
     summary = CaptureSummary(
         packet_count=0,

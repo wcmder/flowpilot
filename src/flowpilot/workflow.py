@@ -227,15 +227,24 @@ def _build_chat_graph() -> Any:
                 f"deep_evidence={len(state.get('deep_evidence', []))}."
             ),
         )
-        response = agent_chat_about_capture(
-            state["summary"],
-            state["question"],
-            model=state.get("model", DEFAULT_MODEL),
-            max_flows=state.get("max_flows", 25),
-            report=state.get("report"),
-            history=state.get("history"),
-            additional_evidence=state.get("deep_evidence", []),
-        )
+        try:
+            response = agent_chat_about_capture(
+                state["summary"],
+                state["question"],
+                model=state.get("model", DEFAULT_MODEL),
+                max_flows=state.get("max_flows", 25),
+                report=state.get("report"),
+                history=state.get("history"),
+                additional_evidence=state.get("deep_evidence", []),
+            )
+        except Exception as exc:  # pragma: no cover - defensive provider boundary
+            return {
+                "answer": (
+                    "Agent chat failed before tool routing. "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+                "tool_requests": [],
+            }
         loop_count = state.get("tool_loop_count", 0)
         if loop_count >= state.get("max_tool_rereads", 2):
             requests = []

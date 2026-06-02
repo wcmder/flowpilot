@@ -7,6 +7,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from openai import APIStatusError, APITimeoutError, OpenAI
+from pydantic import ValidationError
 
 from .models import AgentChatResponse, CaptureSummary, ReasoningReport
 
@@ -460,7 +461,16 @@ def _agent_chat_with_chat_completions(
         return AgentChatResponse(
             answer="Chat completions response did not include message content."
         )
-    return AgentChatResponse.model_validate(_json_object(content))
+    try:
+        parsed = _json_object(content)
+    except (json.JSONDecodeError, ValueError):
+        return AgentChatResponse(answer=content)
+    if "answer" not in parsed:
+        parsed["answer"] = ""
+    try:
+        return AgentChatResponse.model_validate(parsed)
+    except ValidationError:
+        return AgentChatResponse(answer=content)
 
 
 def _empty_llm_report(reason: str) -> ReasoningReport:
