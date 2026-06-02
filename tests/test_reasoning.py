@@ -304,6 +304,9 @@ def test_agent_chat_completions_falls_back_to_plain_chat_on_empty_content(
     assert len(_Completions.calls) == 2
     assert "response_format" in _Completions.calls[0]
     assert "response_format" not in _Completions.calls[1]
+    fallback_messages = _Completions.calls[1]["messages"]
+    assert fallback_messages[-1]["content"] == "use deep_tls_flow for flow 2"
+    assert "Provide the final answer now" not in fallback_messages[-1]["content"]
 
 
 def test_agent_chat_completions_reports_when_structured_and_plain_are_empty(

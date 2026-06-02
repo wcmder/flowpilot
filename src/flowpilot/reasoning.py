@@ -506,7 +506,10 @@ def _agent_chat_plain_fallback(
                     f"{SYSTEM_PROMPT}\n\n"
                     "You are in interactive follow-up mode. Answer in plain text only. "
                     "Do not return JSON. If additional_tool_evidence is present, use it "
-                    "as the newest and most specific packet evidence."
+                    "as the newest and most specific packet evidence. Provide the final "
+                    "answer directly from the supplied FlowPilot metadata and the user's "
+                    "question. If deep evidence was provided, cite what it shows and do "
+                    "not say the tool is unavailable."
                 ),
             },
             *_chat_input(
@@ -517,13 +520,6 @@ def _agent_chat_plain_fallback(
                 history=history,
                 additional_evidence=additional_evidence,
             ),
-            {
-                "role": "user",
-                "content": (
-                    "Provide the final answer now in plain text. If deep evidence was "
-                    "provided, cite what it shows and do not say the tool is unavailable."
-                ),
-            },
         ],
     )
     content = _message_content_text(response.choices[0].message.content)
