@@ -516,20 +516,20 @@ def test_format_certificate_column_lists_all_certs_per_line() -> None:
     ]
 
     assert _format_certificate_column(certificates, "subject") == (
-        "cert 1: api.example.com\n"
-        "cert 2: Example Issuing CA"
+        "Cert 1:\u00a0api.example.com\n"
+        "Cert 2:\u00a0Example Issuing CA"
     )
     assert _format_certificate_column(certificates, "issuer") == (
-        "cert 1: Example Issuing CA\n"
-        "cert 2: Example Root CA"
+        "Cert 1:\u00a0Example Issuing CA\n"
+        "Cert 2:\u00a0Example Root CA"
     )
     assert _format_certificate_column(certificates, "expiration") == (
-        "cert 1: 2027-01-01\n"
-        "cert 2: 2030-01-01"
+        "Cert 1:\u00a02027-01-01\n"
+        "Cert 2:\u00a02030-01-01"
     )
     assert _format_certificate_column(certificates, "san") == (
-        "cert 1: api.example.com\n"
-        "cert 2: -"
+        "Cert 1:\u00a0api.example.com\n"
+        "Cert 2:\u00a0-"
     )
 
 

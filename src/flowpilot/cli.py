@@ -784,7 +784,7 @@ def _tls_certificate_rows(flow_id: int, flow) -> list[tuple[int, object, str, st
 def _format_certificate_column(certificates: list, field_name: str) -> str:
     values = []
     for index, certificate in enumerate(certificates, start=1):
-        values.append(f"cert {index}: {_certificate_field(certificate, field_name)}")
+        values.append(f"Cert {index}:\u00a0{_certificate_field(certificate, field_name)}")
     return "\n".join(values) or "-"
 
 
