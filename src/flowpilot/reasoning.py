@@ -386,7 +386,7 @@ def _chat_with_chat_completions(
             ),
         ],
     )
-    content = _message_content_text(response.choices[0].message.content)
+    content = _chat_choice_text(response.choices[0])
     if not content:
         return _empty_chat_message(
             "Plain chat-completions request returned an empty assistant message. "
@@ -459,7 +459,7 @@ def _agent_chat_with_chat_completions(
         ],
         response_format={"type": "json_object"},
     )
-    content = _message_content_text(response.choices[0].message.content)
+    content = _chat_choice_text(response.choices[0])
     if not content:
         return AgentChatResponse(
             answer=_agent_chat_plain_fallback(
@@ -471,6 +471,7 @@ def _agent_chat_with_chat_completions(
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
+                structured_finish_reason=_choice_finish_reason(response.choices[0]),
             )
         )
     try:
@@ -495,6 +496,7 @@ def _agent_chat_plain_fallback(
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    structured_finish_reason: str | None = None,
 ) -> str:
     _respect_llm_rate_limit()
     response = client.chat.completions.create(
@@ -522,13 +524,18 @@ def _agent_chat_plain_fallback(
             ),
         ],
     )
-    content = _message_content_text(response.choices[0].message.content)
+    content = _chat_choice_text(response.choices[0])
     if content:
         return content
+    plain_finish_reason = _choice_finish_reason(response.choices[0])
+    finish_detail = _finish_reason_detail(
+        structured_finish_reason=structured_finish_reason,
+        plain_finish_reason=plain_finish_reason,
+    )
     return (
         "Agent chat ran the requested deep evidence path, but the LLM provider returned "
         "empty message content for both the structured chat request and the plain-text "
-        "fallback request."
+        f"fallback request.{finish_detail}"
     )
 
 
@@ -636,6 +643,69 @@ def _message_content_text(content: Any) -> str:
                 parts.append(str(item))
         return "\n".join(part for part in parts if part).strip()
     return str(content).strip()
+
+
+def _chat_choice_text(choice: Any) -> str:
+    message = getattr(choice, "message", None)
+    if message is None:
+        return ""
+    content = _message_content_text(getattr(message, "content", None))
+    if content:
+        return content
+    for field in ("text", "reasoning_content", "output_text"):
+        content = _message_content_text(getattr(message, field, None))
+        if content:
+            return content
+    dumped = _model_dump(message)
+    if dumped:
+        return _first_nested_text(dumped)
+    return ""
+
+
+def _first_nested_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("content", "text", "reasoning_content", "output_text"):
+            text = _first_nested_text(value.get(key))
+            if text:
+                return text
+        for nested in value.values():
+            text = _first_nested_text(nested)
+            if text:
+                return text
+    if isinstance(value, list):
+        parts = [_first_nested_text(item) for item in value]
+        return "\n".join(part for part in parts if part).strip()
+    return ""
+
+
+def _choice_finish_reason(choice: Any) -> str | None:
+    reason = getattr(choice, "finish_reason", None)
+    return str(reason) if reason is not None else None
+
+
+def _finish_reason_detail(
+    *,
+    structured_finish_reason: str | None,
+    plain_finish_reason: str | None,
+) -> str:
+    reasons = []
+    if structured_finish_reason:
+        reasons.append(f"structured_finish_reason={structured_finish_reason}")
+    if plain_finish_reason:
+        reasons.append(f"plain_finish_reason={plain_finish_reason}")
+    return " " + " ".join(reasons) if reasons else ""
+
+
+def _model_dump(value: Any) -> dict[str, Any]:
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump()
+        return dumped if isinstance(dumped, dict) else {}
+    if hasattr(value, "dict"):
+        dumped = value.dict()
+        return dumped if isinstance(dumped, dict) else {}
+    return {}
 
 
 def _empty_chat_message(reason: str) -> str:

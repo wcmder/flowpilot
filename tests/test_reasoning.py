@@ -317,6 +317,7 @@ def test_agent_chat_completions_reports_when_structured_and_plain_are_empty(
 
     class _Choice:
         message = _Message()
+        finish_reason = "stop"
 
     class _Response:
         choices = [_Choice()]
@@ -359,7 +360,34 @@ def test_agent_chat_completions_reports_when_structured_and_plain_are_empty(
     )
 
     assert "both the structured chat request and the plain-text fallback" in response.answer
+    assert "structured_finish_reason=stop" in response.answer
+    assert "plain_finish_reason=stop" in response.answer
     assert len(_Completions.calls) == 2
+
+
+def test_chat_choice_text_reads_provider_specific_message_fields() -> None:
+    class _Message:
+        content = None
+        reasoning_content = "provider field answer"
+
+    class _Choice:
+        message = _Message()
+
+    assert reasoning._chat_choice_text(_Choice()) == "provider field answer"
+
+
+def test_chat_choice_text_reads_nested_model_dump_text() -> None:
+    class _Message:
+        content = None
+
+        @staticmethod
+        def model_dump():
+            return {"parts": [{"text": "nested answer"}]}
+
+    class _Choice:
+        message = _Message()
+
+    assert reasoning._chat_choice_text(_Choice()) == "nested answer"
 
 
 def test_message_content_text_handles_list_parts() -> None:
