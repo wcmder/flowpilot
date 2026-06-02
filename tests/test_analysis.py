@@ -54,6 +54,7 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
     assert summary.flows[0].packet_count == 2
     assert summary.flows[0].issue_counts == {"tcp_retransmission": 1}
     assert summary.flows[0].tls_snis == ["example.com"]
+    assert summary.flows[0].tls_sni_endpoints == {"10.0.0.5:54000": ["example.com"]}
     assert summary.flows[0].duration_seconds == 1.0
     assert summary.flows[0].packet_rate_per_second == 2.0
     assert summary.flows[0].byte_rate_per_second == 420.0
@@ -72,6 +73,9 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
     assert "max_rtt_ms" not in summary.compact()["top_flows"][0]
     assert summary.compact()["top_flows"][0]["initial_rtt_ms"] == 20.0
     assert summary.compact()["top_flows"][0]["tls_snis"] == ["example.com"]
+    assert summary.compact()["top_flows"][0]["tls_sni_endpoints"] == {
+        "10.0.0.5:54000": ["example.com"]
+    }
     assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.0
     assert summary.compact()["analysis_focus"] == "network transport troubleshooting"
     assert summary.compact()["top_flows"][0]["transport"] == {
@@ -705,10 +709,16 @@ def test_summarize_capture_tracks_tls_alerts_for_llm_metadata() -> None:
     flow = summary.flows[0]
 
     assert flow.tls_alerts == {"Fatal (2) Close Notify (0)": 1}
+    assert flow.tls_alert_endpoints == {
+        "198.51.100.20:443": {"Fatal (2) Close Notify (0)": 1}
+    }
     assert flow.issue_counts == {"tls_alert": 1, "tls_fatal_alert": 1}
     assert "tls fatal alert observed" in flow.diagnostic_hints
     assert summary.compact()["top_flows"][0]["tls_alerts"] == {
         "Fatal (2) Close Notify (0)": 1
+    }
+    assert summary.compact()["top_flows"][0]["tls_alert_endpoints"] == {
+        "198.51.100.20:443": {"Fatal (2) Close Notify (0)": 1}
     }
 
 

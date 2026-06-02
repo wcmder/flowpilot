@@ -22,6 +22,7 @@ from flowpilot.cli import (
     _tls_detail_rows,
     _tls_endpoint_with_role,
     _tls_issue_text,
+    _tls_sni_for_endpoint,
     _traffic,
 )
 from flowpilot.dns import dns_issue_summary
@@ -402,6 +403,23 @@ def test_tls_endpoint_with_role_adds_role_on_second_line() -> None:
     assert _tls_endpoint_with_role("1.1.1.1:443", "-") == "1.1.1.1:443"
 
 
+def test_tls_sni_for_endpoint_only_shows_sender_sni() -> None:
+    flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="203.0.113.10",
+            port_a=50000,
+            port_b=443,
+            protocol="TCP",
+        ),
+        tls_snis=["api.example.com"],
+        tls_sni_endpoints={"10.0.0.10:50000": ["api.example.com"]},
+    )
+
+    assert _tls_sni_for_endpoint(flow, "10.0.0.10:50000") == "api.example.com"
+    assert _tls_sni_for_endpoint(flow, "203.0.113.10:443") == "-"
+
+
 def test_tls_expiration_shows_only_not_after() -> None:
     certificate = TlsCertificateObservation(
         not_before="2026-01-01T00:00:00+00:00",
@@ -421,11 +439,23 @@ def test_tls_issue_text_lists_flow_issues_on_new_lines() -> None:
             protocol="TCP",
         ),
         issue_counts={"tls_alert": 1, "tls_fatal_alert": 1},
+        tls_alerts={"Fatal (2) Close Notify (0)": 1},
+        tls_alert_endpoints={"203.0.113.10:443": {"Fatal (2) Close Notify (0)": 1}},
+        tls_certificates=[
+            TlsCertificateObservation(
+                presenter_ip="203.0.113.10",
+                presenter_port=443,
+                subject_cn="api.example.com",
+            )
+        ],
     )
 
-    assert _tls_issue_text(flow) == (
-        "tls fatal alert observed\n"
-        "tls observed but certificate not extracted"
+    assert _tls_issue_text(flow, "10.0.0.10:50000") == ""
+    assert _tls_issue_text(flow, "203.0.113.10:443") == (
+        "sent tls alert: Fatal (2) Close Notify (0) (x1)"
+    )
+    assert _tls_issue_text(flow, "10.0.0.10:50000 <-> 203.0.113.10:443") == (
+        "tls alert: Fatal (2) Close Notify (0) (x1)"
     )
 
 

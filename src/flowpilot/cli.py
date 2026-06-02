@@ -739,18 +739,22 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
         table.add_row(
             str(flow_id),
             _tls_endpoint_with_role(endpoint, role),
-            "\n".join(flow.tls_snis[:5]) or "-",
+            _tls_sni_for_endpoint(flow, endpoint),
             _format_certificate_column(certificates, "subject"),
             _format_certificate_column(certificates, "issuer"),
             _format_certificate_column(certificates, "expiration"),
             _format_certificate_column(certificates, "san"),
-            _tls_issue_text(flow, certificates),
+            _tls_issue_text(flow, endpoint, certificates),
         )
     console.print(table)
 
 
 def _tls_endpoint_with_role(endpoint: str, role: str) -> str:
     return endpoint if role == "-" else f"{endpoint}\n({role})"
+
+
+def _tls_sni_for_endpoint(flow, endpoint: str) -> str:
+    return "\n".join(flow.tls_sni_endpoints.get(endpoint, [])[:5]) or "-"
 
 
 def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object, str, str, list]]:
@@ -815,15 +819,24 @@ def _format_tls_certificates(flow) -> str:
     return "\n".join(lines) or "-"
 
 
-def _tls_issue_text(flow, certificates: list | None = None) -> str:
+def _tls_issue_text(flow, endpoint: str, certificates: list | None = None) -> str:
     issues = []
-    if flow.issue_counts.get("tls_fatal_alert", 0):
-        issues.append("tls fatal alert observed")
-    elif flow.issue_counts.get("tls_alert", 0):
-        issues.append("tls alert observed")
+    is_flow_endpoint = endpoint == _flow_endpoint_text(flow)
+    endpoint_alerts = (
+        flow.tls_alerts
+        if is_flow_endpoint
+        else flow.tls_alert_endpoints.get(endpoint, {})
+    )
+    if endpoint_alerts:
+        issues.extend(
+            f"{'tls alert' if is_flow_endpoint else 'sent tls alert'}: {alert} (x{count})"
+            for alert, count in endpoint_alerts.items()
+        )
     for certificate in certificates or []:
         issues.extend(_certificate_issue_lines(certificate))
     if not flow.tls_certificates:
+        if flow.tls_alerts and not endpoint_alerts and endpoint != _flow_endpoint_text(flow):
+            issues.append("tls alert sent by peer")
         issues.append("tls observed but certificate not extracted")
     return "\n".join(issues)
 

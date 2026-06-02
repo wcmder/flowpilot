@@ -200,7 +200,9 @@ class FlowSummary(BaseModel):
     redirect_locations: list[str] = Field(default_factory=list)
     tls_certificates: list[TlsCertificateObservation] = Field(default_factory=list)
     tls_snis: list[str] = Field(default_factory=list)
+    tls_sni_endpoints: dict[str, list[str]] = Field(default_factory=dict)
     tls_alerts: dict[str, int] = Field(default_factory=dict)
+    tls_alert_endpoints: dict[str, dict[str, int]] = Field(default_factory=dict)
     sip_call_ids: list[str] = Field(default_factory=list)
     sip_calls: dict[str, SipCallSummary] = Field(default_factory=dict)
     sip_methods: dict[str, int] = Field(default_factory=dict)
@@ -458,7 +460,9 @@ class CaptureSummary(BaseModel):
                         for certificate in flow.tls_certificates
                     ],
                     "tls_snis": flow.tls_snis,
+                    "tls_sni_endpoints": flow.tls_sni_endpoints,
                     "tls_alerts": flow.tls_alerts,
+                    "tls_alert_endpoints": flow.tls_alert_endpoints,
                     "sip": {
                         "call_ids": flow.sip_call_ids,
                         "calls": [

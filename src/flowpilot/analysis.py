@@ -101,9 +101,17 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
 
         if packet.tls_sni and packet.tls_sni not in flow.tls_snis:
             flow.tls_snis = [*flow.tls_snis, packet.tls_sni]
+        if packet.tls_sni:
+            sni_endpoint = _packet_endpoint(packet.src_ip, packet.src_port)
+            endpoint_snis = flow.tls_sni_endpoints.get(sni_endpoint, [])
+            if packet.tls_sni not in endpoint_snis:
+                flow.tls_sni_endpoints[sni_endpoint] = [*endpoint_snis, packet.tls_sni]
         if packet.tls_alert_level or packet.tls_alert_description:
             alert = _tls_alert_label(packet.tls_alert_level, packet.tls_alert_description)
             flow.tls_alerts[alert] = flow.tls_alerts.get(alert, 0) + 1
+            alert_endpoint = _packet_endpoint(packet.src_ip, packet.src_port)
+            endpoint_alerts = flow.tls_alert_endpoints.setdefault(alert_endpoint, {})
+            endpoint_alerts[alert] = endpoint_alerts.get(alert, 0) + 1
 
         presenter_roles = _certificate_presenter_roles(flow)
         for certificate in packet.tls_certificates:
@@ -155,3 +163,7 @@ def _tls_alert_label(level: str | None, description: str | None) -> str:
     if level and description:
         return f"{level} {description}"
     return level or description or "alert"
+
+
+def _packet_endpoint(ip: str, port: int | None) -> str:
+    return f"{ip}:{port}" if port is not None else ip
