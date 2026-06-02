@@ -31,6 +31,7 @@ class FlowPilotAgentState(TypedDict, total=False):
     deep_evidence: list[dict[str, Any]]
     tool_loop_count: int
     max_tool_rereads: int
+    agent_auto_tools: bool
     progress_callback: Callable[[str], None]
 
 
@@ -41,6 +42,7 @@ def run_agent_reasoning(
     model: str = DEFAULT_MODEL,
     max_flows: int = 25,
     max_tool_rereads: int = 2,
+    agent_auto_tools: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> ReasoningReport:
     return run_agent_reasoning_state(
@@ -49,6 +51,7 @@ def run_agent_reasoning(
         model=model,
         max_flows=max_flows,
         max_tool_rereads=max_tool_rereads,
+        agent_auto_tools=agent_auto_tools,
         progress_callback=progress_callback,
     )["report"]
 
@@ -60,6 +63,7 @@ def run_agent_reasoning_state(
     model: str = DEFAULT_MODEL,
     max_flows: int = 25,
     max_tool_rereads: int = 2,
+    agent_auto_tools: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> FlowPilotAgentState:
     graph = _build_reasoning_graph()
@@ -69,6 +73,7 @@ def run_agent_reasoning_state(
         "max_flows": max_flows,
         "max_tool_rereads": max_tool_rereads,
         "tool_loop_count": 0,
+        "agent_auto_tools": agent_auto_tools,
         "completed_tool_requests": [],
         "deep_evidence": [],
         "tool_requests": [],
@@ -122,6 +127,12 @@ def _build_reasoning_graph() -> Any:
     def deterministic_router_node(state: FlowPilotAgentState) -> dict[str, list[dict[str, Any]]]:
         if "capture_path" not in state:
             return {"tool_requests": []}
+        if not state.get("agent_auto_tools", False):
+            _progress(
+                state,
+                "LangGraph deterministic pre-router disabled; waiting for LLM tool requests.",
+            )
+            return {"tool_requests": []}
         requests = _deterministic_tool_requests(
             state["summary"],
             max_requests=state.get("max_tool_rereads", 2),
@@ -155,6 +166,7 @@ def _build_reasoning_graph() -> Any:
                 (
                     f"LangGraph finished {request.get('tool')} for Flow ID "
                     f"{request.get('flow_id')} with status={tool_result.get('status')}."
+                    f"{_tool_result_error_detail(tool_result)}"
                 ),
             )
             completed.append(request_key)
@@ -365,6 +377,21 @@ def _route_after_tool_request(state: FlowPilotAgentState) -> Literal["tools", "r
 
 def _tool_request_key(request: dict[str, Any]) -> str:
     return f"{request.get('tool')}:{request.get('flow_id')}"
+
+
+def _tool_result_error_detail(tool_result: dict[str, Any]) -> str:
+    if tool_result.get("status") != "error":
+        return ""
+    message = str(tool_result.get("message") or "").strip()
+    display_filter = str(tool_result.get("display_filter") or "").strip()
+    details = []
+    if message:
+        details.append(f"message={message}")
+    if display_filter:
+        details.append(f"filter={display_filter}")
+    if not details:
+        return ""
+    return " " + " ".join(details)
 
 
 def _progress(state: FlowPilotAgentState, message: str) -> None:

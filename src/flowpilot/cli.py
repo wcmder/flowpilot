@@ -121,6 +121,16 @@ def analyze(
             ),
         ),
     ] = False,
+    agent_auto_tools: Annotated[
+        bool,
+        typer.Option(
+            "--agent-auto-tools",
+            help=(
+                "With --agent, run deterministic deep TCP/UDP rereads before the first LLM "
+                "request. Without this flag, tools run only when the LLM requests them."
+            ),
+        ),
+    ] = False,
     json_path: Annotated[
         Path | None, typer.Option("--json", help="Write a JSON report to this path.")
     ] = None,
@@ -147,6 +157,8 @@ def analyze(
         raise typer.BadParameter(
             "--chat requires LLM reasoning, so it cannot be used with --no-llm."
         )
+    if agent_auto_tools and not agent:
+        raise typer.BadParameter("--agent-auto-tools requires --agent.")
     if keep_cache:
         cache_pcap = True
 
@@ -215,8 +227,8 @@ def analyze(
             agent_evidence = []
             if agent:
                 _info(
-                    "LangGraph agent workflow started. It may run deep TShark rereads before "
-                    f"calling the LLM model={model}, api={LLM_API}, "
+                    "LangGraph agent workflow started. "
+                    f"auto_tools={agent_auto_tools}, model={model}, api={LLM_API}, "
                     f"timeout={LLM_TIMEOUT_SECONDS:g}s. Raw packet payloads are not sent."
                 )
                 agent_state = run_agent_reasoning_state(
@@ -224,6 +236,7 @@ def analyze(
                     capture_path=capture_path,
                     model=model,
                     max_flows=max_flows,
+                    agent_auto_tools=agent_auto_tools,
                     progress_callback=_info,
                 )
                 report = agent_state["report"]
@@ -243,6 +256,8 @@ def analyze(
             _info(f"LLM reasoning finished in {llm_elapsed:.2f}s.")
 
         if report:
+            if agent_evidence:
+                _render_agent_evidence(agent_evidence)
             _render_reasoning(report)
 
         if json_path:
@@ -752,6 +767,40 @@ def _render_reasoning(report) -> None:
                 title=finding.title,
             )
         )
+
+
+def _render_agent_evidence(agent_evidence: list[dict]) -> None:
+    table = Table(title="LangGraph Deep Evidence", show_lines=True)
+    table.add_column("Flow ID", justify="right")
+    table.add_column("Tool", overflow="fold")
+    table.add_column("Status", overflow="fold")
+    table.add_column("Packets", justify="right")
+    table.add_column("Key Counts", overflow="fold")
+    table.add_column("Display Filter", overflow="fold")
+    table.add_column("Message", overflow="fold")
+
+    for evidence in agent_evidence:
+        table.add_row(
+            str(evidence.get("flow_id") or "-"),
+            str(evidence.get("tool") or "-"),
+            str(evidence.get("status") or "-"),
+            str(evidence.get("packet_count") or "-"),
+            _format_agent_evidence_counts(evidence),
+            str(evidence.get("display_filter") or "-"),
+            str(evidence.get("message") or "-"),
+        )
+    console.print(table)
+
+
+def _format_agent_evidence_counts(evidence: dict) -> str:
+    counts = (
+        evidence.get("tcp_analysis_counts")
+        or evidence.get("udp_metadata_counts")
+        or {}
+    )
+    if not counts:
+        return "-"
+    return "\n".join(f"{key}: {value}" for key, value in counts.items())
 
 
 def _run_chat(

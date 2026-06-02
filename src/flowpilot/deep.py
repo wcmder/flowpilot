@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import shutil
 import subprocess
 from pathlib import Path
@@ -245,10 +246,7 @@ def deep_udp_flow(
 
 
 def _tcp_flow_filter(flow: FlowSummary) -> str:
-    endpoint_filter = (
-        f"((ip.addr == {flow.key.endpoint_a} && ip.addr == {flow.key.endpoint_b}) || "
-        f"(ipv6.addr == {flow.key.endpoint_a} && ipv6.addr == {flow.key.endpoint_b}))"
-    )
+    endpoint_filter = _endpoint_filter(flow)
     ports = [port for port in (flow.key.port_a, flow.key.port_b) if port is not None]
     if not ports:
         return f"{endpoint_filter} && tcp"
@@ -257,15 +255,35 @@ def _tcp_flow_filter(flow: FlowSummary) -> str:
 
 
 def _udp_flow_filter(flow: FlowSummary) -> str:
-    endpoint_filter = (
-        f"((ip.addr == {flow.key.endpoint_a} && ip.addr == {flow.key.endpoint_b}) || "
-        f"(ipv6.addr == {flow.key.endpoint_a} && ipv6.addr == {flow.key.endpoint_b}))"
-    )
+    endpoint_filter = _endpoint_filter(flow)
     ports = [port for port in (flow.key.port_a, flow.key.port_b) if port is not None]
     if not ports:
         return f"{endpoint_filter} && udp"
     port_filter = " && ".join(f"udp.port == {port}" for port in sorted(set(ports)))
     return f"{endpoint_filter} && {port_filter}"
+
+
+def _endpoint_filter(flow: FlowSummary) -> str:
+    family = _endpoint_address_family(flow.key.endpoint_a, flow.key.endpoint_b)
+    if family == 6:
+        return f"(ipv6.addr == {flow.key.endpoint_a} && ipv6.addr == {flow.key.endpoint_b})"
+    if family == 4:
+        return f"(ip.addr == {flow.key.endpoint_a} && ip.addr == {flow.key.endpoint_b})"
+    return (
+        f"((ip.addr == {flow.key.endpoint_a} && ip.addr == {flow.key.endpoint_b}) || "
+        f"(ipv6.addr == {flow.key.endpoint_a} && ipv6.addr == {flow.key.endpoint_b}))"
+    )
+
+
+def _endpoint_address_family(endpoint_a: str, endpoint_b: str) -> int | None:
+    try:
+        address_a = ipaddress.ip_address(endpoint_a)
+        address_b = ipaddress.ip_address(endpoint_b)
+    except ValueError:
+        return None
+    if address_a.version == address_b.version:
+        return address_a.version
+    return None
 
 
 def _field_command(

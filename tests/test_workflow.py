@@ -118,6 +118,19 @@ def test_llm_tool_requests_are_allow_listed_and_deduplicated() -> None:
     ]
 
 
+def test_tool_result_error_detail_includes_message_and_filter() -> None:
+    detail = workflow._tool_result_error_detail(
+        {
+            "status": "error",
+            "message": "Invalid display filter",
+            "display_filter": "ip.addr == 10.0.0.1",
+        }
+    )
+
+    assert "message=Invalid display filter" in detail
+    assert "filter=ip.addr == 10.0.0.1" in detail
+
+
 @pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
 def test_agent_reasoning_graph_returns_report(monkeypatch) -> None:
     expected = ReasoningReport(
@@ -139,6 +152,86 @@ def test_agent_reasoning_graph_returns_report(monkeypatch) -> None:
     report = workflow.run_agent_reasoning(_summary(), model="test-model", max_flows=3)
 
     assert report == expected
+
+
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_agent_reasoning_waits_for_llm_tool_requests_by_default(monkeypatch, tmp_path) -> None:
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(
+            key=FlowKey(
+                endpoint_a="10.0.0.10",
+                endpoint_b="10.0.0.20",
+                port_a=12345,
+                port_b=443,
+                protocol="TCP",
+            ),
+            issue_counts={"tcp_lost_segment": 48},
+        )
+    ]
+
+    def fake_reason(summary, *, model, max_flows, additional_evidence):
+        assert additional_evidence == []
+        return ReasoningReport(
+            executive_summary="agent report",
+            risk_level="low",
+            findings=[],
+            next_questions=[],
+        )
+
+    monkeypatch.setattr(workflow, "reason_about_capture", fake_reason)
+
+    state = workflow.run_agent_reasoning_state(
+        summary,
+        capture_path=tmp_path / "capture.pcap",
+        model="test-model",
+        max_flows=3,
+    )
+
+    assert state["deep_evidence"] == []
+
+
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_agent_reasoning_auto_tools_runs_deterministic_router(monkeypatch, tmp_path) -> None:
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(
+            key=FlowKey(
+                endpoint_a="10.0.0.10",
+                endpoint_b="10.0.0.20",
+                port_a=12345,
+                port_b=443,
+                protocol="TCP",
+            ),
+            issue_counts={"tcp_lost_segment": 48},
+        )
+    ]
+    evidence = {"tool": "deep_tcp_flow", "flow_id": 1, "status": "ok", "packet_count": 2}
+
+    def fake_deep_tcp_flow(*_args, **_kwargs):
+        return evidence
+
+    def fake_reason(summary, *, model, max_flows, additional_evidence):
+        assert additional_evidence == [evidence]
+        return ReasoningReport(
+            executive_summary="agent report",
+            risk_level="low",
+            findings=[],
+            next_questions=[],
+        )
+
+    monkeypatch.setattr(workflow, "deep_tcp_flow", fake_deep_tcp_flow)
+    monkeypatch.setattr(workflow, "reason_about_capture", fake_reason)
+
+    state = workflow.run_agent_reasoning_state(
+        summary,
+        capture_path=tmp_path / "capture.pcap",
+        model="test-model",
+        max_flows=3,
+        agent_auto_tools=True,
+    )
+
+    assert state["deep_evidence"] == [evidence]
 
 
 @pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")

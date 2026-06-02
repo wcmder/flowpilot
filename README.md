@@ -236,18 +236,25 @@ Run LLM reasoning and chat through the LangGraph workflow:
 flowpilot analyze capture.pcap --agent --chat
 ```
 
-Agent mode runs local packet analysis first, then uses a LangGraph state graph to
-route deeper evidence before final LLM reasoning. The deterministic router calls
-allow-listed tools when protocol symptoms need packet-header detail:
-`deep_tcp_flow` for TCP loss, retransmission, reset, zero-window, one-way, or
-low-throughput indicators, and `deep_udp_flow` for DNS/DHCP errors, incomplete
-DHCP exchanges, visible DNS transactions, or one-way UDP flows. The TCP tool
-sends sequence, ACK, flags, window, TCP length, and Wireshark TCP analysis
-markers. The UDP tool sends UDP ports, length, checksum status, DNS transaction
-ID/query/type/rcode/answers/timing, and DHCP transaction/message/client/server/
-lease metadata. The LLM can also request these tools for a specific Flow ID
-through structured `evidence_requests`; FlowPilot only honors allow-listed tools
-and caps reread loops.
+Agent mode runs local packet analysis first, then uses a LangGraph state graph for
+LLM reasoning and tool routing. By default, the LLM decides whether to request
+deep rereads through structured `evidence_requests`; FlowPilot only honors
+allow-listed tools and caps reread loops.
+
+To also run the deterministic pre-router before the first LLM request, add:
+
+```bash
+flowpilot analyze capture.pcap --agent --agent-auto-tools --chat
+```
+
+`--agent-auto-tools` calls allow-listed tools when local protocol symptoms need
+packet-header detail: `deep_tcp_flow` for TCP loss, retransmission, reset,
+zero-window, one-way, or low-throughput indicators, and `deep_udp_flow` for
+DNS/DHCP errors, incomplete DHCP exchanges, visible DNS transactions, or one-way
+UDP flows. The TCP tool sends sequence, ACK, flags, window, TCP length, and
+Wireshark TCP analysis markers. The UDP tool sends UDP ports, length, checksum
+status, DNS transaction ID/query/type/rcode/answers/timing, and DHCP
+transaction/message/client/server/lease metadata.
 
 List models from the configured OpenAI or OpenAI-compatible endpoint:
 
@@ -277,7 +284,8 @@ Core options:
 | `CAPTURE_PATH` | Path to a `.pcap` or `.pcapng` file. |
 | `--no-llm` | Only run local PyShark/TShark flow analysis. No metadata is sent to the LLM endpoint. |
 | `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
-| `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. The agent can run allow-listed deep TCP/UDP rereads with packet-header and DNS/DHCP transaction fields for selected flows. |
+| `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP rereads run only when the LLM requests an allow-listed tool. |
+| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--json PATH` | Write the summary and optional LLM report to a JSON file. |
 | `--cache-pcap` | Copy the capture into a temporary FlowPilot session workspace before analysis. This preserves full captured packet bytes and headers for future agentic rereads during the run. |

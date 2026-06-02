@@ -1,10 +1,12 @@
 from flowpilot.deep import (
     UDP_HEADER_FIELDS,
+    _endpoint_filter,
     _parse_field_rows,
     _parse_tshark_rows,
     _tcp_analysis_counts,
     _udp_metadata_counts,
 )
+from flowpilot.models import FlowKey, FlowSummary
 
 
 def test_parse_tshark_rows_includes_tcp_headers_and_analysis_markers() -> None:
@@ -84,3 +86,19 @@ def test_udp_metadata_counts_tracks_dns_dhcp_and_checksum() -> None:
         "dhcp_packets": 1,
         "udp_bad_checksum": 1,
     }
+
+
+def test_endpoint_filter_uses_ipv4_field_for_ipv4_endpoints() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.53", protocol="UDP")
+    )
+
+    assert _endpoint_filter(flow) == "(ip.addr == 10.0.0.10 && ip.addr == 10.0.0.53)"
+
+
+def test_endpoint_filter_uses_ipv6_field_for_ipv6_endpoints() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="2001:db8::1", endpoint_b="2001:db8::2", protocol="UDP")
+    )
+
+    assert _endpoint_filter(flow) == "(ipv6.addr == 2001:db8::1 && ipv6.addr == 2001:db8::2)"

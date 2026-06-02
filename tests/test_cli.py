@@ -6,6 +6,7 @@ from flowpilot.cli import (
     _CachedCaptureSession,
     _count_packets_in_capture,
     _direction,
+    _format_agent_evidence_counts,
     _format_flow_issues,
     _format_smb_capabilities,
     _format_smb_counter_lines,
@@ -283,6 +284,12 @@ def test_format_flow_issues_shows_counts_and_diagnostics() -> None:
         "one-way traffic observed\n"
         "tcp retransmission rate above 1 percent"
     )
+
+
+def test_format_agent_evidence_counts_prefers_protocol_counts() -> None:
+    assert _format_agent_evidence_counts(
+        {"udp_metadata_counts": {"dns_packets": 2, "dns_error_responses": 1}}
+    ) == "dns_packets: 2\ndns_error_responses: 1"
 
 
 def test_percent_keeps_small_nonzero_rates_visible() -> None:
