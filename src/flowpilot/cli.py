@@ -752,16 +752,17 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
 
 def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object, object | None]]:
     flow_ids = _flow_ids(summary.flows)
-    rows = []
+    certificate_rows = []
+    observed_tls_rows = []
     for flow in summary.flows:
         if flow.tls_certificates:
-            rows.extend(
+            certificate_rows.extend(
                 (flow_ids[flow.key], flow, certificate)
                 for certificate in flow.tls_certificates
             )
         elif flow.tls_snis or _likely_tls_flow(flow):
-            rows.append((flow_ids[flow.key], flow, None))
-    return rows[:show_flows]
+            observed_tls_rows.append((flow_ids[flow.key], flow, None))
+    return [*certificate_rows, *observed_tls_rows][:show_flows]
 
 
 def _likely_tls_flow(flow) -> bool:
