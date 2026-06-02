@@ -729,10 +729,10 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
     table.add_column("Flow ID", justify="right")
     table.add_column("Endpoint", overflow="fold")
     table.add_column("SNI", overflow="fold")
-    table.add_column("Subject", overflow="fold")
-    table.add_column("Issuer", overflow="fold")
+    table.add_column("Subject", overflow="fold", min_width=24)
+    table.add_column("Issuer", overflow="fold", min_width=24)
     table.add_column("Expiration", overflow="fold")
-    table.add_column("SAN", overflow="fold")
+    table.add_column("SAN", overflow="fold", min_width=24)
     table.add_column("Issue", overflow="fold")
 
     for flow_id, flow, role, endpoint, certificates in rows:
