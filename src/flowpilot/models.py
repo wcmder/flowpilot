@@ -550,6 +550,11 @@ class ReasoningReport(BaseModel):
     evidence_requests: list[EvidenceRequest] = Field(default_factory=list)
 
 
+class AgentChatResponse(BaseModel):
+    answer: str
+    evidence_requests: list[EvidenceRequest] = Field(default_factory=list)
+
+
 def counter_to_sorted_dict(counter: Counter[str], limit: int) -> dict[str, int]:
     return dict(counter.most_common(limit))
 

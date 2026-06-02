@@ -8,7 +8,7 @@ from typing import Any
 from dotenv import load_dotenv
 from openai import APIStatusError, APITimeoutError, OpenAI
 
-from .models import CaptureSummary, ReasoningReport
+from .models import AgentChatResponse, CaptureSummary, ReasoningReport
 
 load_dotenv()
 
@@ -192,6 +192,70 @@ def chat_about_capture(
         return f"The LLM request timed out after {LLM_TIMEOUT_SECONDS:g} seconds."
 
 
+def agent_chat_about_capture(
+    summary: CaptureSummary,
+    question: str,
+    *,
+    model: str = DEFAULT_MODEL,
+    max_flows: int = 25,
+    report: ReasoningReport | None = None,
+    history: list[dict[str, str]] | None = None,
+    additional_evidence: list[dict[str, Any]] | None = None,
+) -> AgentChatResponse:
+    try:
+        client = openai_client()
+        if LLM_API in {"chat", "chat_completions", "chat-completions"}:
+            return _agent_chat_with_chat_completions(
+                client,
+                summary,
+                question,
+                model=model,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+                additional_evidence=additional_evidence,
+            )
+        if LLM_API == "auto":
+            try:
+                return _agent_chat_with_responses(
+                    client,
+                    summary,
+                    question,
+                    model=model,
+                    max_flows=max_flows,
+                    report=report,
+                    history=history,
+                    additional_evidence=additional_evidence,
+                )
+            except APIStatusError as exc:
+                if exc.status_code != 404:
+                    raise
+                return _agent_chat_with_chat_completions(
+                    client,
+                    summary,
+                    question,
+                    model=model,
+                    max_flows=max_flows,
+                    report=report,
+                    history=history,
+                    additional_evidence=additional_evidence,
+                )
+        return _agent_chat_with_responses(
+            client,
+            summary,
+            question,
+            model=model,
+            max_flows=max_flows,
+            report=report,
+            history=history,
+            additional_evidence=additional_evidence,
+        )
+    except APITimeoutError:
+        return AgentChatResponse(
+            answer=f"The LLM request timed out after {LLM_TIMEOUT_SECONDS:g} seconds."
+        )
+
+
 def _reason_with_responses(
     client: OpenAI,
     summary: CaptureSummary,
@@ -327,6 +391,78 @@ def _chat_with_chat_completions(
     return content
 
 
+def _agent_chat_with_responses(
+    client: OpenAI,
+    summary: CaptureSummary,
+    question: str,
+    *,
+    model: str,
+    max_flows: int,
+    report: ReasoningReport | None,
+    history: list[dict[str, str]] | None,
+    additional_evidence: list[dict[str, Any]] | None = None,
+) -> AgentChatResponse:
+    _respect_llm_rate_limit()
+    response = client.responses.parse(
+        model=model,
+        instructions=_agent_chat_system_prompt(),
+        input=_chat_input(
+            summary,
+            question,
+            max_flows=max_flows,
+            report=report,
+            history=history,
+            additional_evidence=additional_evidence,
+        ),
+        text_format=AgentChatResponse,
+    )
+    if response.output_parsed:
+        return response.output_parsed
+    return AgentChatResponse(answer="Responses API returned no parsed chat content.")
+
+
+def _agent_chat_with_chat_completions(
+    client: OpenAI,
+    summary: CaptureSummary,
+    question: str,
+    *,
+    model: str,
+    max_flows: int,
+    report: ReasoningReport | None,
+    history: list[dict[str, str]] | None,
+    additional_evidence: list[dict[str, Any]] | None = None,
+) -> AgentChatResponse:
+    _respect_llm_rate_limit()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": _agent_chat_system_prompt()},
+            {
+                "role": "user",
+                "content": (
+                    "Return only JSON matching this JSON Schema:\n"
+                    f"{json.dumps(AgentChatResponse.model_json_schema(), indent=2)}\n\n"
+                ),
+            },
+            *_chat_input(
+                summary,
+                question,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+                additional_evidence=additional_evidence,
+            ),
+        ],
+        response_format={"type": "json_object"},
+    )
+    content = response.choices[0].message.content
+    if not content:
+        return AgentChatResponse(
+            answer="Chat completions response did not include message content."
+        )
+    return AgentChatResponse.model_validate(_json_object(content))
+
+
 def _empty_llm_report(reason: str) -> ReasoningReport:
     return ReasoningReport(
         executive_summary=(
@@ -389,6 +525,17 @@ def _chat_system_prompt() -> str:
         "Use the provided metadata and prior reasoning as the source of truth. If the answer "
         "cannot be proven from the metadata, say what is unknown and suggest the next check. "
         "Do not return JSON unless the user explicitly asks for JSON."
+    )
+
+
+def _agent_chat_system_prompt() -> str:
+    return (
+        f"{SYSTEM_PROMPT}\n\n"
+        "You are now in interactive follow-up mode. Return JSON matching the requested schema. "
+        "Put the user-facing response in answer. If the user asks you to inspect a specific "
+        "flow or to use an allowed deep tool, request that tool in evidence_requests instead "
+        "of saying you cannot call it. If additional_tool_evidence already contains the needed "
+        "tool result, answer from that evidence and leave evidence_requests empty."
     )
 
 

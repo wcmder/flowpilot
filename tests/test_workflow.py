@@ -1,7 +1,13 @@
 import pytest
 
 import flowpilot.workflow as workflow
-from flowpilot.models import CaptureSummary, FlowKey, FlowSummary, ReasoningReport
+from flowpilot.models import (
+    AgentChatResponse,
+    CaptureSummary,
+    FlowKey,
+    FlowSummary,
+    ReasoningReport,
+)
 
 
 def _summary() -> CaptureSummary:
@@ -376,9 +382,9 @@ def test_agent_chat_graph_returns_answer(monkeypatch) -> None:
         assert report.risk_level == "low"
         assert history == [{"role": "user", "content": "hello"}]
         assert additional_evidence == [{"tool": "deep_tcp_flow"}]
-        return "agent answer"
+        return AgentChatResponse(answer="agent answer")
 
-    monkeypatch.setattr(workflow, "chat_about_capture", fake_chat)
+    monkeypatch.setattr(workflow, "agent_chat_about_capture", fake_chat)
 
     answer = workflow.run_agent_chat(
         _summary(),
@@ -391,3 +397,64 @@ def test_agent_chat_graph_returns_answer(monkeypatch) -> None:
     )
 
     assert answer == "agent answer"
+
+
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_agent_chat_runs_llm_requested_deep_tls_tool(monkeypatch, tmp_path) -> None:
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(
+            key=FlowKey(
+                endpoint_a="10.0.0.10",
+                endpoint_b="10.0.0.20",
+                port_a=53150,
+                port_b=443,
+                protocol="TCP",
+            ),
+            tls_alerts={"fatal handshake_failure": 1},
+        )
+    ]
+    report = ReasoningReport(
+        executive_summary="TLS flow needs review.",
+        risk_level="medium",
+        findings=[],
+        next_questions=[],
+    )
+    evidence = {"tool": "deep_tls_flow", "flow_id": 1, "status": "ok", "packet_count": 5}
+    additional_evidence_seen = []
+
+    responses = [
+        AgentChatResponse(
+            answer="Requesting deep TLS evidence.",
+            evidence_requests=[
+                {
+                    "tool": "deep_tls_flow",
+                    "flow_id": 1,
+                    "reason": "Need TLS alert sender and handshake details.",
+                }
+            ],
+        ),
+        AgentChatResponse(answer="The TLS alert came from the server side."),
+    ]
+
+    def fake_deep_tls_flow(*_args, **_kwargs):
+        return evidence
+
+    def fake_chat(summary, question, *, model, max_flows, report, history, additional_evidence):
+        additional_evidence_seen.append(additional_evidence)
+        return responses.pop(0)
+
+    monkeypatch.setattr(workflow, "deep_tls_flow", fake_deep_tls_flow)
+    monkeypatch.setattr(workflow, "agent_chat_about_capture", fake_chat)
+
+    answer = workflow.run_agent_chat(
+        summary,
+        "use deep_tls_flow for flow 1",
+        model="test-model",
+        max_flows=3,
+        report=report,
+        capture_path=tmp_path / "capture.pcap",
+    )
+
+    assert answer == "The TLS alert came from the server side."
+    assert additional_evidence_seen == [[], [evidence]]

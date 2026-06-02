@@ -10,7 +10,7 @@ from .reasoning import (
     DEFAULT_MODEL,
     LLM_API,
     LLM_TIMEOUT_SECONDS,
-    chat_about_capture,
+    agent_chat_about_capture,
     reason_about_capture,
 )
 
@@ -26,6 +26,7 @@ class FlowPilotAgentState(TypedDict, total=False):
     question: str
     history: list[dict[str, str]]
     answer: str
+    chat_response: Any
     tool_requests: list[dict[str, Any]]
     completed_tool_requests: list[str]
     deep_evidence: list[dict[str, Any]]
@@ -94,6 +95,8 @@ def run_agent_chat(
     report: ReasoningReport | None = None,
     history: list[dict[str, str]] | None = None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    capture_path: Path | None = None,
+    max_tool_rereads: int = 2,
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     graph = _build_chat_graph()
@@ -104,7 +107,13 @@ def run_agent_chat(
         "question": question,
         "history": history or [],
         "deep_evidence": additional_evidence or [],
+        "tool_requests": [],
+        "completed_tool_requests": [],
+        "tool_loop_count": 0,
+        "max_tool_rereads": max_tool_rereads,
     }
+    if capture_path:
+        state["capture_path"] = capture_path
     if report:
         state["report"] = report
     if progress_callback:
@@ -147,34 +156,7 @@ def _build_reasoning_graph() -> Any:
         return {"tool_requests": requests}
 
     def tool_node(state: FlowPilotAgentState) -> dict[str, Any]:
-        requests = _pending_tool_requests(state)
-        evidence = list(state.get("deep_evidence", []))
-        completed = list(state.get("completed_tool_requests", []))
-        for request in requests:
-            request_key = _tool_request_key(request)
-            _progress(
-                state,
-                (
-                    f"LangGraph running {request.get('tool')} for Flow ID "
-                    f"{request.get('flow_id')}: {request.get('reason', '')}"
-                ),
-            )
-            tool_result = _run_tool_request(state, request)
-            evidence.append(tool_result)
-            _progress(
-                state,
-                (
-                    f"LangGraph finished {request.get('tool')} for Flow ID "
-                    f"{request.get('flow_id')} with status={tool_result.get('status')}."
-                    f"{_tool_result_error_detail(tool_result)}"
-                ),
-            )
-            completed.append(request_key)
-        return {
-            "tool_requests": [],
-            "deep_evidence": evidence,
-            "completed_tool_requests": completed,
-        }
+        return _tool_node_result(state)
 
     def reason_node(state: FlowPilotAgentState) -> dict[str, ReasoningReport]:
         _progress(
@@ -232,32 +214,55 @@ def _build_reasoning_graph() -> Any:
 def _build_chat_graph() -> Any:
     StateGraph, START, END = _langgraph_primitives()
 
-    def chat_node(state: FlowPilotAgentState) -> dict[str, str]:
+    def tool_node(state: FlowPilotAgentState) -> dict[str, Any]:
+        return _tool_node_result(state)
+
+    def chat_node(state: FlowPilotAgentState) -> dict[str, Any]:
         _progress(
             state,
             (
-                "Sending follow-up question to LLM through LangGraph: "
+                "Sending follow-up question to LLM through LangGraph agent chat: "
                 f"model={state.get('model', DEFAULT_MODEL)}, api={LLM_API}, "
                 f"timeout={LLM_TIMEOUT_SECONDS:g}s, "
                 f"deep_evidence={len(state.get('deep_evidence', []))}."
             ),
         )
-        return {
-            "answer": chat_about_capture(
-                state["summary"],
-                state["question"],
-                model=state.get("model", DEFAULT_MODEL),
-                max_flows=state.get("max_flows", 25),
-                report=state.get("report"),
-                history=state.get("history"),
-                additional_evidence=state.get("deep_evidence", []),
+        response = agent_chat_about_capture(
+            state["summary"],
+            state["question"],
+            model=state.get("model", DEFAULT_MODEL),
+            max_flows=state.get("max_flows", 25),
+            report=state.get("report"),
+            history=state.get("history"),
+            additional_evidence=state.get("deep_evidence", []),
+        )
+        loop_count = state.get("tool_loop_count", 0)
+        if loop_count >= state.get("max_tool_rereads", 2):
+            requests = []
+        else:
+            requests = _valid_tool_requests(state, response.evidence_requests)
+        if requests:
+            _progress(
+                state,
+                f"LLM chat requested {len(requests)} additional deep evidence reread(s).",
             )
+        return {
+            "answer": response.answer,
+            "chat_response": response,
+            "tool_requests": requests,
+            "tool_loop_count": loop_count + 1 if requests else loop_count,
         }
 
     graph = StateGraph(FlowPilotAgentState)
     graph.add_node("llm_chat", chat_node)
+    graph.add_node("run_tools", tool_node)
     graph.add_edge(START, "llm_chat")
-    graph.add_edge("llm_chat", END)
+    graph.add_conditional_edges(
+        "llm_chat",
+        _route_after_tool_request,
+        {"tools": "run_tools", "reason": END},
+    )
+    graph.add_edge("run_tools", "llm_chat")
     return graph.compile()
 
 
@@ -346,8 +351,15 @@ def _llm_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
     report = state.get("report")
     if not report:
         return []
+    return _valid_tool_requests(state, report.evidence_requests)
+
+
+def _valid_tool_requests(
+    state: FlowPilotAgentState,
+    evidence_requests: Any,
+) -> list[dict[str, Any]]:
     requests = []
-    for request in report.evidence_requests:
+    for request in evidence_requests:
         if request.tool not in ALLOWED_TOOLS or request.flow_id is None:
             continue
         request_dict = request.model_dump()
@@ -403,6 +415,37 @@ def _run_tool_request(state: FlowPilotAgentState, request: dict[str, Any]) -> di
         flow=flow,
         reason=request.get("reason", ""),
     )
+
+
+def _tool_node_result(state: FlowPilotAgentState) -> dict[str, Any]:
+    requests = _pending_tool_requests(state)
+    evidence = list(state.get("deep_evidence", []))
+    completed = list(state.get("completed_tool_requests", []))
+    for request in requests:
+        request_key = _tool_request_key(request)
+        _progress(
+            state,
+            (
+                f"LangGraph running {request.get('tool')} for Flow ID "
+                f"{request.get('flow_id')}: {request.get('reason', '')}"
+            ),
+        )
+        tool_result = _run_tool_request(state, request)
+        evidence.append(tool_result)
+        _progress(
+            state,
+            (
+                f"LangGraph finished {request.get('tool')} for Flow ID "
+                f"{request.get('flow_id')} with status={tool_result.get('status')}."
+                f"{_tool_result_error_detail(tool_result)}"
+            ),
+        )
+        completed.append(request_key)
+    return {
+        "tool_requests": [],
+        "deep_evidence": evidence,
+        "completed_tool_requests": completed,
+    }
 
 
 def _route_after_tool_request(state: FlowPilotAgentState) -> Literal["tools", "reason"]:

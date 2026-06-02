@@ -276,6 +276,7 @@ def analyze(
                 max_flows=max_flows,
                 agent=agent,
                 additional_evidence=agent_evidence if agent else None,
+                capture_path=capture_path if agent else None,
             )
     finally:
         if session:
@@ -921,6 +922,7 @@ def _run_chat(
     max_flows: int,
     agent: bool = False,
     additional_evidence: list[dict] | None = None,
+    capture_path: Path | None = None,
 ) -> None:
     _info("Interactive chat started. Ask follow-up questions, or type `exit` to quit.")
     history: list[dict[str, str]] = []
@@ -949,6 +951,7 @@ def _run_chat(
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
+                capture_path=capture_path,
                 progress_callback=_info,
             )
         else:
