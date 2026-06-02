@@ -794,11 +794,11 @@ def _format_certificate_column(certificates: list, field_name: str) -> str:
 
 
 def _format_certificate_label_value(index: int, value: str) -> str:
-    label = f"Cert {index}: "
+    label = f"Cert {index}:\u00a0"
     if len(value) <= 32:
         return f"{label}{value}"
-    chunks = [value[:22]]
-    remaining = value[22:]
+    chunks = [value[:16]]
+    remaining = value[16:]
     while remaining:
         chunks.append(remaining[:32])
         remaining = remaining[32:]
