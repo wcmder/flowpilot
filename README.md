@@ -249,9 +249,11 @@ flowpilot analyze capture.pcap --agent --agent-auto-tools --chat
 
 `--agent-auto-tools` calls allow-listed tools when local protocol symptoms need
 packet-header detail: `deep_tcp_flow` for TCP loss, retransmission, reset,
-zero-window, one-way, or low-throughput indicators, and `deep_udp_flow` for
-DNS/DHCP errors, incomplete DHCP exchanges, visible DNS transactions, or one-way
-UDP flows. The TCP tool sends sequence, ACK, flags, window, TCP length, and
+zero-window, one-way, or low-throughput indicators; `deep_udp_flow` for DNS/DHCP
+errors, incomplete DHCP exchanges, visible DNS transactions, or one-way UDP
+flows; and `deep_tls_flow` for TLS/DTLS SNI, certificate chains, alerts,
+handshake fields, cipher/hash/signature/group algorithms, and related TCP or UDP
+headers. The TCP tool sends sequence, ACK, flags, window, TCP length, and
 Wireshark TCP analysis markers. The UDP tool sends UDP ports, length, checksum
 status, DNS transaction ID/query/type/rcode/answers/timing, and DHCP
 transaction/message/client/server/lease metadata.
@@ -284,8 +286,8 @@ Core options:
 | `CAPTURE_PATH` | Path to a `.pcap` or `.pcapng` file. |
 | `--no-llm` | Only run local PyShark/TShark flow analysis. No metadata is sent to the LLM endpoint. |
 | `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
-| `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP rereads run only when the LLM requests an allow-listed tool. |
-| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
+| `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP/TLS rereads run only when the LLM requests an allow-listed tool. |
+| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--json PATH` | Write the summary and optional LLM report to a JSON file. |
 | `--cache-pcap` | Copy the capture into a temporary FlowPilot session workspace before analysis. This preserves full captured packet bytes and headers for future agentic rereads during the run. |

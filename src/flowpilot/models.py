@@ -533,7 +533,11 @@ class AnalysisFinding(BaseModel):
 
 
 class EvidenceRequest(BaseModel):
-    tool: str = Field(description="Allowed tool name such as deep_tcp_flow or deep_udp_flow.")
+    tool: str = Field(
+        description=(
+            "Allowed tool name: deep_tcp_flow, deep_udp_flow, or deep_tls_flow."
+        )
+    )
     flow_id: int | None = Field(default=None, description="Flow ID from the Top Flows table.")
     reason: str
 
