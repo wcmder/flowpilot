@@ -708,18 +708,37 @@ def test_summarize_capture_tracks_tls_alerts_for_llm_metadata() -> None:
     summary = summarize_capture(packets)
     flow = summary.flows[0]
 
-    assert flow.tls_alerts == {"Fatal (2) Close Notify (0)": 1}
+    assert flow.tls_alerts == {"fatal (2) close_notify (0)": 1}
     assert flow.tls_alert_endpoints == {
-        "198.51.100.20:443": {"Fatal (2) Close Notify (0)": 1}
+        "198.51.100.20:443": {"fatal (2) close_notify (0)": 1}
     }
     assert flow.issue_counts == {"tls_alert": 1, "tls_fatal_alert": 1}
     assert "tls fatal alert observed" in flow.diagnostic_hints
     assert summary.compact()["top_flows"][0]["tls_alerts"] == {
-        "Fatal (2) Close Notify (0)": 1
+        "fatal (2) close_notify (0)": 1
     }
     assert summary.compact()["top_flows"][0]["tls_alert_endpoints"] == {
-        "198.51.100.20:443": {"Fatal (2) Close Notify (0)": 1}
+        "198.51.100.20:443": {"fatal (2) close_notify (0)": 1}
     }
+
+
+def test_summarize_capture_translates_numeric_tls_alert_codes() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="198.51.100.20",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=50000,
+            protocol="TCP",
+            tls_alert_level="2",
+            tls_alert_description="40",
+            issue_tags=["tls_alert", "tls_fatal_alert"],
+        )
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert summary.flows[0].tls_alerts == {"fatal (2) handshake_failure (40)": 1}
 
 
 def test_summarize_capture_sends_all_tls_certificates_to_compact_metadata() -> None:

@@ -784,8 +784,25 @@ def _tls_certificate_rows(flow_id: int, flow) -> list[tuple[int, object, str, st
 def _format_certificate_column(certificates: list, field_name: str) -> str:
     values = []
     for index, certificate in enumerate(certificates, start=1):
-        values.append(f"Cert {index}:\u00a0{_certificate_field(certificate, field_name)}")
+        values.append(
+            _format_certificate_label_value(
+                index,
+                _certificate_field(certificate, field_name),
+            )
+        )
     return "\n".join(values) or "-"
+
+
+def _format_certificate_label_value(index: int, value: str) -> str:
+    label = f"Cert {index}: "
+    if len(value) <= 32:
+        return f"{label}{value}"
+    chunks = [value[:22]]
+    remaining = value[22:]
+    while remaining:
+        chunks.append(remaining[:32])
+        remaining = remaining[32:]
+    return f"{label}{chunks[0]}\n" + "\n".join(chunks[1:])
 
 
 def _certificate_field(certificate, field_name: str) -> str:

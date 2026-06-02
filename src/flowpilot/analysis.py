@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Iterable
 
@@ -160,9 +161,82 @@ def _next_certificate_role(roles: dict[tuple[str | None, int | None], str]) -> s
 
 
 def _tls_alert_label(level: str | None, description: str | None) -> str:
-    if level and description:
-        return f"{level} {description}"
-    return level or description or "alert"
+    level_label = _tls_alert_level_label(level)
+    description_label = _tls_alert_description_label(description)
+    if level_label and description_label:
+        return f"{level_label} {description_label}"
+    return level_label or description_label or "alert"
+
+
+TLS_ALERT_LEVELS = {
+    1: "warning",
+    2: "fatal",
+}
+
+
+TLS_ALERT_DESCRIPTIONS = {
+    0: "close_notify",
+    10: "unexpected_message",
+    20: "bad_record_mac",
+    21: "decryption_failed_RESERVED",
+    22: "record_overflow",
+    30: "decompression_failure",
+    40: "handshake_failure",
+    41: "no_certificate_RESERVED",
+    42: "bad_certificate",
+    43: "unsupported_certificate",
+    44: "certificate_revoked",
+    45: "certificate_expired",
+    46: "certificate_unknown",
+    47: "illegal_parameter",
+    48: "unknown_ca",
+    49: "access_denied",
+    50: "decode_error",
+    51: "decrypt_error",
+    60: "export_restriction_RESERVED",
+    70: "protocol_version",
+    71: "insufficient_security",
+    80: "internal_error",
+    86: "inappropriate_fallback",
+    90: "user_canceled",
+    100: "no_renegotiation",
+    109: "missing_extension",
+    110: "unsupported_extension",
+    111: "certificate_unobtainable_RESERVED",
+    112: "unrecognized_name",
+    113: "bad_certificate_status_response",
+    114: "bad_certificate_hash_value_RESERVED",
+    115: "unknown_psk_identity",
+    116: "certificate_required",
+    120: "no_application_protocol",
+}
+
+
+def _tls_alert_level_label(value: str | None) -> str | None:
+    return _tls_alert_code_label(value, TLS_ALERT_LEVELS)
+
+
+def _tls_alert_description_label(value: str | None) -> str | None:
+    return _tls_alert_code_label(value, TLS_ALERT_DESCRIPTIONS)
+
+
+def _tls_alert_code_label(value: str | None, labels: dict[int, str]) -> str | None:
+    if not value:
+        return None
+    code = _first_int(value)
+    if code is None:
+        return value
+    name = labels.get(code)
+    if name:
+        return f"{name} ({code})"
+    return f"unknown_alert_{code} ({code})"
+
+
+def _first_int(value: str) -> int | None:
+    match = re.search(r"\d+", value)
+    if not match:
+        return None
+    return int(match.group(0))
 
 
 def _packet_endpoint(ip: str, port: int | None) -> str:

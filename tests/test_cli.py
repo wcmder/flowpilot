@@ -439,8 +439,8 @@ def test_tls_issue_text_lists_flow_issues_on_new_lines() -> None:
             protocol="TCP",
         ),
         issue_counts={"tls_alert": 1, "tls_fatal_alert": 1},
-        tls_alerts={"Fatal (2) Close Notify (0)": 1},
-        tls_alert_endpoints={"203.0.113.10:443": {"Fatal (2) Close Notify (0)": 1}},
+        tls_alerts={"fatal (2) close_notify (0)": 1},
+        tls_alert_endpoints={"203.0.113.10:443": {"fatal (2) close_notify (0)": 1}},
         tls_certificates=[
             TlsCertificateObservation(
                 presenter_ip="203.0.113.10",
@@ -452,10 +452,10 @@ def test_tls_issue_text_lists_flow_issues_on_new_lines() -> None:
 
     assert _tls_issue_text(flow, "10.0.0.10:50000") == ""
     assert _tls_issue_text(flow, "203.0.113.10:443") == (
-        "sent tls alert: Fatal (2) Close Notify (0) (x1)"
+        "sent tls alert: fatal (2) close_notify (0) (x1)"
     )
     assert _tls_issue_text(flow, "10.0.0.10:50000 <-> 203.0.113.10:443") == (
-        "tls alert: Fatal (2) Close Notify (0) (x1)"
+        "tls alert: fatal (2) close_notify (0) (x1)"
     )
 
 
@@ -516,20 +516,33 @@ def test_format_certificate_column_lists_all_certs_per_line() -> None:
     ]
 
     assert _format_certificate_column(certificates, "subject") == (
-        "Cert 1:\u00a0api.example.com\n"
-        "Cert 2:\u00a0Example Issuing CA"
+        "Cert 1: api.example.com\n"
+        "Cert 2: Example Issuing CA"
     )
     assert _format_certificate_column(certificates, "issuer") == (
-        "Cert 1:\u00a0Example Issuing CA\n"
-        "Cert 2:\u00a0Example Root CA"
+        "Cert 1: Example Issuing CA\n"
+        "Cert 2: Example Root CA"
     )
     assert _format_certificate_column(certificates, "expiration") == (
-        "Cert 1:\u00a02027-01-01\n"
-        "Cert 2:\u00a02030-01-01"
+        "Cert 1: 2027-01-01\n"
+        "Cert 2: 2030-01-01"
     )
     assert _format_certificate_column(certificates, "san") == (
-        "Cert 1:\u00a0api.example.com\n"
-        "Cert 2:\u00a0-"
+        "Cert 1: api.example.com\n"
+        "Cert 2: -"
+    )
+
+
+def test_format_certificate_column_keeps_label_with_long_value_start() -> None:
+    certificates = [
+        TlsCertificateObservation(
+            subject_cn="SOMEVERYLONGCERTIFICATENAME.example.internal",
+        )
+    ]
+
+    assert _format_certificate_column(certificates, "subject") == (
+        "Cert 1: SOMEVERYLONGCERTIFICAT\n"
+        "ENAME.example.internal"
     )
 
 
