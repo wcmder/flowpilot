@@ -245,6 +245,18 @@ def test_explicit_chat_tool_requests_parse_hyphenated_tool_name(tmp_path) -> Non
     ]
 
 
+def test_explicit_tool_followup_question_tells_llm_tool_already_ran() -> None:
+    question = workflow._explicit_tool_followup_question(
+        "run deep tls flow for flow 1",
+        [{"tool": "deep_tls_flow", "flow_id": 1}],
+    )
+
+    assert "FlowPilot has already run" in question
+    assert "deep_tls_flow for Flow ID 1" in question
+    assert "Do not say the tool is unavailable" in question
+    assert "Original user request: run deep tls flow for flow 1" in question
+
+
 def test_tool_result_error_detail_includes_message_and_filter() -> None:
     detail = workflow._tool_result_error_detail(
         {
@@ -559,6 +571,8 @@ def test_agent_chat_runs_explicit_deep_tls_request_before_llm(monkeypatch, tmp_p
 
     def fake_chat(summary, question, *, model, max_flows, report, history, additional_evidence):
         assert additional_evidence == [evidence]
+        assert "FlowPilot has already run" in question
+        assert "Do not say the tool is unavailable" in question
         return AgentChatResponse(answer="I used the deep TLS evidence.")
 
     monkeypatch.setattr(workflow, "deep_tls_flow", fake_deep_tls_flow)

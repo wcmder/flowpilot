@@ -238,6 +238,10 @@ def _build_chat_graph() -> Any:
                     f"{len(requests)} deep evidence reread(s)."
                 ),
             )
+            return {
+                "tool_requests": requests,
+                "question": _explicit_tool_followup_question(state["question"], requests),
+            }
         return {"tool_requests": requests}
 
     def tool_node(state: FlowPilotAgentState) -> dict[str, Any]:
@@ -427,6 +431,23 @@ def _explicit_flow_id(question: str, tool_pattern: str) -> int | None:
         if match:
             return int(match.group(1))
     return None
+
+
+def _explicit_tool_followup_question(
+    original_question: str,
+    requests: list[dict[str, Any]],
+) -> str:
+    request_summary = ", ".join(
+        f"{request.get('tool')} for Flow ID {request.get('flow_id')}"
+        for request in requests
+    )
+    return (
+        "FlowPilot has already run the explicit deep evidence request before this "
+        f"LLM call: {request_summary}. Use additional_tool_evidence as the source "
+        "of truth for those tool results. Do not say the tool is unavailable or "
+        "not integrated. Answer the user's original request using the supplied "
+        f"deep evidence.\n\nOriginal user request: {original_question}"
+    )
 
 
 def _tool_name_pattern(tool: str) -> str:
