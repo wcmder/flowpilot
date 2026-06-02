@@ -905,6 +905,7 @@ def _format_agent_evidence_counts(evidence: dict) -> str:
     counts = (
         evidence.get("tcp_analysis_counts")
         or evidence.get("udp_metadata_counts")
+        or evidence.get("tls_metadata_counts")
         or {}
     )
     if not counts:

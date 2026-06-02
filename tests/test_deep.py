@@ -1,9 +1,12 @@
 from flowpilot.deep import (
+    TLS_DEEP_FIELDS,
     UDP_HEADER_FIELDS,
     _endpoint_filter,
     _parse_field_rows,
     _parse_tshark_rows,
     _tcp_analysis_counts,
+    _tls_flow_filter,
+    _tls_metadata_counts,
     _udp_metadata_counts,
 )
 from flowpilot.models import FlowKey, FlowSummary
@@ -86,6 +89,103 @@ def test_udp_metadata_counts_tracks_dns_dhcp_and_checksum() -> None:
         "dhcp_packets": 1,
         "udp_bad_checksum": 1,
     }
+
+
+def test_parse_tls_rows_includes_transport_and_tls_metadata() -> None:
+    values = {field: "" for field in TLS_DEEP_FIELDS}
+    values.update(
+        {
+            "frame.number": "30",
+            "frame.time_relative": "3.5",
+            "ip.src": "10.0.0.10",
+            "ip.dst": "203.0.113.10",
+            "tcp.srcport": "50000",
+            "tcp.dstport": "443",
+            "tcp.seq": "100",
+            "tls.handshake.type": "1|11",
+            "tls.handshake.extensions_server_name": "api.example.com",
+            "tls.handshake.ciphersuites": "0x1301|0x1302",
+            "tls.handshake.ciphersuite": "0x1301",
+            "tls.handshake.sig_hash_hash": "4",
+            "tls.handshake.sig_hash_sig": "3",
+            "tls.handshake.extensions_supported_group": "29",
+            "tls.handshake.extensions_key_share_group": "29",
+            "tls.handshake.certificate": "aa|bb|cc",
+            "tls.alert_message.level": "2",
+            "tls.alert_message.desc": "40",
+            "x509af.subject": "CN=api.example.com|CN=Example CA",
+        }
+    )
+    output = "\t".join(values[field] for field in TLS_DEEP_FIELDS)
+
+    rows = _parse_field_rows(output, TLS_DEEP_FIELDS)
+
+    assert rows[0]["src"] == "10.0.0.10"
+    assert rows[0]["tcp.srcport"] == "50000"
+    assert rows[0]["tls.handshake.ciphersuites"] == "0x1301|0x1302"
+    assert rows[0]["tls.handshake.sig_hash_hash"] == "4"
+    assert rows[0]["tls.handshake.extensions_key_share_group"] == "29"
+    assert rows[0]["tls.handshake.certificate"] == "aa|bb|cc"
+    assert rows[0]["x509af.subject"] == "CN=api.example.com|CN=Example CA"
+
+
+def test_tls_metadata_counts_tracks_tls_dtls_and_transport_markers() -> None:
+    rows = [
+        {
+            "tcp.srcport": "50000",
+            "tls.handshake.type": "1",
+            "tls.handshake.certificate": "aa|bb|cc",
+            "tls.handshake.ciphersuite": "0x1301",
+            "tls.handshake.sig_hash_hash": "4",
+            "tls.alert_message.level": "2",
+            "tcp.analysis.retransmission": "1",
+        },
+        {
+            "udp.srcport": "4433",
+            "dtls.handshake.type": "1",
+            "dtls.handshake.certificate": "dd|ee",
+            "dtls.alert_message.desc": "40",
+        },
+    ]
+
+    assert _tls_metadata_counts(rows) == {
+        "tls_packets": 1,
+        "dtls_packets": 1,
+        "tls_handshake_packets": 1,
+        "dtls_handshake_packets": 1,
+        "tls_certificate_fields": 5,
+        "tls_alert_packets": 1,
+        "dtls_alert_packets": 1,
+        "tcp_transport_packets": 1,
+        "udp_transport_packets": 1,
+        "tcp_loss_or_retransmission_packets": 1,
+        "algorithm_field_packets": 1,
+    }
+
+
+def test_tls_flow_filter_uses_tcp_or_udp_transport() -> None:
+    tcp_flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="203.0.113.10",
+            port_a=50000,
+            port_b=443,
+            protocol="TCP",
+        )
+    )
+    udp_flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="203.0.113.10",
+            port_a=50000,
+            port_b=4433,
+            protocol="UDP",
+        )
+    )
+
+    assert "tcp.port == 443" in _tls_flow_filter(tcp_flow)
+    assert "udp.port == 4433" in _tls_flow_filter(udp_flow)
+    assert "(tls || dtls)" in _tls_flow_filter(tcp_flow)
 
 
 def test_endpoint_filter_uses_ipv4_field_for_ipv4_endpoints() -> None:

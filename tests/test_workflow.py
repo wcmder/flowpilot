@@ -36,6 +36,61 @@ def test_deterministic_router_requests_deep_tcp_for_tcp_issues() -> None:
 
     assert requests == [
         {
+            "tool": "deep_tls_flow",
+            "flow_id": 1,
+            "reason": "Likely TLS flow by TCP port; inspect TLS handshake and TCP headers.",
+        }
+    ]
+
+
+def test_deterministic_router_requests_deep_tls_for_tls_alerts() -> None:
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(
+            key=FlowKey(
+                endpoint_a="10.0.0.10",
+                endpoint_b="10.0.0.20",
+                port_a=12345,
+                port_b=443,
+                protocol="TCP",
+            ),
+            tls_alerts={"fatal (2) handshake_failure (40)": 1},
+        )
+    ]
+
+    requests = workflow._deterministic_tool_requests(summary, max_requests=2)
+
+    assert requests == [
+        {
+            "tool": "deep_tls_flow",
+            "flow_id": 1,
+            "reason": (
+                "TLS/DTLS alert observed; inspect TLS/DTLS handshake, alert, "
+                "and transport headers."
+            ),
+        }
+    ]
+
+
+def test_deterministic_router_requests_deep_tcp_for_non_tls_tcp_issues() -> None:
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(
+            key=FlowKey(
+                endpoint_a="10.0.0.10",
+                endpoint_b="10.0.0.20",
+                port_a=12345,
+                port_b=8444,
+                protocol="TCP",
+            ),
+            issue_counts={"tcp_lost_segment": 48},
+        )
+    ]
+
+    requests = workflow._deterministic_tool_requests(summary, max_requests=2)
+
+    assert requests == [
+        {
             "tool": "deep_tcp_flow",
             "flow_id": 1,
             "reason": "TCP issue counters observed: {'tcp_lost_segment': 48}.",
@@ -102,6 +157,7 @@ def test_llm_tool_requests_are_allow_listed_and_deduplicated() -> None:
         evidence_requests=[
             {"tool": "deep_tcp_flow", "flow_id": 1, "reason": "Need TCP headers."},
             {"tool": "deep_udp_flow", "flow_id": 3, "reason": "Need DNS transaction details."},
+            {"tool": "deep_tls_flow", "flow_id": 4, "reason": "Need TLS handshake."},
             {"tool": "unknown_tool", "flow_id": 1, "reason": "Nope."},
             {"tool": "deep_tcp_flow", "flow_id": 2, "reason": "Already done."},
         ],
@@ -115,6 +171,7 @@ def test_llm_tool_requests_are_allow_listed_and_deduplicated() -> None:
     assert workflow._llm_tool_requests(state) == [
         {"tool": "deep_tcp_flow", "flow_id": 1, "reason": "Need TCP headers."},
         {"tool": "deep_udp_flow", "flow_id": 3, "reason": "Need DNS transaction details."},
+        {"tool": "deep_tls_flow", "flow_id": 4, "reason": "Need TLS handshake."},
     ]
 
 
@@ -206,9 +263,9 @@ def test_agent_reasoning_auto_tools_runs_deterministic_router(monkeypatch, tmp_p
             issue_counts={"tcp_lost_segment": 48},
         )
     ]
-    evidence = {"tool": "deep_tcp_flow", "flow_id": 1, "status": "ok", "packet_count": 2}
+    evidence = {"tool": "deep_tls_flow", "flow_id": 1, "status": "ok", "packet_count": 2}
 
-    def fake_deep_tcp_flow(*_args, **_kwargs):
+    def fake_deep_tls_flow(*_args, **_kwargs):
         return evidence
 
     def fake_reason(summary, *, model, max_flows, additional_evidence):
@@ -220,7 +277,7 @@ def test_agent_reasoning_auto_tools_runs_deterministic_router(monkeypatch, tmp_p
             next_questions=[],
         )
 
-    monkeypatch.setattr(workflow, "deep_tcp_flow", fake_deep_tcp_flow)
+    monkeypatch.setattr(workflow, "deep_tls_flow", fake_deep_tls_flow)
     monkeypatch.setattr(workflow, "reason_about_capture", fake_reason)
 
     state = workflow.run_agent_reasoning_state(

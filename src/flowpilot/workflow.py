@@ -4,7 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-from .deep import deep_tcp_flow, deep_udp_flow
+from .deep import deep_tcp_flow, deep_tls_flow, deep_udp_flow
 from .models import CaptureSummary, FlowSummary, ReasoningReport
 from .reasoning import (
     DEFAULT_MODEL,
@@ -14,7 +14,7 @@ from .reasoning import (
     reason_about_capture,
 )
 
-ALLOWED_TOOLS = {"deep_tcp_flow", "deep_udp_flow"}
+ALLOWED_TOOLS = {"deep_tcp_flow", "deep_udp_flow", "deep_tls_flow"}
 
 
 class FlowPilotAgentState(TypedDict, total=False):
@@ -270,6 +270,10 @@ def _deterministic_tool_requests(
     for flow_id, flow in _flow_ids(summary.flows).items():
         if len(requests) >= max_requests:
             break
+        reason = _tls_deep_reason(flow)
+        if reason:
+            requests.append({"tool": "deep_tls_flow", "flow_id": flow_id, "reason": reason})
+            continue
         reason = _tcp_deep_reason(flow)
         if reason:
             requests.append({"tool": "deep_tcp_flow", "flow_id": flow_id, "reason": reason})
@@ -278,6 +282,25 @@ def _deterministic_tool_requests(
         if reason:
             requests.append({"tool": "deep_udp_flow", "flow_id": flow_id, "reason": reason})
     return requests
+
+
+def _tls_deep_reason(flow: FlowSummary) -> str | None:
+    if flow.key.protocol not in {"TCP", "UDP"}:
+        return None
+    if flow.tls_alerts:
+        return "TLS/DTLS alert observed; inspect TLS/DTLS handshake, alert, and transport headers."
+    if flow.tls_certificates:
+        return (
+            "TLS certificates observed; inspect complete TLS certificate chain "
+            "and handshake fields."
+        )
+    if flow.tls_snis:
+        return "TLS SNI observed; inspect TLS ClientHello and related transport headers."
+    if flow.key.protocol == "TCP" and any(port in {443, 853, 8443} for port in _flow_ports(flow)):
+        return "Likely TLS flow by TCP port; inspect TLS handshake and TCP headers."
+    if flow.key.protocol == "UDP" and any(port in {443, 853, 4433} for port in _flow_ports(flow)):
+        return "Likely DTLS or encrypted UDP flow by port; inspect DTLS and UDP headers."
+    return None
 
 
 def _tcp_deep_reason(flow: FlowSummary) -> str | None:
@@ -311,6 +334,10 @@ def _udp_deep_reason(flow: FlowSummary) -> str | None:
     if flow.is_one_way:
         return "One-way UDP flow observed; inspect UDP headers and response visibility."
     return None
+
+
+def _flow_ports(flow: FlowSummary) -> list[int]:
+    return [port for port in (flow.key.port_a, flow.key.port_b) if port is not None]
 
 
 def _llm_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
@@ -358,6 +385,13 @@ def _run_tool_request(state: FlowPilotAgentState, request: dict[str, Any]) -> di
         }
     if tool == "deep_tcp_flow":
         return deep_tcp_flow(
+            state["capture_path"],
+            flow_id=flow_id,
+            flow=flow,
+            reason=request.get("reason", ""),
+        )
+    if tool == "deep_tls_flow":
+        return deep_tls_flow(
             state["capture_path"],
             flow_id=flow_id,
             flow=flow,

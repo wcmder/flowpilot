@@ -49,8 +49,10 @@ discover/offer/request/ack exchanges, repeated requests, missing ACKs, server id
 lease details, and requested versus offered addresses.
 
 If more packet evidence is needed, request only allow-listed tools in evidence_requests.
-Allowed tools: deep_tcp_flow, deep_udp_flow. Use deep_udp_flow for UDP, DNS, or DHCP
-transaction/header details. Include the Flow ID and a concise reason. Do not invent tools."""
+Allowed tools: deep_tcp_flow, deep_udp_flow, deep_tls_flow. Use deep_tls_flow for TLS
+or DTLS handshake, certificate, SNI, alert, and related TCP/UDP header details. Use
+deep_udp_flow for UDP, DNS, or DHCP transaction/header details. Include the Flow ID
+and a concise reason. Do not invent tools."""
 
 
 def openai_client() -> OpenAI:
