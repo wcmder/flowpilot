@@ -754,7 +754,7 @@ def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object, obj
     flow_ids = _flow_ids(summary.flows)
     certificate_rows = []
     observed_tls_rows = []
-    for flow in summary.flows:
+    for flow in summary.flows[:show_flows]:
         if flow.tls_certificates:
             certificate_rows.extend(
                 (flow_ids[flow.key], flow, certificate)

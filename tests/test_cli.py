@@ -293,7 +293,7 @@ def test_format_agent_evidence_counts_prefers_protocol_counts() -> None:
     ) == "dns_packets: 2\ndns_error_responses: 1"
 
 
-def test_tls_detail_rows_include_certificates_outside_top_flow_slice() -> None:
+def test_tls_detail_rows_respect_top_flow_slice() -> None:
     cert_flow = FlowSummary(
         key=FlowKey(
             endpoint_a="10.0.0.10",
@@ -332,10 +332,9 @@ def test_tls_detail_rows_include_certificates_outside_top_flow_slice() -> None:
         flows=[larger_flow, cert_flow],
     )
 
-    rows = _tls_detail_rows(summary, show_flows=10)
+    rows = _tls_detail_rows(summary, show_flows=1)
 
-    assert rows[0][0] == 2
-    assert rows[0][2].subject_cn == "api.example.com"
+    assert rows == []
 
 
 def test_tls_detail_rows_include_sni_without_certificate() -> None:
@@ -365,7 +364,7 @@ def test_tls_detail_rows_include_sni_without_certificate() -> None:
     assert rows == [(1, flow, None)]
 
 
-def test_tls_detail_rows_prioritize_certificates_over_placeholders() -> None:
+def test_tls_detail_rows_prioritize_certificates_within_top_flow_slice() -> None:
     placeholder_flow = FlowSummary(
         key=FlowKey(
             endpoint_a="10.0.0.10",
@@ -404,7 +403,7 @@ def test_tls_detail_rows_prioritize_certificates_over_placeholders() -> None:
         flows=[placeholder_flow, cert_flow],
     )
 
-    rows = _tls_detail_rows(summary, show_flows=1)
+    rows = _tls_detail_rows(summary, show_flows=2)
 
     assert rows[0][0] == 2
     assert rows[0][2].subject_cn == "api.example.com"
