@@ -150,9 +150,12 @@ class FlowKey(BaseModel, frozen=True):
     @classmethod
     def from_packet(cls, packet: PacketObservation) -> FlowKey:
         if packet.dhcp_message_type or {packet.src_port, packet.dst_port} == {67, 68}:
+            ports = sorted(port for port in (packet.src_port, packet.dst_port) if port is not None)
             return cls(
                 endpoint_a=min(packet.src_ip, packet.dst_ip),
                 endpoint_b=max(packet.src_ip, packet.dst_ip),
+                port_a=ports[0] if ports else None,
+                port_b=ports[-1] if ports else None,
                 protocol=packet.protocol,
             )
 

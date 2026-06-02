@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
 from .deep import deep_tcp_flow, deep_udp_flow
 from .models import CaptureSummary, FlowSummary, ReasoningReport
-from .reasoning import DEFAULT_MODEL, chat_about_capture, reason_about_capture
+from .reasoning import (
+    DEFAULT_MODEL,
+    LLM_API,
+    LLM_TIMEOUT_SECONDS,
+    chat_about_capture,
+    reason_about_capture,
+)
 
 ALLOWED_TOOLS = {"deep_tcp_flow", "deep_udp_flow"}
 
@@ -24,6 +31,7 @@ class FlowPilotAgentState(TypedDict, total=False):
     deep_evidence: list[dict[str, Any]]
     tool_loop_count: int
     max_tool_rereads: int
+    progress_callback: Callable[[str], None]
 
 
 def run_agent_reasoning(
@@ -33,6 +41,7 @@ def run_agent_reasoning(
     model: str = DEFAULT_MODEL,
     max_flows: int = 25,
     max_tool_rereads: int = 2,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ReasoningReport:
     return run_agent_reasoning_state(
         summary,
@@ -40,6 +49,7 @@ def run_agent_reasoning(
         model=model,
         max_flows=max_flows,
         max_tool_rereads=max_tool_rereads,
+        progress_callback=progress_callback,
     )["report"]
 
 
@@ -50,6 +60,7 @@ def run_agent_reasoning_state(
     model: str = DEFAULT_MODEL,
     max_flows: int = 25,
     max_tool_rereads: int = 2,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> FlowPilotAgentState:
     graph = _build_reasoning_graph()
     state: FlowPilotAgentState = {
@@ -64,6 +75,8 @@ def run_agent_reasoning_state(
     }
     if capture_path:
         state["capture_path"] = capture_path
+    if progress_callback:
+        state["progress_callback"] = progress_callback
     return graph.invoke(state)
 
 
@@ -76,6 +89,7 @@ def run_agent_chat(
     report: ReasoningReport | None = None,
     history: list[dict[str, str]] | None = None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     graph = _build_chat_graph()
     state: FlowPilotAgentState = {
@@ -88,6 +102,8 @@ def run_agent_chat(
     }
     if report:
         state["report"] = report
+    if progress_callback:
+        state["progress_callback"] = progress_callback
     result = graph.invoke(state)
     return result["answer"]
 
@@ -106,12 +122,18 @@ def _build_reasoning_graph() -> Any:
     def deterministic_router_node(state: FlowPilotAgentState) -> dict[str, list[dict[str, Any]]]:
         if "capture_path" not in state:
             return {"tool_requests": []}
-        return {
-            "tool_requests": _deterministic_tool_requests(
-                state["summary"],
-                max_requests=state.get("max_tool_rereads", 2),
-            )
-        }
+        requests = _deterministic_tool_requests(
+            state["summary"],
+            max_requests=state.get("max_tool_rereads", 2),
+        )
+        _progress(
+            state,
+            (
+                f"LangGraph deterministic router selected {len(requests)} "
+                "deep evidence request(s)."
+            ),
+        )
+        return {"tool_requests": requests}
 
     def tool_node(state: FlowPilotAgentState) -> dict[str, Any]:
         requests = _pending_tool_requests(state)
@@ -119,7 +141,22 @@ def _build_reasoning_graph() -> Any:
         completed = list(state.get("completed_tool_requests", []))
         for request in requests:
             request_key = _tool_request_key(request)
-            evidence.append(_run_tool_request(state, request))
+            _progress(
+                state,
+                (
+                    f"LangGraph running {request.get('tool')} for Flow ID "
+                    f"{request.get('flow_id')}: {request.get('reason', '')}"
+                ),
+            )
+            tool_result = _run_tool_request(state, request)
+            evidence.append(tool_result)
+            _progress(
+                state,
+                (
+                    f"LangGraph finished {request.get('tool')} for Flow ID "
+                    f"{request.get('flow_id')} with status={tool_result.get('status')}."
+                ),
+            )
             completed.append(request_key)
         return {
             "tool_requests": [],
@@ -128,6 +165,16 @@ def _build_reasoning_graph() -> Any:
         }
 
     def reason_node(state: FlowPilotAgentState) -> dict[str, ReasoningReport]:
+        _progress(
+            state,
+            (
+                "Sending derived metadata to LLM through LangGraph: "
+                f"model={state.get('model', DEFAULT_MODEL)}, api={LLM_API}, "
+                f"timeout={LLM_TIMEOUT_SECONDS:g}s, "
+                f"top_flows={min(state['summary'].flow_count, state.get('max_flows', 25))}, "
+                f"deep_evidence={len(state.get('deep_evidence', []))}."
+            ),
+        )
         return {
             "report": reason_about_capture(
                 state["summary"],
@@ -142,6 +189,8 @@ def _build_reasoning_graph() -> Any:
         if loop_count >= state.get("max_tool_rereads", 2):
             return {"tool_requests": [], "tool_loop_count": loop_count}
         requests = _llm_tool_requests(state)
+        if requests:
+            _progress(state, f"LLM requested {len(requests)} additional deep evidence reread(s).")
         return {
             "tool_requests": requests,
             "tool_loop_count": loop_count + 1 if requests else loop_count,
@@ -172,6 +221,15 @@ def _build_chat_graph() -> Any:
     StateGraph, START, END = _langgraph_primitives()
 
     def chat_node(state: FlowPilotAgentState) -> dict[str, str]:
+        _progress(
+            state,
+            (
+                "Sending follow-up question to LLM through LangGraph: "
+                f"model={state.get('model', DEFAULT_MODEL)}, api={LLM_API}, "
+                f"timeout={LLM_TIMEOUT_SECONDS:g}s, "
+                f"deep_evidence={len(state.get('deep_evidence', []))}."
+            ),
+        )
         return {
             "answer": chat_about_capture(
                 state["summary"],
@@ -307,6 +365,12 @@ def _route_after_tool_request(state: FlowPilotAgentState) -> Literal["tools", "r
 
 def _tool_request_key(request: dict[str, Any]) -> str:
     return f"{request.get('tool')}:{request.get('flow_id')}"
+
+
+def _progress(state: FlowPilotAgentState, message: str) -> None:
+    callback = state.get("progress_callback")
+    if callback:
+        callback(message)
 
 
 def _flow_ids(flows: list[FlowSummary]) -> dict[int, FlowSummary]:

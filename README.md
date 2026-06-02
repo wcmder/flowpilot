@@ -91,6 +91,12 @@ For providers with request-per-minute limits, set a client-side throttle:
 export FLOWPILOT_LLM_REQUESTS_PER_MINUTE="120"
 ```
 
+For slow models or gateways, set the per-request timeout:
+
+```bash
+export FLOWPILOT_LLM_TIMEOUT_SECONDS="300"
+```
+
 ## Air-gapped setup with a wheelhouse
 
 For an air-gapped or restricted network, build a local Python wheelhouse on a
@@ -155,6 +161,7 @@ FLOWPILOT_OPENAI_BASE_URL="https://your-internal-llm-gateway.example/v1"
 FLOWPILOT_LLM_API="chat_completions"
 FLOWPILOT_MODEL="your-internal-model-name"
 FLOWPILOT_LLM_REQUESTS_PER_MINUTE="120"
+FLOWPILOT_LLM_TIMEOUT_SECONDS="300"
 ```
 
 Use `flowpilot models` to confirm the API key, base URL, and model endpoint work

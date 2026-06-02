@@ -28,7 +28,14 @@ from .filters import (
     filter_sip_calls_by_phone,
     include_redirect_related_flows,
 )
-from .reasoning import DEFAULT_MODEL, chat_about_capture, list_openai_models, reason_about_capture
+from .reasoning import (
+    DEFAULT_MODEL,
+    LLM_API,
+    LLM_TIMEOUT_SECONDS,
+    chat_about_capture,
+    list_openai_models,
+    reason_about_capture,
+)
 from .sip import format_sip_trace
 from .smb import SMB1_COMMAND_NAMES, SMB_STATUS_NAMES, smb_display_value
 from .workflow import run_agent_chat, run_agent_reasoning_state
@@ -204,26 +211,33 @@ def analyze(
             _info("LLM reasoning skipped because --no-llm was set.")
             report = None
         else:
-            _info(
-                "Sending derived metadata to LLM: "
-                f"model={model}, top_flows={min(summary.flow_count, max_flows)}. "
-                "Raw packet payloads are not sent."
-            )
             llm_started_at = time.perf_counter()
             agent_evidence = []
             if agent:
-                _info("LangGraph agent workflow started.")
+                _info(
+                    "LangGraph agent workflow started. It may run deep TShark rereads before "
+                    f"calling the LLM model={model}, api={LLM_API}, "
+                    f"timeout={LLM_TIMEOUT_SECONDS:g}s. Raw packet payloads are not sent."
+                )
                 agent_state = run_agent_reasoning_state(
                     summary,
                     capture_path=capture_path,
                     model=model,
                     max_flows=max_flows,
+                    progress_callback=_info,
                 )
                 report = agent_state["report"]
                 agent_evidence = agent_state.get("deep_evidence", [])
                 if agent_evidence:
                     _info(f"LangGraph gathered {len(agent_evidence)} deep evidence result(s).")
             else:
+                _info(
+                    "Sending derived metadata to LLM: "
+                    f"model={model}, api={LLM_API}, "
+                    f"timeout={LLM_TIMEOUT_SECONDS:g}s, "
+                    f"top_flows={min(summary.flow_count, max_flows)}. "
+                    "Raw packet payloads are not sent."
+                )
                 report = reason_about_capture(summary, model=model, max_flows=max_flows)
             llm_elapsed = time.perf_counter() - llm_started_at
             _info(f"LLM reasoning finished in {llm_elapsed:.2f}s.")
@@ -266,8 +280,8 @@ def models_command(
         return
 
     table = Table(title="Configured LLM Models")
-    table.add_column("Model ID")
-    table.add_column("Owner")
+    table.add_column("Model ID", overflow="fold")
+    table.add_column("Owner", overflow="fold")
     table.add_column("Created", justify="right")
     for model in models:
         table.add_row(
@@ -290,12 +304,12 @@ def _render_summary(summary, *, show_flows: int) -> None:
 
     table = Table(title="Top Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
-    table.add_column("Flow")
-    table.add_column("Traffic")
-    table.add_column("Direction")
-    table.add_column("Metrics")
-    table.add_column("Protocol")
-    table.add_column("Issues")
+    table.add_column("Flow", overflow="fold")
+    table.add_column("Traffic", overflow="fold")
+    table.add_column("Direction", overflow="fold")
+    table.add_column("Metrics", overflow="fold")
+    table.add_column("Protocol", overflow="fold")
+    table.add_column("Issues", overflow="fold")
 
     flow_ids = _flow_ids(summary.flows)
     for flow in summary.flows[:show_flows]:
@@ -551,13 +565,13 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
 
     table = Table(title="SIP Details In Top Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
-    table.add_column("Call ID")
-    table.add_column("Caller")
-    table.add_column("Callee")
-    table.add_column("Methods")
-    table.add_column("Statuses")
-    table.add_column("Issue")
-    table.add_column("Trace")
+    table.add_column("Call ID", overflow="fold")
+    table.add_column("Caller", overflow="fold")
+    table.add_column("Callee", overflow="fold")
+    table.add_column("Methods", overflow="fold")
+    table.add_column("Statuses", overflow="fold")
+    table.add_column("Issue", overflow="fold")
+    table.add_column("Trace", overflow="fold")
 
     for flow_id, flow in rows:
         if flow.sip_calls:
@@ -603,11 +617,11 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
 
     table = Table(title="SMB Details In Top Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
-    table.add_column("Commands")
-    table.add_column("Statuses")
-    table.add_column("Capabilities")
+    table.add_column("Commands", overflow="fold")
+    table.add_column("Statuses", overflow="fold")
+    table.add_column("Capabilities", overflow="fold")
     table.add_column("Transfer", overflow="fold")
-    table.add_column("Issue")
+    table.add_column("Issue", overflow="fold")
 
     for flow_id, flow in rows:
         table.add_row(
@@ -633,11 +647,11 @@ def _render_dns_details(summary, *, show_flows: int) -> None:
 
     table = Table(title="DNS Details In Top Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
-    table.add_column("Queries")
-    table.add_column("Types")
-    table.add_column("RCode")
-    table.add_column("Answers")
-    table.add_column("Issue")
+    table.add_column("Queries", overflow="fold")
+    table.add_column("Types", overflow="fold")
+    table.add_column("RCode", overflow="fold")
+    table.add_column("Answers", overflow="fold")
+    table.add_column("Issue", overflow="fold")
 
     for flow_id, flow in rows:
         table.add_row(
@@ -663,12 +677,12 @@ def _render_dhcp_details(summary, *, show_flows: int) -> None:
 
     table = Table(title="DHCP Details In Top Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
-    table.add_column("Messages")
-    table.add_column("Client")
-    table.add_column("Requested/Offered")
-    table.add_column("Server")
-    table.add_column("Lease")
-    table.add_column("Issue")
+    table.add_column("Messages", overflow="fold")
+    table.add_column("Client", overflow="fold")
+    table.add_column("Requested/Offered", overflow="fold")
+    table.add_column("Server", overflow="fold")
+    table.add_column("Lease", overflow="fold")
+    table.add_column("Issue", overflow="fold")
 
     for flow_id, flow in rows:
         table.add_row(
@@ -702,12 +716,12 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
 
     table = Table(title="TLS Certificates Observed In Top Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
-    table.add_column("Role")
-    table.add_column("Endpoint")
+    table.add_column("Role", overflow="fold")
+    table.add_column("Endpoint", overflow="fold")
     table.add_column("Subject CN", overflow="fold")
     table.add_column("Issuer CN", overflow="fold")
-    table.add_column("Validity")
-    table.add_column("SAN")
+    table.add_column("Validity", overflow="fold")
+    table.add_column("SAN", overflow="fold")
 
     for flow_id, flow, certificate in rows:
         table.add_row(
@@ -776,6 +790,7 @@ def _run_chat(
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
+                progress_callback=_info,
             )
         else:
             answer = chat_about_capture(

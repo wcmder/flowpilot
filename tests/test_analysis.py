@@ -1580,6 +1580,9 @@ def test_summarize_capture_tracks_dhcp_metadata() -> None:
     summary = summarize_capture(packets)
     flow = summary.flows[0]
 
+    assert summary.flow_count == 1
+    assert flow.key.port_a == 67
+    assert flow.key.port_b == 68
     assert flow.dhcp_message_types == {"Discover": 1, "Offer": 1}
     assert flow.dhcp_transaction_ids == ["0x1234"]
     assert flow.dhcp_client_macs == ["00:11:22:33:44:55"]

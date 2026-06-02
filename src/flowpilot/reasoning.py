@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from dotenv import load_dotenv
-from openai import APIStatusError, OpenAI
+from openai import APIStatusError, APITimeoutError, OpenAI
 
 from .models import CaptureSummary, ReasoningReport
 
@@ -16,6 +16,7 @@ DEFAULT_MODEL = os.getenv("FLOWPILOT_MODEL", "gpt-5-mini")
 OPENAI_BASE_URL = os.getenv("FLOWPILOT_OPENAI_BASE_URL")
 LLM_API = os.getenv("FLOWPILOT_LLM_API", "responses").lower()
 LLM_REQUESTS_PER_MINUTE = int(os.getenv("FLOWPILOT_LLM_REQUESTS_PER_MINUTE", "120"))
+LLM_TIMEOUT_SECONDS = float(os.getenv("FLOWPILOT_LLM_TIMEOUT_SECONDS", "120"))
 _last_llm_request_at = 0.0
 
 SYSTEM_PROMPT = """You are FlowPilot, a network transport troubleshooting agent for data-transfer
@@ -53,7 +54,9 @@ transaction/header details. Include the Flow ID and a concise reason. Do not inv
 
 
 def openai_client() -> OpenAI:
-    return OpenAI(base_url=OPENAI_BASE_URL) if OPENAI_BASE_URL else OpenAI()
+    if OPENAI_BASE_URL:
+        return OpenAI(base_url=OPENAI_BASE_URL, timeout=LLM_TIMEOUT_SECONDS)
+    return OpenAI(timeout=LLM_TIMEOUT_SECONDS)
 
 
 def list_openai_models() -> list[dict[str, object]]:
@@ -79,27 +82,9 @@ def reason_about_capture(
     max_flows: int = 25,
     additional_evidence: list[dict[str, Any]] | None = None,
 ) -> ReasoningReport:
-    client = openai_client()
-    if LLM_API in {"chat", "chat_completions", "chat-completions"}:
-        return _reason_with_chat_completions(
-            client,
-            summary,
-            model=model,
-            max_flows=max_flows,
-            additional_evidence=additional_evidence,
-        )
-    if LLM_API == "auto":
-        try:
-            return _reason_with_responses(
-                client,
-                summary,
-                model=model,
-                max_flows=max_flows,
-                additional_evidence=additional_evidence,
-            )
-        except APIStatusError as exc:
-            if exc.status_code != 404:
-                raise
+    try:
+        client = openai_client()
+        if LLM_API in {"chat", "chat_completions", "chat-completions"}:
             return _reason_with_chat_completions(
                 client,
                 summary,
@@ -107,13 +92,36 @@ def reason_about_capture(
                 max_flows=max_flows,
                 additional_evidence=additional_evidence,
             )
-    return _reason_with_responses(
-        client,
-        summary,
-        model=model,
-        max_flows=max_flows,
-        additional_evidence=additional_evidence,
-    )
+        if LLM_API == "auto":
+            try:
+                return _reason_with_responses(
+                    client,
+                    summary,
+                    model=model,
+                    max_flows=max_flows,
+                    additional_evidence=additional_evidence,
+                )
+            except APIStatusError as exc:
+                if exc.status_code != 404:
+                    raise
+                return _reason_with_chat_completions(
+                    client,
+                    summary,
+                    model=model,
+                    max_flows=max_flows,
+                    additional_evidence=additional_evidence,
+                )
+        return _reason_with_responses(
+            client,
+            summary,
+            model=model,
+            max_flows=max_flows,
+            additional_evidence=additional_evidence,
+        )
+    except APITimeoutError:
+        return _empty_llm_report(
+            f"LLM request timed out after {LLM_TIMEOUT_SECONDS:g} seconds."
+        )
 
 
 def chat_about_capture(
@@ -126,33 +134,9 @@ def chat_about_capture(
     history: list[dict[str, str]] | None = None,
     additional_evidence: list[dict[str, Any]] | None = None,
 ) -> str:
-    client = openai_client()
-    if LLM_API in {"chat", "chat_completions", "chat-completions"}:
-        return _chat_with_chat_completions(
-            client,
-            summary,
-            question,
-            model=model,
-            max_flows=max_flows,
-            report=report,
-            history=history,
-            additional_evidence=additional_evidence,
-        )
-    if LLM_API == "auto":
-        try:
-            return _chat_with_responses(
-                client,
-                summary,
-                question,
-                model=model,
-                max_flows=max_flows,
-                report=report,
-                history=history,
-                additional_evidence=additional_evidence,
-            )
-        except APIStatusError as exc:
-            if exc.status_code != 404:
-                raise
+    try:
+        client = openai_client()
+        if LLM_API in {"chat", "chat_completions", "chat-completions"}:
             return _chat_with_chat_completions(
                 client,
                 summary,
@@ -163,16 +147,43 @@ def chat_about_capture(
                 history=history,
                 additional_evidence=additional_evidence,
             )
-    return _chat_with_responses(
-        client,
-        summary,
-        question,
-        model=model,
-        max_flows=max_flows,
-        report=report,
-        history=history,
-        additional_evidence=additional_evidence,
-    )
+        if LLM_API == "auto":
+            try:
+                return _chat_with_responses(
+                    client,
+                    summary,
+                    question,
+                    model=model,
+                    max_flows=max_flows,
+                    report=report,
+                    history=history,
+                    additional_evidence=additional_evidence,
+                )
+            except APIStatusError as exc:
+                if exc.status_code != 404:
+                    raise
+                return _chat_with_chat_completions(
+                    client,
+                    summary,
+                    question,
+                    model=model,
+                    max_flows=max_flows,
+                    report=report,
+                    history=history,
+                    additional_evidence=additional_evidence,
+                )
+        return _chat_with_responses(
+            client,
+            summary,
+            question,
+            model=model,
+            max_flows=max_flows,
+            report=report,
+            history=history,
+            additional_evidence=additional_evidence,
+        )
+    except APITimeoutError:
+        return f"The LLM request timed out after {LLM_TIMEOUT_SECONDS:g} seconds."
 
 
 def _reason_with_responses(

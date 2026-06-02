@@ -1,3 +1,5 @@
+import httpx
+
 import flowpilot.reasoning as reasoning
 from flowpilot.models import CaptureSummary, ReasoningReport
 from flowpilot.reasoning import _json_object
@@ -137,3 +139,54 @@ def test_chat_followup_handles_empty_message_content(monkeypatch) -> None:
     )
 
     assert "did not include message content" in answer
+
+
+def test_reasoning_returns_fallback_on_llm_timeout(monkeypatch) -> None:
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+
+    def timeout_reasoning(*_args, **_kwargs):
+        raise reasoning.APITimeoutError(httpx.Request("POST", "https://example.test/v1"))
+
+    monkeypatch.setattr(reasoning, "openai_client", lambda: object())
+    monkeypatch.setattr(reasoning, "LLM_API", "responses")
+    monkeypatch.setattr(reasoning, "LLM_TIMEOUT_SECONDS", 5)
+    monkeypatch.setattr(reasoning, "_reason_with_responses", timeout_reasoning)
+
+    report = reasoning.reason_about_capture(summary)
+
+    assert report.risk_level == "unknown"
+    assert "timed out after 5 seconds" in report.executive_summary
+
+
+def test_chat_returns_message_on_llm_timeout(monkeypatch) -> None:
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+
+    def timeout_chat(*_args, **_kwargs):
+        raise reasoning.APITimeoutError(httpx.Request("POST", "https://example.test/v1"))
+
+    monkeypatch.setattr(reasoning, "openai_client", lambda: object())
+    monkeypatch.setattr(reasoning, "LLM_API", "responses")
+    monkeypatch.setattr(reasoning, "LLM_TIMEOUT_SECONDS", 5)
+    monkeypatch.setattr(reasoning, "_chat_with_responses", timeout_chat)
+
+    answer = reasoning.chat_about_capture(summary, "what happened?")
+
+    assert "timed out after 5 seconds" in answer
