@@ -20,6 +20,7 @@ from flowpilot.cli import (
     _parse_capinfos_packet_count,
     _percent,
     _tls_detail_rows,
+    _tls_endpoint_with_role,
     _tls_issue_text,
     _traffic,
 )
@@ -394,6 +395,11 @@ def test_tls_detail_rows_include_alert_without_certificate() -> None:
     rows = _tls_detail_rows(summary, show_flows=10)
 
     assert rows == [(1, flow, "-", "10.0.0.10:50000 <-> 203.0.113.10:443", [])]
+
+
+def test_tls_endpoint_with_role_adds_role_on_second_line() -> None:
+    assert _tls_endpoint_with_role("1.1.1.1:443", "server") == "1.1.1.1:443\n(server)"
+    assert _tls_endpoint_with_role("1.1.1.1:443", "-") == "1.1.1.1:443"
 
 
 def test_tls_expiration_shows_only_not_after() -> None:

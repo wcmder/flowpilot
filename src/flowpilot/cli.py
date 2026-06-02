@@ -727,7 +727,6 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
 
     table = Table(title="TLS Details Observed In Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
-    table.add_column("Role", overflow="fold")
     table.add_column("Endpoint", overflow="fold")
     table.add_column("SNI", overflow="fold")
     table.add_column("Subject", overflow="fold")
@@ -739,8 +738,7 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
     for flow_id, flow, role, endpoint, certificates in rows:
         table.add_row(
             str(flow_id),
-            role,
-            endpoint,
+            _tls_endpoint_with_role(endpoint, role),
             "\n".join(flow.tls_snis[:5]) or "-",
             _format_certificate_column(certificates, "subject"),
             _format_certificate_column(certificates, "issuer"),
@@ -749,6 +747,10 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
             _tls_issue_text(flow, certificates),
         )
     console.print(table)
+
+
+def _tls_endpoint_with_role(endpoint: str, role: str) -> str:
+    return endpoint if role == "-" else f"{endpoint}\n({role})"
 
 
 def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object, str, str, list]]:
