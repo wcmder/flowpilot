@@ -364,6 +364,41 @@ def test_tls_detail_rows_include_sni_without_certificate() -> None:
     assert rows == [(1, flow, None)]
 
 
+def test_tls_detail_rows_use_object_position_when_flow_keys_repeat() -> None:
+    key = FlowKey(
+        endpoint_a="10.0.0.10",
+        endpoint_b="203.0.113.10",
+        port_a=50000,
+        port_b=443,
+        protocol="TCP",
+    )
+    first_flow = FlowSummary(
+        key=key,
+        tls_certificates=[
+            TlsCertificateObservation(
+                presenter_ip="203.0.113.10",
+                presenter_port=443,
+                subject_cn="api.example.com",
+            )
+        ],
+    )
+    later_duplicate = FlowSummary(key=key, tls_snis=["api.example.com"])
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=2,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[first_flow, later_duplicate],
+    )
+
+    rows = _tls_detail_rows(summary, show_flows=1)
+
+    assert rows[0][0] == 1
+
+
 def test_tls_detail_rows_prioritize_certificates_within_top_flow_slice() -> None:
     placeholder_flow = FlowSummary(
         key=FlowKey(

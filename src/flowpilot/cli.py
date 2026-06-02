@@ -329,7 +329,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
     flow_ids = _flow_ids(summary.flows)
     for flow in summary.flows[:show_flows]:
         table.add_row(
-            str(flow_ids[flow.key]),
+            str(flow_ids[id(flow)]),
             (
                 f"{flow.key.protocol}\n"
                 f"{_endpoint(flow.key.endpoint_a, flow.key.port_a)} <->\n"
@@ -571,7 +571,7 @@ def _count_packets_in_pcapng(capture_file) -> int | None:
 def _render_sip_details(summary, *, show_flows: int) -> None:
     flow_ids = _flow_ids(summary.flows)
     rows = [
-        (flow_ids[flow.key], flow)
+        (flow_ids[id(flow)], flow)
         for flow in summary.flows[:show_flows]
         if flow.sip_call_ids or flow.sip_methods or flow.sip_statuses
     ]
@@ -618,7 +618,7 @@ def _render_sip_details(summary, *, show_flows: int) -> None:
 def _render_smb_details(summary, *, show_flows: int) -> None:
     flow_ids = _flow_ids(summary.flows)
     rows = [
-        (flow_ids[flow.key], flow)
+        (flow_ids[id(flow)], flow)
         for flow in summary.flows[:show_flows]
         if (
             flow.smb_commands
@@ -653,7 +653,7 @@ def _render_smb_details(summary, *, show_flows: int) -> None:
 def _render_dns_details(summary, *, show_flows: int) -> None:
     flow_ids = _flow_ids(summary.flows)
     rows = [
-        (flow_ids[flow.key], flow)
+        (flow_ids[id(flow)], flow)
         for flow in summary.flows[:show_flows]
         if flow.dns_queries or flow.dns_response_codes or flow.dns_answers
     ]
@@ -683,7 +683,7 @@ def _render_dns_details(summary, *, show_flows: int) -> None:
 def _render_dhcp_details(summary, *, show_flows: int) -> None:
     flow_ids = _flow_ids(summary.flows)
     rows = [
-        (flow_ids[flow.key], flow)
+        (flow_ids[id(flow)], flow)
         for flow in summary.flows[:show_flows]
         if flow.dhcp_message_types or flow.dhcp_client_macs or flow.dhcp_requested_ips
     ]
@@ -757,11 +757,11 @@ def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object, obj
     for flow in summary.flows[:show_flows]:
         if flow.tls_certificates:
             certificate_rows.extend(
-                (flow_ids[flow.key], flow, certificate)
+                (flow_ids[id(flow)], flow, certificate)
                 for certificate in flow.tls_certificates
             )
         elif flow.tls_snis or _likely_tls_flow(flow):
-            observed_tls_rows.append((flow_ids[flow.key], flow, None))
+            observed_tls_rows.append((flow_ids[id(flow)], flow, None))
     return [*certificate_rows, *observed_tls_rows][:show_flows]
 
 
@@ -892,7 +892,7 @@ def _flow_endpoint_text(flow) -> str:
 
 
 def _flow_ids(flows) -> dict[object, int]:
-    return {flow.key: index for index, flow in enumerate(flows, start=1)}
+    return {id(flow): index for index, flow in enumerate(flows, start=1)}
 
 
 def _certificate_endpoint(flow, certificate) -> str:
