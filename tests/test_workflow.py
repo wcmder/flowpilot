@@ -181,6 +181,38 @@ def test_llm_tool_requests_are_allow_listed_and_deduplicated() -> None:
     ]
 
 
+def test_explicit_chat_tool_requests_parse_named_tool_and_flow_id(tmp_path) -> None:
+    state = {
+        "capture_path": tmp_path / "capture.pcap",
+        "question": "Please run deep_tls_flow for Flow ID 12 before answering.",
+        "completed_tool_requests": [],
+    }
+
+    assert workflow._explicit_chat_tool_requests(state) == [
+        {
+            "tool": "deep_tls_flow",
+            "flow_id": 12,
+            "reason": "User explicitly requested deep_tls_flow for Flow ID 12.",
+        }
+    ]
+
+
+def test_explicit_chat_tool_requests_parse_flow_id_before_tool(tmp_path) -> None:
+    state = {
+        "capture_path": tmp_path / "capture.pcap",
+        "question": "For flow id 7, use deep_udp_flow and check DNS.",
+        "completed_tool_requests": [],
+    }
+
+    assert workflow._explicit_chat_tool_requests(state) == [
+        {
+            "tool": "deep_udp_flow",
+            "flow_id": 7,
+            "reason": "User explicitly requested deep_udp_flow for Flow ID 7.",
+        }
+    ]
+
+
 def test_tool_result_error_detail_includes_message_and_filter() -> None:
     detail = workflow._tool_result_error_detail(
         {
@@ -449,7 +481,7 @@ def test_agent_chat_runs_llm_requested_deep_tls_tool(monkeypatch, tmp_path) -> N
 
     answer = workflow.run_agent_chat(
         summary,
-        "use deep_tls_flow for flow 1",
+        "can you inspect why the TLS alert happened?",
         model="test-model",
         max_flows=3,
         report=report,
@@ -458,3 +490,40 @@ def test_agent_chat_runs_llm_requested_deep_tls_tool(monkeypatch, tmp_path) -> N
 
     assert answer == "The TLS alert came from the server side."
     assert additional_evidence_seen == [[], [evidence]]
+
+
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_agent_chat_runs_explicit_deep_tls_request_before_llm(monkeypatch, tmp_path) -> None:
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(
+            key=FlowKey(
+                endpoint_a="10.0.0.10",
+                endpoint_b="10.0.0.20",
+                port_a=53150,
+                port_b=443,
+                protocol="TCP",
+            )
+        )
+    ]
+    evidence = {"tool": "deep_tls_flow", "flow_id": 1, "status": "ok", "packet_count": 5}
+
+    def fake_deep_tls_flow(*_args, **_kwargs):
+        return evidence
+
+    def fake_chat(summary, question, *, model, max_flows, report, history, additional_evidence):
+        assert additional_evidence == [evidence]
+        return AgentChatResponse(answer="I used the deep TLS evidence.")
+
+    monkeypatch.setattr(workflow, "deep_tls_flow", fake_deep_tls_flow)
+    monkeypatch.setattr(workflow, "agent_chat_about_capture", fake_chat)
+
+    answer = workflow.run_agent_chat(
+        summary,
+        "use deep_tls_flow for flow id 1",
+        model="test-model",
+        max_flows=3,
+        capture_path=tmp_path / "capture.pcap",
+    )
+
+    assert answer == "I used the deep TLS evidence."

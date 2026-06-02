@@ -241,6 +241,21 @@ LLM reasoning and tool routing. By default, the LLM decides whether to request
 deep rereads through structured `evidence_requests`; FlowPilot only honors
 allow-listed tools and caps reread loops.
 
+In interactive `--agent --chat`, FlowPilot also detects explicit user requests
+before sending the question to the LLM. To force a deep reread reliably, include
+one of the allow-listed tool names and a Flow ID in the chat prompt:
+
+```text
+use deep_tls_flow for flow id 2
+run deep_tcp_flow for flow 5
+for flow id 7 use deep_udp_flow
+```
+
+The supported deep tools are `deep_tcp_flow`, `deep_udp_flow`, and
+`deep_tls_flow`. When one of those exact tool names appears with a Flow ID,
+LangGraph runs the tool first and sends the result back to the LLM as
+`additional_tool_evidence`.
+
 To also run the deterministic pre-router before the first LLM request, add:
 
 ```bash

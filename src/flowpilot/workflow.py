@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, TypedDict
@@ -214,6 +215,18 @@ def _build_reasoning_graph() -> Any:
 def _build_chat_graph() -> Any:
     StateGraph, START, END = _langgraph_primitives()
 
+    def explicit_request_node(state: FlowPilotAgentState) -> dict[str, Any]:
+        requests = _explicit_chat_tool_requests(state)
+        if requests:
+            _progress(
+                state,
+                (
+                    "LangGraph detected explicit chat tool request(s): "
+                    f"{len(requests)} deep evidence reread(s)."
+                ),
+            )
+        return {"tool_requests": requests}
+
     def tool_node(state: FlowPilotAgentState) -> dict[str, Any]:
         return _tool_node_result(state)
 
@@ -263,9 +276,15 @@ def _build_chat_graph() -> Any:
         }
 
     graph = StateGraph(FlowPilotAgentState)
+    graph.add_node("explicit_request", explicit_request_node)
     graph.add_node("llm_chat", chat_node)
     graph.add_node("run_tools", tool_node)
-    graph.add_edge(START, "llm_chat")
+    graph.add_edge(START, "explicit_request")
+    graph.add_conditional_edges(
+        "explicit_request",
+        _route_after_tool_request,
+        {"tools": "run_tools", "reason": "llm_chat"},
+    )
     graph.add_conditional_edges(
         "llm_chat",
         _route_after_tool_request,
@@ -361,6 +380,39 @@ def _llm_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
     if not report:
         return []
     return _valid_tool_requests(state, report.evidence_requests)
+
+
+def _explicit_chat_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
+    if "capture_path" not in state:
+        return []
+    question = state.get("question", "")
+    requests = []
+    for tool in ALLOWED_TOOLS:
+        if tool not in question:
+            continue
+        flow_id = _explicit_flow_id(question, tool)
+        if flow_id is None:
+            continue
+        request = {
+            "tool": tool,
+            "flow_id": flow_id,
+            "reason": f"User explicitly requested {tool} for Flow ID {flow_id}.",
+        }
+        if _tool_request_key(request) not in state.get("completed_tool_requests", []):
+            requests.append(request)
+    return requests
+
+
+def _explicit_flow_id(question: str, tool: str) -> int | None:
+    patterns = [
+        rf"{re.escape(tool)}\D{{0,80}}(?:flow(?:\s+id)?|id)\D{{0,20}}(\d+)",
+        rf"(?:flow(?:\s+id)?|id)\D{{0,20}}(\d+)\D{{0,80}}{re.escape(tool)}",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, question, flags=re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    return None
 
 
 def _valid_tool_requests(
