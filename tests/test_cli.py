@@ -516,33 +516,20 @@ def test_format_certificate_column_lists_all_certs_per_line() -> None:
     ]
 
     assert _format_certificate_column(certificates, "subject") == (
-        "Cert 1:\u00a0api.example.com\n"
-        "Cert 2:\u00a0Example Issuing CA"
+        "Cert 1: api.example.com\n"
+        "Cert 2: Example Issuing CA"
     )
     assert _format_certificate_column(certificates, "issuer") == (
-        "Cert 1:\u00a0Example Issuing CA\n"
-        "Cert 2:\u00a0Example Root CA"
+        "Cert 1: Example Issuing CA\n"
+        "Cert 2: Example Root CA"
     )
     assert _format_certificate_column(certificates, "expiration") == (
-        "Cert 1:\u00a02027-01-01\n"
-        "Cert 2:\u00a02030-01-01"
+        "Cert 1: 2027-01-01\n"
+        "Cert 2: 2030-01-01"
     )
     assert _format_certificate_column(certificates, "san") == (
-        "Cert 1:\u00a0api.example.com\n"
-        "Cert 2:\u00a0-"
-    )
-
-
-def test_format_certificate_column_keeps_label_with_long_value_start() -> None:
-    certificates = [
-        TlsCertificateObservation(
-            subject_cn="SOMEVERYLONGCERTIFICATENAME.example.internal",
-        )
-    ]
-
-    assert _format_certificate_column(certificates, "subject") == (
-        "Cert 1:\u00a0SOMEVERYLONGCERT\n"
-        "IFICATENAME.example.internal"
+        "Cert 1: api.example.com\n"
+        "Cert 2: -"
     )
 
 

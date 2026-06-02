@@ -729,10 +729,10 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
     table.add_column("Flow ID", justify="right")
     table.add_column("Endpoint", overflow="fold")
     table.add_column("SNI", overflow="fold")
-    table.add_column("Subject", overflow="fold", min_width=24)
-    table.add_column("Issuer", overflow="fold", min_width=24)
+    table.add_column("Subject", overflow="fold")
+    table.add_column("Issuer", overflow="fold")
     table.add_column("Expiration", overflow="fold")
-    table.add_column("SAN", overflow="fold", min_width=24)
+    table.add_column("SAN", overflow="fold")
     table.add_column("Issue", overflow="fold")
 
     for flow_id, flow, role, endpoint, certificates in rows:
@@ -784,25 +784,8 @@ def _tls_certificate_rows(flow_id: int, flow) -> list[tuple[int, object, str, st
 def _format_certificate_column(certificates: list, field_name: str) -> str:
     values = []
     for index, certificate in enumerate(certificates, start=1):
-        values.append(
-            _format_certificate_label_value(
-                index,
-                _certificate_field(certificate, field_name),
-            )
-        )
+        values.append(f"Cert {index}: {_certificate_field(certificate, field_name)}")
     return "\n".join(values) or "-"
-
-
-def _format_certificate_label_value(index: int, value: str) -> str:
-    label = f"Cert {index}:\u00a0"
-    if len(value) <= 32:
-        return f"{label}{value}"
-    chunks = [value[:16]]
-    remaining = value[16:]
-    while remaining:
-        chunks.append(remaining[:32])
-        remaining = remaining[32:]
-    return f"{label}{chunks[0]}\n" + "\n".join(chunks[1:])
 
 
 def _certificate_field(certificate, field_name: str) -> str:
