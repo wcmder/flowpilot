@@ -543,6 +543,44 @@ def test_tls_certificates_include_all_x509af_repeated_certificates() -> None:
     assert [certificate.serial for certificate in certificates] == ["01", "02", "03"]
 
 
+def test_tls_certificates_include_all_x509af_packet_layers() -> None:
+    layers = [
+        SimpleNamespace(
+            _all_fields={
+                "x509af.subject": "CN=server.example.com,O=Example",
+                "x509af.issuer": "CN=Example Issuing CA,O=Example",
+                "x509af.serialNumber": "01",
+            }
+        ),
+        SimpleNamespace(
+            _all_fields={
+                "x509af.subject": "CN=Example Issuing CA,O=Example",
+                "x509af.issuer": "CN=Example Root CA,O=Example",
+                "x509af.serialNumber": "02",
+            }
+        ),
+        SimpleNamespace(
+            _all_fields={
+                "x509af.subject": "CN=Example Root CA,O=Example",
+                "x509af.issuer": "CN=Example Root CA,O=Example",
+                "x509af.serialNumber": "03",
+            }
+        ),
+    ]
+
+    class PacketWithLayers:
+        def get_multiple_layers(self, layer_name: str):
+            return layers if layer_name == "x509af" else []
+
+    certificates = tls_certificates(PacketWithLayers())
+
+    assert [certificate.subject_cn for certificate in certificates] == [
+        "server.example.com",
+        "Example Issuing CA",
+        "Example Root CA",
+    ]
+
+
 def test_tls_alert_reads_level_and_description() -> None:
     packet = SimpleNamespace(
         tls=SimpleNamespace(

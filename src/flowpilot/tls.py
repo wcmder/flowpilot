@@ -44,11 +44,12 @@ def tls_certificates(packet: Any) -> list[TlsCertificateObservation]:
         or getattr(packet, "dtls", None)
     )
 
-    certificates = _certificates_from_x509_layers(packet)
-    if certificates:
-        return certificates
-
-    certificates = _certificates_from_raw_handshake(tls)
+    certificates = _deduplicate_certificates(
+        [
+            *_certificates_from_x509_layers(packet),
+            *_certificates_from_raw_handshake(tls),
+        ]
+    )
     if certificates:
         return certificates
 
@@ -77,8 +78,40 @@ def tls_certificates(packet: Any) -> list[TlsCertificateObservation]:
 def _certificates_from_x509_layers(packet: Any) -> list[TlsCertificateObservation]:
     certificates = []
     for layer_name in ("x509af", "x509sat", "x509if"):
-        certificates.extend(_certificate_from_x509_layer(getattr(packet, layer_name, None)))
+        for layer in _packet_layers(packet, layer_name):
+            certificates.extend(_certificate_from_x509_layer(layer))
     return certificates
+
+
+def _packet_layers(packet: Any, layer_name: str) -> list[Any]:
+    get_multiple_layers = getattr(packet, "get_multiple_layers", None)
+    if callable(get_multiple_layers):
+        layers = get_multiple_layers(layer_name)
+        if layers:
+            return list(layers)
+    layer = getattr(packet, layer_name, None)
+    return [layer] if layer is not None else []
+
+
+def _deduplicate_certificates(
+    certificates: list[TlsCertificateObservation],
+) -> list[TlsCertificateObservation]:
+    deduplicated = []
+    seen = set()
+    for certificate in certificates:
+        key = (
+            certificate.fingerprint_sha256,
+            certificate.serial,
+            certificate.subject,
+            certificate.issuer,
+            certificate.subject_cn,
+            certificate.issuer_cn,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(certificate)
+    return deduplicated
 
 
 def _certificates_from_raw_handshake(layer: Any) -> list[TlsCertificateObservation]:
