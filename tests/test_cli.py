@@ -1,7 +1,9 @@
+import shutil
 import struct
 from pathlib import Path
 
 from flowpilot.cli import (
+    _CachedCaptureSession,
     _count_packets_in_capture,
     _direction,
     _format_flow_issues,
@@ -113,6 +115,36 @@ def test_count_packets_in_pcapng(tmp_path) -> None:
             capture_file.write(struct.pack("<I", block_length))
 
     assert _count_packets_in_capture(capture) == 2
+
+
+def test_cached_capture_session_copies_and_removes_capture(tmp_path) -> None:
+    capture = tmp_path / "original.pcap"
+    capture.write_bytes(b"pcap bytes")
+
+    session = _CachedCaptureSession.create(capture, keep=False)
+    cached_capture = session.capture_path
+    workspace = session.workspace
+
+    assert cached_capture != capture
+    assert cached_capture.read_bytes() == b"pcap bytes"
+    assert workspace.exists()
+
+    session.close()
+
+    assert not workspace.exists()
+
+
+def test_cached_capture_session_can_keep_workspace(tmp_path) -> None:
+    capture = tmp_path / "original.pcap"
+    capture.write_bytes(b"pcap bytes")
+
+    session = _CachedCaptureSession.create(capture, keep=True)
+    workspace = session.workspace
+
+    session.close()
+
+    assert workspace.exists()
+    shutil.rmtree(workspace)
 
 
 def test_format_smb_counter_lines_labels_numeric_commands() -> None:

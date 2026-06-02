@@ -165,9 +165,8 @@ flowpilot analyze capture.pcap --no-llm
 ```
 
 Local `--no-llm` output includes packet counts, byte counts, directionality,
-retransmission rate, RTT average/max when TShark exposes `tcp.analysis.ack_rtt`,
-maximum packet gap, packet rate, TCP issue counters, and visible SIP/SMB
-protocol clues.
+retransmission/loss rates, local RTT fields when TShark exposes them, packet
+rate, TCP issue counters, and visible SIP/SMB protocol clues.
 For ESP/IPsec, FlowPilot also tracks visible ESP sequence numbers per SPI and
 direction so the local summary and LLM metadata can flag sequence gaps,
 out-of-order packets, and duplicates when those fields are present. In the top
@@ -250,6 +249,8 @@ Core options:
 | `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--json PATH` | Write the summary and optional LLM report to a JSON file. |
+| `--cache-pcap` | Copy the capture into a temporary FlowPilot session workspace before analysis. This preserves full captured packet bytes and headers for future agentic rereads during the run. |
+| `--keep-cache` | Keep the temporary session workspace after analysis for debugging. Implies `--cache-pcap`. |
 | `--packet-limit INTEGER` | Stop reading after this many packets. Useful for quick checks on very large captures. |
 | `--tls-keylog-file PATH` | Pass a TLS key log file to TShark for decryption, usually an `SSLKEYLOGFILE` generated during capture. |
 | `--max-flows INTEGER` | Maximum top flows included in the LLM request. Defaults to `25`. |

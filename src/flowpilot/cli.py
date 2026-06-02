@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import atexit
 import json
 import re
 import shutil
 import struct
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Annotated
@@ -104,88 +106,118 @@ def analyze(
     json_path: Annotated[
         Path | None, typer.Option("--json", help="Write a JSON report to this path.")
     ] = None,
+    cache_pcap: Annotated[
+        bool,
+        typer.Option(
+            "--cache-pcap",
+            help=(
+                "Copy the capture into a temporary FlowPilot session workspace before "
+                "analysis. Useful for future agentic rereads of large pcaps."
+            ),
+        ),
+    ] = False,
+    keep_cache: Annotated[
+        bool,
+        typer.Option(
+            "--keep-cache",
+            help="Keep the temporary session workspace after analysis for debugging.",
+        ),
+    ] = False,
 ) -> None:
     """Analyze a packet capture."""
     if chat and no_llm:
         raise typer.BadParameter(
             "--chat requires LLM reasoning, so it cannot be used with --no-llm."
         )
+    if keep_cache:
+        cache_pcap = True
 
-    total_packets = _capture_packet_count(capture_path)
-    if packet_limit is not None and total_packets is not None:
-        total_packets = min(total_packets, packet_limit)
-    _info(_local_analysis_start_message(capture_path, total_packets))
-    progress = _progress_reporter(total_packets)
-    observations = read_capture(
-        capture_path,
-        packet_limit=packet_limit,
-        tls_keylog_file=tls_keylog_file,
-        progress_callback=progress,
-    )
-    observations = _materialize_observations(observations)
-    _info(
-        _packet_read_complete_message(
-            pyshark_packets=progress.packet_count,
-            analyzable_packets=len(observations),
-            total_packets=total_packets,
-        )
-    )
-    flow_filter = FlowFilter(
-        host=host,
-        peer=peer,
-        protocol=protocol,
-        port=port,
-        src=src,
-        dst=dst,
-        src_port=src_port,
-        dst_port=dst_port,
-    )
-    if flow_filter.is_active and include_redirects:
-        _info("Applying flow filters and redirect expansion.")
-        seed_observations = list(filter_observations(observations, flow_filter))
-        observations = include_redirect_related_flows(observations, seed_observations)
-    elif flow_filter.is_active:
-        _info("Applying flow filters.")
-        observations = list(filter_observations(observations, flow_filter))
-    if sip_phone:
-        _info("Applying SIP phone filter.")
-        observations = filter_sip_calls_by_phone(observations, sip_phone)
-
-    _info(f"Summarizing local metadata from {len(observations)} analyzable packets.")
-    summary = summarize_capture(observations)
-    _info(
-        "Local analysis finished: "
-        f"{summary.packet_count} analyzable packets, "
-        f"{summary.flow_count} flows, {summary.total_bytes} bytes."
-    )
-    _info("Rendering local analysis tables.")
-    _render_summary(summary, show_flows=show_flows)
-    if no_llm:
-        _info("LLM reasoning skipped because --no-llm was set.")
-        report = None
-    else:
+    session = _CachedCaptureSession.create(capture_path, keep=keep_cache) if cache_pcap else None
+    if session:
         _info(
-            "Sending derived metadata to LLM: "
-            f"model={model}, top_flows={min(summary.flow_count, max_flows)}. "
-            "Raw packet payloads are not sent."
+            "Session pcap cache ready: "
+            f"{session.capture_path}. Full packet headers and captured bytes are preserved."
         )
-        llm_started_at = time.perf_counter()
-        report = reason_about_capture(summary, model=model, max_flows=max_flows)
-        llm_elapsed = time.perf_counter() - llm_started_at
-        _info(f"LLM reasoning finished in {llm_elapsed:.2f}s.")
+        capture_path = session.capture_path
+    try:
+        total_packets = _capture_packet_count(capture_path)
+        if packet_limit is not None and total_packets is not None:
+            total_packets = min(total_packets, packet_limit)
+        _info(_local_analysis_start_message(capture_path, total_packets))
+        progress = _progress_reporter(total_packets)
+        observations = read_capture(
+            capture_path,
+            packet_limit=packet_limit,
+            tls_keylog_file=tls_keylog_file,
+            progress_callback=progress,
+        )
+        observations = _materialize_observations(observations)
+        _info(
+            _packet_read_complete_message(
+                pyshark_packets=progress.packet_count,
+                analyzable_packets=len(observations),
+                total_packets=total_packets,
+            )
+        )
+        flow_filter = FlowFilter(
+            host=host,
+            peer=peer,
+            protocol=protocol,
+            port=port,
+            src=src,
+            dst=dst,
+            src_port=src_port,
+            dst_port=dst_port,
+        )
+        if flow_filter.is_active and include_redirects:
+            _info("Applying flow filters and redirect expansion.")
+            seed_observations = list(filter_observations(observations, flow_filter))
+            observations = include_redirect_related_flows(observations, seed_observations)
+        elif flow_filter.is_active:
+            _info("Applying flow filters.")
+            observations = list(filter_observations(observations, flow_filter))
+        if sip_phone:
+            _info("Applying SIP phone filter.")
+            observations = filter_sip_calls_by_phone(observations, sip_phone)
 
-    if report:
-        _render_reasoning(report)
+        _info(f"Summarizing local metadata from {len(observations)} analyzable packets.")
+        summary = summarize_capture(observations)
+        _info(
+            "Local analysis finished: "
+            f"{summary.packet_count} analyzable packets, "
+            f"{summary.flow_count} flows, {summary.total_bytes} bytes."
+        )
+        _info("Rendering local analysis tables.")
+        _render_summary(summary, show_flows=show_flows)
+        if no_llm:
+            _info("LLM reasoning skipped because --no-llm was set.")
+            report = None
+        else:
+            _info(
+                "Sending derived metadata to LLM: "
+                f"model={model}, top_flows={min(summary.flow_count, max_flows)}. "
+                "Raw packet payloads are not sent."
+            )
+            llm_started_at = time.perf_counter()
+            report = reason_about_capture(summary, model=model, max_flows=max_flows)
+            llm_elapsed = time.perf_counter() - llm_started_at
+            _info(f"LLM reasoning finished in {llm_elapsed:.2f}s.")
 
-    if json_path:
-        payload = {"summary": summary.model_dump(mode="json")}
         if report:
-            payload["reasoning"] = report.model_dump(mode="json")
-        json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        console.print(f"[green]Wrote JSON report:[/green] {json_path}")
+            _render_reasoning(report)
 
-    if chat and report:
-        _run_chat(summary, report=report, model=model, max_flows=max_flows)
+        if json_path:
+            payload = {"summary": summary.model_dump(mode="json")}
+            if report:
+                payload["reasoning"] = report.model_dump(mode="json")
+            json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            console.print(f"[green]Wrote JSON report:[/green] {json_path}")
+
+        if chat and report:
+            _run_chat(summary, report=report, model=model, max_flows=max_flows)
+    finally:
+        if session:
+            session.close()
 
 
 @app.command("models")
@@ -270,6 +302,37 @@ def _info(message: str) -> None:
 
 def _materialize_observations(observations) -> list:
     return list(observations)
+
+
+class _CachedCaptureSession:
+    def __init__(self, workspace: Path, capture_path: Path, *, keep: bool) -> None:
+        self.workspace = workspace
+        self.capture_path = capture_path
+        self.keep = keep
+        self._closed = False
+
+    @classmethod
+    def create(cls, source_path: Path, *, keep: bool) -> _CachedCaptureSession:
+        workspace = Path(tempfile.mkdtemp(prefix="flowpilot-"))
+        capture_path = workspace / source_path.name
+        try:
+            shutil.copy2(source_path, capture_path)
+        except OSError:
+            shutil.rmtree(workspace, ignore_errors=True)
+            raise
+        session = cls(workspace, capture_path, keep=keep)
+        atexit.register(session.close)
+        return session
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self.keep:
+            _info(f"Keeping session cache workspace: {self.workspace}")
+            return
+        shutil.rmtree(self.workspace, ignore_errors=True)
+        _info(f"Removed session cache workspace: {self.workspace}")
 
 
 def _local_analysis_start_message(capture_path: Path, total_packets: int | None) -> str:
