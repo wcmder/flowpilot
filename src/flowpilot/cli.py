@@ -720,35 +720,55 @@ def _render_dhcp_details(summary, *, show_flows: int) -> None:
 
 
 def _render_tls_certificates(summary, *, show_flows: int) -> None:
-    flow_ids = _flow_ids(summary.flows)
-    rows = [
-        (flow_ids[flow.key], flow, certificate)
-        for flow in summary.flows[:show_flows]
-        for certificate in flow.tls_certificates
-    ]
+    rows = _tls_detail_rows(summary, show_flows=show_flows)
     if not rows:
         return
 
-    table = Table(title="TLS Certificates Observed In Top Flows", show_lines=True)
+    table = Table(title="TLS Details Observed In Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
     table.add_column("Role", overflow="fold")
     table.add_column("Endpoint", overflow="fold")
+    table.add_column("SNI", overflow="fold")
     table.add_column("Subject CN", overflow="fold")
     table.add_column("Issuer CN", overflow="fold")
     table.add_column("Validity", overflow="fold")
     table.add_column("SAN", overflow="fold")
+    table.add_column("Issue", overflow="fold")
 
     for flow_id, flow, certificate in rows:
         table.add_row(
             str(flow_id),
-            certificate.presenter_role or "-",
-            _certificate_endpoint(flow, certificate),
-            certificate.subject_cn or certificate.subject or "-",
-            certificate.issuer_cn or certificate.issuer or "-",
-            _validity(certificate),
-            ", ".join(certificate.san_dns[:5]),
+            certificate.presenter_role if certificate else "-",
+            _certificate_endpoint(flow, certificate) if certificate else _flow_endpoint_text(flow),
+            "\n".join(flow.tls_snis[:5]) or "-",
+            (certificate.subject_cn or certificate.subject or "-") if certificate else "-",
+            (certificate.issuer_cn or certificate.issuer or "-") if certificate else "-",
+            _validity(certificate) if certificate else "-",
+            ", ".join(certificate.san_dns[:5]) if certificate else "-",
+            "" if certificate else "tls observed but certificate not extracted",
         )
     console.print(table)
+
+
+def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object, object | None]]:
+    flow_ids = _flow_ids(summary.flows)
+    rows = []
+    for flow in summary.flows:
+        if flow.tls_certificates:
+            rows.extend(
+                (flow_ids[flow.key], flow, certificate)
+                for certificate in flow.tls_certificates
+            )
+        elif flow.tls_snis or _likely_tls_flow(flow):
+            rows.append((flow_ids[flow.key], flow, None))
+    return rows[:show_flows]
+
+
+def _likely_tls_flow(flow) -> bool:
+    return flow.key.protocol == "TCP" and any(
+        port in {443, 853, 8443}
+        for port in (flow.key.port_a, flow.key.port_b)
+    )
 
 
 def _render_reasoning(report) -> None:
@@ -863,6 +883,13 @@ def _endpoint(ip: str, port: int | None) -> str:
     return f"{ip}:{port}" if port is not None else ip
 
 
+def _flow_endpoint_text(flow) -> str:
+    return (
+        f"{_endpoint(flow.key.endpoint_a, flow.key.port_a)} <-> "
+        f"{_endpoint(flow.key.endpoint_b, flow.key.port_b)}"
+    )
+
+
 def _flow_ids(flows) -> dict[object, int]:
     return {flow.key: index for index, flow in enumerate(flows, start=1)}
 
@@ -956,6 +983,8 @@ def _protocol_marker(flow) -> str:
             f"clients={len(flow.dhcp_client_macs)} "
             f"offers={len(flow.dhcp_offered_ips)}"
         )
+    if flow.tls_snis or flow.tls_certificates:
+        details.append(f"TLS sni={len(flow.tls_snis)} certs={len(flow.tls_certificates)}")
     if flow.esp_sequences:
         details.append(format_esp_sequences(flow.esp_sequences))
     return "\n".join(details)

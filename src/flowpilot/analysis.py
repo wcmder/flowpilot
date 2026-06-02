@@ -99,6 +99,9 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         record_dns(flow, packet)
         record_dhcp(flow, packet)
 
+        if packet.tls_sni and packet.tls_sni not in flow.tls_snis:
+            flow.tls_snis = [*flow.tls_snis, packet.tls_sni]
+
         presenter_roles = _certificate_presenter_roles(flow)
         for certificate in packet.tls_certificates:
             if certificate.presenter_role is None:

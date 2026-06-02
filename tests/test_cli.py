@@ -16,11 +16,12 @@ from flowpilot.cli import (
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
     _percent,
+    _tls_detail_rows,
     _traffic,
 )
 from flowpilot.dns import dns_issue_summary
 from flowpilot.esp import format_esp_gap_distribution
-from flowpilot.models import FlowKey, FlowSummary
+from flowpilot.models import CaptureSummary, FlowKey, FlowSummary, TlsCertificateObservation
 from flowpilot.smb import SMB1_COMMAND_NAMES, SMB2_COMMAND_NAMES, SMB_STATUS_NAMES
 
 
@@ -290,6 +291,78 @@ def test_format_agent_evidence_counts_prefers_protocol_counts() -> None:
     assert _format_agent_evidence_counts(
         {"udp_metadata_counts": {"dns_packets": 2, "dns_error_responses": 1}}
     ) == "dns_packets: 2\ndns_error_responses: 1"
+
+
+def test_tls_detail_rows_include_certificates_outside_top_flow_slice() -> None:
+    cert_flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="203.0.113.10",
+            port_a=50000,
+            port_b=443,
+            protocol="TCP",
+        ),
+        byte_count=10,
+        tls_certificates=[
+            TlsCertificateObservation(
+                presenter_ip="203.0.113.10",
+                presenter_port=443,
+                subject_cn="api.example.com",
+            )
+        ],
+    )
+    larger_flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="198.51.100.10",
+            port_a=50001,
+            port_b=80,
+            protocol="TCP",
+        ),
+        byte_count=1_000,
+    )
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=2,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[larger_flow, cert_flow],
+    )
+
+    rows = _tls_detail_rows(summary, show_flows=10)
+
+    assert rows[0][0] == 2
+    assert rows[0][2].subject_cn == "api.example.com"
+
+
+def test_tls_detail_rows_include_sni_without_certificate() -> None:
+    flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="203.0.113.10",
+            port_a=50000,
+            port_b=443,
+            protocol="TCP",
+        ),
+        tls_snis=["api.example.com"],
+    )
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=1,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[flow],
+    )
+
+    rows = _tls_detail_rows(summary, show_flows=10)
+
+    assert rows == [(1, flow, None)]
 
 
 def test_percent_keeps_small_nonzero_rates_visible() -> None:

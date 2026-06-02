@@ -197,6 +197,7 @@ class FlowSummary(BaseModel):
     esp_sequences: list[EspSequenceSummary] = Field(default_factory=list)
     redirect_locations: list[str] = Field(default_factory=list)
     tls_certificates: list[TlsCertificateObservation] = Field(default_factory=list)
+    tls_snis: list[str] = Field(default_factory=list)
     sip_call_ids: list[str] = Field(default_factory=list)
     sip_calls: dict[str, SipCallSummary] = Field(default_factory=dict)
     sip_methods: dict[str, int] = Field(default_factory=dict)
@@ -449,6 +450,7 @@ class CaptureSummary(BaseModel):
                         certificate.model_dump(mode="json")
                         for certificate in flow.tls_certificates
                     ],
+                    "tls_snis": flow.tls_snis,
                     "sip": {
                         "call_ids": flow.sip_call_ids,
                         "calls": [

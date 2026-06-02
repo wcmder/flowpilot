@@ -52,6 +52,7 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
     assert summary.names == ["example.com"]
     assert summary.flows[0].packet_count == 2
     assert summary.flows[0].issue_counts == {"tcp_retransmission": 1}
+    assert summary.flows[0].tls_snis == ["example.com"]
     assert summary.flows[0].duration_seconds == 1.0
     assert summary.flows[0].packet_rate_per_second == 2.0
     assert summary.flows[0].byte_rate_per_second == 420.0
@@ -69,6 +70,7 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
     assert "p95_rtt_ms" not in summary.compact()["top_flows"][0]
     assert "max_rtt_ms" not in summary.compact()["top_flows"][0]
     assert summary.compact()["top_flows"][0]["initial_rtt_ms"] == 20.0
+    assert summary.compact()["top_flows"][0]["tls_snis"] == ["example.com"]
     assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.0
     assert summary.compact()["analysis_focus"] == "network transport troubleshooting"
     assert summary.compact()["top_flows"][0]["transport"] == {
