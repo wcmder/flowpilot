@@ -504,6 +504,45 @@ def test_tls_certificates_include_x509af_layer_fields() -> None:
     assert certificates[0].issuer_cn == "Example Issuing CA"
 
 
+def test_tls_certificates_include_all_x509af_repeated_certificates() -> None:
+    packet = SimpleNamespace(
+        x509af=SimpleNamespace(
+            _all_fields={
+                "x509af.subject": [
+                    "CN=server.example.com,O=Example",
+                    "CN=Example Issuing CA,O=Example",
+                    "CN=Example Root CA,O=Example",
+                ],
+                "x509af.issuer": [
+                    "CN=Example Issuing CA,O=Example",
+                    "CN=Example Root CA,O=Example",
+                    "CN=Example Root CA,O=Example",
+                ],
+                "x509af.serialNumber": ["01", "02", "03"],
+                "x509af.validity.notAfter": [
+                    "2027-01-01",
+                    "2028-01-01",
+                    "2030-01-01",
+                ],
+            }
+        )
+    )
+
+    certificates = tls_certificates(packet)
+
+    assert [certificate.subject_cn for certificate in certificates] == [
+        "server.example.com",
+        "Example Issuing CA",
+        "Example Root CA",
+    ]
+    assert [certificate.issuer_cn for certificate in certificates] == [
+        "Example Issuing CA",
+        "Example Root CA",
+        "Example Root CA",
+    ]
+    assert [certificate.serial for certificate in certificates] == ["01", "02", "03"]
+
+
 def test_tls_alert_reads_level_and_description() -> None:
     packet = SimpleNamespace(
         tls=SimpleNamespace(

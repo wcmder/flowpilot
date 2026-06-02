@@ -1165,7 +1165,9 @@ def _format_bytes(byte_count: int) -> str:
 
 
 def _expiration(certificate) -> str:
-    return certificate.not_after or "-"
+    if not certificate.not_after:
+        return "-"
+    return certificate.not_after[:10] if len(certificate.not_after) >= 10 else certificate.not_after
 
 
 def _parse_certificate_datetime(value: str | None) -> datetime | None:

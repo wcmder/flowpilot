@@ -402,7 +402,7 @@ def test_tls_expiration_shows_only_not_after() -> None:
         not_after="2027-01-01T00:00:00+00:00",
     )
 
-    assert _expiration(certificate) == "2027-01-01T00:00:00+00:00"
+    assert _expiration(certificate) == "2027-01-01"
 
 
 def test_tls_issue_text_lists_flow_issues_on_new_lines() -> None:
@@ -456,10 +456,10 @@ def test_format_tls_certificates_lists_chain_one_cert_per_line() -> None:
     assert _format_tls_certificates(flow) == (
         "cert 1 / role=server / endpoint=203.0.113.10:443 / "
         "subject=api.example.com / issuer=Example Issuing CA / "
-        "expiration=2027-01-01T00:00:00+00:00 / san=api.example.com\n"
+        "expiration=2027-01-01 / san=api.example.com\n"
         "cert 2 / role=server / endpoint=203.0.113.10:443 / "
         "subject=Example Issuing CA / issuer=Example Root CA / "
-        "expiration=2000-01-01T00:00:00+00:00 / san=- / "
+        "expiration=2000-01-01 / san=- / "
         "issue=certificate expired 2000-01-01T00:00:00+00:00"
     )
 
@@ -488,8 +488,8 @@ def test_format_certificate_column_lists_all_certs_per_line() -> None:
         "cert 2: Example Root CA"
     )
     assert _format_certificate_column(certificates, "expiration") == (
-        "cert 1: 2027-01-01T00:00:00+00:00\n"
-        "cert 2: 2030-01-01T00:00:00+00:00"
+        "cert 1: 2027-01-01\n"
+        "cert 2: 2030-01-01"
     )
     assert _format_certificate_column(certificates, "san") == (
         "cert 1: api.example.com\n"

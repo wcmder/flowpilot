@@ -129,27 +129,45 @@ def _certificate_from_der_hex(raw_certificate: str) -> TlsCertificateObservation
 def _certificate_from_x509_layer(layer: Any) -> list[TlsCertificateObservation]:
     if layer is None:
         return []
-    subject = _first_layer_value(
+    subjects = _layer_values(
         layer,
         ("subject", "x509af_subject", "x509sat_printableString"),
     )
-    issuer = _first_layer_value(layer, ("issuer", "x509af_issuer"))
-    certificate = TlsCertificateObservation(
-        presenter_ip=None,
-        presenter_port=None,
-        subject=subject,
-        subject_cn=_common_name_from_text(subject),
-        issuer=issuer,
-        issuer_cn=_common_name_from_text(issuer),
-        serial=_first_layer_value(layer, ("serialNumber", "serialnumber")),
-        not_before=_first_layer_value(layer, ("utcTime", "notbefore", "notBefore")),
-        not_after=_first_layer_value(layer, ("generalizedTime", "notafter", "notAfter")),
-        san_dns=_split_values(_first_layer_value(layer, ("dNSName", "dnsname"))),
-        fingerprint_sha256=_first_layer_value(layer, ("fingerprint_sha256",)),
+    issuers = _layer_values(layer, ("issuer", "x509af_issuer"))
+    serials = _layer_values(layer, ("serialNumber", "serialnumber"))
+    not_befores = _layer_values(layer, ("utcTime", "notbefore", "notBefore"))
+    not_afters = _layer_values(layer, ("generalizedTime", "notafter", "notAfter"))
+    san_values = _layer_values(layer, ("dNSName", "dnsname"))
+    fingerprints = _layer_values(layer, ("fingerprint_sha256",))
+    count = max(
+        len(subjects),
+        len(issuers),
+        len(serials),
+        len(not_befores),
+        len(not_afters),
+        len(san_values),
+        len(fingerprints),
     )
-    if any([certificate.subject, certificate.issuer, certificate.serial, certificate.san_dns]):
-        return [certificate]
-    return []
+    certificates = []
+    for index in range(count):
+        subject = _indexed_value(subjects, index)
+        issuer = _indexed_value(issuers, index)
+        certificate = TlsCertificateObservation(
+            presenter_ip=None,
+            presenter_port=None,
+            subject=subject,
+            subject_cn=_common_name_from_text(subject),
+            issuer=issuer,
+            issuer_cn=_common_name_from_text(issuer),
+            serial=_indexed_value(serials, index),
+            not_before=_indexed_value(not_befores, index),
+            not_after=_indexed_value(not_afters, index),
+            san_dns=_split_values(_indexed_value(san_values, index)),
+            fingerprint_sha256=_indexed_value(fingerprints, index),
+        )
+        if any([certificate.subject, certificate.issuer, certificate.serial, certificate.san_dns]):
+            certificates.append(certificate)
+    return certificates
 
 
 def _name_common_name(name: Any) -> str | None:
@@ -193,6 +211,28 @@ def _first_layer_value(layer: Any, attr_names: tuple[str, ...]) -> str | None:
         values = _all_field_values(layer, attr_name)
         if values:
             return values[0]
+    return None
+
+
+def _layer_values(layer: Any, attr_names: tuple[str, ...]) -> list[str]:
+    if layer is None:
+        return []
+    for attr_name in attr_names:
+        value = getattr(layer, attr_name, None)
+        if value:
+            values = _field_strings(value)
+            return values if values else [str(value)]
+        values = _all_field_values(layer, attr_name)
+        if values:
+            return values
+    return []
+
+
+def _indexed_value(values: list[str], index: int) -> str | None:
+    if not values:
+        return None
+    if index < len(values):
+        return values[index]
     return None
 
 
