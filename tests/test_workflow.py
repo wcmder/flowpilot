@@ -282,6 +282,20 @@ def test_agent_reasoning_graph_returns_report(monkeypatch) -> None:
 
 
 @pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_agent_reasoning_graph_returns_fallback_report_on_llm_error(monkeypatch) -> None:
+    def fake_reason(*_args, **_kwargs):
+        raise ValueError("Gemini returned invalid structured content")
+
+    monkeypatch.setattr(workflow, "reason_about_capture", fake_reason)
+
+    report = workflow.run_agent_reasoning(_summary(), model="test-model", max_flows=3)
+
+    assert report.risk_level == "unknown"
+    assert "LangGraph reasoning node" in report.executive_summary
+    assert "ValueError: Gemini returned invalid structured content" in report.executive_summary
+
+
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
 def test_agent_reasoning_waits_for_llm_tool_requests_by_default(monkeypatch, tmp_path) -> None:
     summary = _summary()
     summary.flows = [

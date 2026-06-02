@@ -170,14 +170,27 @@ def _build_reasoning_graph() -> Any:
                 f"deep_evidence={len(state.get('deep_evidence', []))}."
             ),
         )
-        return {
-            "report": reason_about_capture(
+        try:
+            report = reason_about_capture(
                 state["summary"],
                 model=state.get("model", DEFAULT_MODEL),
                 max_flows=state.get("max_flows", 25),
                 additional_evidence=state.get("deep_evidence", []),
             )
-        }
+        except Exception as exc:  # pragma: no cover - defensive provider boundary
+            report = ReasoningReport(
+                executive_summary=(
+                    "LLM reasoning failed inside the LangGraph reasoning node. "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+                risk_level="unknown",
+                findings=[],
+                next_questions=[
+                    "Retry with FLOWPILOT_LLM_API=chat_completions or use --no-llm "
+                    "to review local FlowPilot metrics.",
+                ],
+            )
+        return {"report": report}
 
     def collect_llm_requests_node(state: FlowPilotAgentState) -> dict[str, Any]:
         loop_count = state.get("tool_loop_count", 0)
