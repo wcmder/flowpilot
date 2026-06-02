@@ -8,6 +8,7 @@ from flowpilot.cli import (
     _direction,
     _expiration,
     _format_agent_evidence_counts,
+    _format_certificate_column,
     _format_flow_issues,
     _format_smb_capabilities,
     _format_smb_counter_lines,
@@ -364,7 +365,7 @@ def test_tls_detail_rows_include_sni_without_certificate() -> None:
 
     rows = _tls_detail_rows(summary, show_flows=10)
 
-    assert rows == [(1, flow)]
+    assert rows == [(1, flow, "-", "10.0.0.10:50000 <-> 203.0.113.10:443", [])]
 
 
 def test_tls_detail_rows_include_alert_without_certificate() -> None:
@@ -392,7 +393,7 @@ def test_tls_detail_rows_include_alert_without_certificate() -> None:
 
     rows = _tls_detail_rows(summary, show_flows=10)
 
-    assert rows == [(1, flow)]
+    assert rows == [(1, flow, "-", "10.0.0.10:50000 <-> 203.0.113.10:443", [])]
 
 
 def test_tls_expiration_shows_only_not_after() -> None:
@@ -463,6 +464,39 @@ def test_format_tls_certificates_lists_chain_one_cert_per_line() -> None:
     )
 
 
+def test_format_certificate_column_lists_all_certs_per_line() -> None:
+    certificates = [
+        TlsCertificateObservation(
+            subject_cn="api.example.com",
+            issuer_cn="Example Issuing CA",
+            not_after="2027-01-01T00:00:00+00:00",
+            san_dns=["api.example.com"],
+        ),
+        TlsCertificateObservation(
+            subject_cn="Example Issuing CA",
+            issuer_cn="Example Root CA",
+            not_after="2030-01-01T00:00:00+00:00",
+        ),
+    ]
+
+    assert _format_certificate_column(certificates, "subject") == (
+        "cert 1: api.example.com\n"
+        "cert 2: Example Issuing CA"
+    )
+    assert _format_certificate_column(certificates, "issuer") == (
+        "cert 1: Example Issuing CA\n"
+        "cert 2: Example Root CA"
+    )
+    assert _format_certificate_column(certificates, "expiration") == (
+        "cert 1: 2027-01-01T00:00:00+00:00\n"
+        "cert 2: 2030-01-01T00:00:00+00:00"
+    )
+    assert _format_certificate_column(certificates, "san") == (
+        "cert 1: api.example.com\n"
+        "cert 2: -"
+    )
+
+
 def test_tls_detail_rows_use_object_position_when_flow_keys_repeat() -> None:
     key = FlowKey(
         endpoint_a="10.0.0.10",
@@ -496,6 +530,7 @@ def test_tls_detail_rows_use_object_position_when_flow_keys_repeat() -> None:
     rows = _tls_detail_rows(summary, show_flows=1)
 
     assert rows[0][0] == 1
+    assert rows[0][2] == "-"
 
 
 def test_tls_detail_rows_prioritize_certificates_within_top_flow_slice() -> None:
@@ -539,7 +574,8 @@ def test_tls_detail_rows_prioritize_certificates_within_top_flow_slice() -> None
 
     rows = _tls_detail_rows(summary, show_flows=2)
 
-    assert rows[0] == (2, cert_flow)
+    assert rows[0][0] == 2
+    assert rows[0][1] == cert_flow
 
 
 def test_percent_keeps_small_nonzero_rates_visible() -> None:

@@ -727,34 +727,73 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
 
     table = Table(title="TLS Details Observed In Flows", show_lines=True)
     table.add_column("Flow ID", justify="right")
+    table.add_column("Role", overflow="fold")
     table.add_column("Endpoint", overflow="fold")
     table.add_column("SNI", overflow="fold")
     table.add_column("Alerts", overflow="fold")
-    table.add_column("Certificates", overflow="fold")
+    table.add_column("Subject", overflow="fold")
+    table.add_column("Issuer", overflow="fold")
+    table.add_column("Expiration", overflow="fold")
+    table.add_column("SAN", overflow="fold")
     table.add_column("Issue", overflow="fold")
 
-    for flow_id, flow in rows:
+    for flow_id, flow, role, endpoint, certificates in rows:
         table.add_row(
             str(flow_id),
-            _flow_endpoint_text(flow),
+            role,
+            endpoint,
             "\n".join(flow.tls_snis[:5]) or "-",
             _format_counter_lines(flow.tls_alerts),
-            _format_tls_certificates(flow),
-            _tls_issue_text(flow),
+            _format_certificate_column(certificates, "subject"),
+            _format_certificate_column(certificates, "issuer"),
+            _format_certificate_column(certificates, "expiration"),
+            _format_certificate_column(certificates, "san"),
+            _tls_issue_text(flow, certificates),
         )
     console.print(table)
 
 
-def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object]]:
+def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object, str, str, list]]:
     flow_ids = _flow_ids(summary.flows)
     certificate_flows = []
     observed_tls_rows = []
     for flow in summary.flows[:show_flows]:
         if flow.tls_certificates:
-            certificate_flows.append((flow_ids[id(flow)], flow))
+            certificate_flows.extend(_tls_certificate_rows(flow_ids[id(flow)], flow))
         elif flow.tls_snis or flow.tls_alerts or _likely_tls_flow(flow):
-            observed_tls_rows.append((flow_ids[id(flow)], flow))
+            observed_tls_rows.append((flow_ids[id(flow)], flow, "-", _flow_endpoint_text(flow), []))
     return [*certificate_flows, *observed_tls_rows][:show_flows]
+
+
+def _tls_certificate_rows(flow_id: int, flow) -> list[tuple[int, object, str, str, list]]:
+    groups: dict[tuple[str, str], list] = {}
+    for certificate in flow.tls_certificates:
+        role = certificate.presenter_role or "-"
+        endpoint = _certificate_endpoint(flow, certificate)
+        groups.setdefault((role, endpoint), []).append(certificate)
+    return [
+        (flow_id, flow, role, endpoint, certificates)
+        for (role, endpoint), certificates in groups.items()
+    ]
+
+
+def _format_certificate_column(certificates: list, field_name: str) -> str:
+    values = []
+    for index, certificate in enumerate(certificates, start=1):
+        values.append(f"cert {index}: {_certificate_field(certificate, field_name)}")
+    return "\n".join(values) or "-"
+
+
+def _certificate_field(certificate, field_name: str) -> str:
+    if field_name == "subject":
+        return certificate.subject_cn or certificate.subject or "-"
+    if field_name == "issuer":
+        return certificate.issuer_cn or certificate.issuer or "-"
+    if field_name == "expiration":
+        return _expiration(certificate)
+    if field_name == "san":
+        return ", ".join(certificate.san_dns[:5]) or "-"
+    return "-"
 
 
 def _format_tls_certificates(flow) -> str:
@@ -776,12 +815,14 @@ def _format_tls_certificates(flow) -> str:
     return "\n".join(lines) or "-"
 
 
-def _tls_issue_text(flow) -> str:
+def _tls_issue_text(flow, certificates: list | None = None) -> str:
     issues = []
     if flow.issue_counts.get("tls_fatal_alert", 0):
         issues.append("tls fatal alert observed")
     elif flow.issue_counts.get("tls_alert", 0):
         issues.append("tls alert observed")
+    for certificate in certificates or []:
+        issues.extend(_certificate_issue_lines(certificate))
     if not flow.tls_certificates:
         issues.append("tls observed but certificate not extracted")
     return "\n".join(issues)
