@@ -283,13 +283,19 @@ def _all_field_values(layer: Any, field_suffix: str) -> list[str]:
 def _field_strings(value: Any) -> list[str]:
     if value is None:
         return []
-    if isinstance(value, str):
-        return [value]
+    all_fields = getattr(value, "all_fields", None)
+    if all_fields:
+        values = []
+        for field in all_fields:
+            values.extend(_field_strings(field))
+        return values
     if isinstance(value, (list, tuple)):
         values = []
         for item in value:
             values.extend(_field_strings(item))
         return values
+    if isinstance(value, str):
+        return [value]
     for attr_name in ("show", "showname_value", "raw_value"):
         attr_value = getattr(value, attr_name, None)
         if isinstance(attr_value, str):

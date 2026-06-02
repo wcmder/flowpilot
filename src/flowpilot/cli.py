@@ -730,7 +730,6 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
     table.add_column("Role", overflow="fold")
     table.add_column("Endpoint", overflow="fold")
     table.add_column("SNI", overflow="fold")
-    table.add_column("Alerts", overflow="fold")
     table.add_column("Subject", overflow="fold")
     table.add_column("Issuer", overflow="fold")
     table.add_column("Expiration", overflow="fold")
@@ -743,7 +742,6 @@ def _render_tls_certificates(summary, *, show_flows: int) -> None:
             role,
             endpoint,
             "\n".join(flow.tls_snis[:5]) or "-",
-            _format_counter_lines(flow.tls_alerts),
             _format_certificate_column(certificates, "subject"),
             _format_certificate_column(certificates, "issuer"),
             _format_certificate_column(certificates, "expiration"),

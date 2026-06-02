@@ -484,6 +484,19 @@ def test_tls_field_values_include_reassembled_field_objects() -> None:
     assert _all_field_values(layer, "handshake.certificate") == ["aa:bb", "cc:dd"]
 
 
+def test_tls_field_values_include_all_pyshark_layer_field_container_values() -> None:
+    from pyshark.packet.fields import LayerField, LayerFieldsContainer
+
+    container = LayerFieldsContainer(
+        LayerField(name="tls.handshake.certificate", value="aa")
+    )
+    container.add_field(LayerField(name="tls.handshake.certificate", value="bb"))
+    container.add_field(LayerField(name="tls.handshake.certificate", value="cc"))
+    layer = SimpleNamespace(_all_fields={"tls.handshake.certificate": container})
+
+    assert _all_field_values(layer, "handshake.certificate") == ["aa", "bb", "cc"]
+
+
 def test_tls_certificates_include_x509af_layer_fields() -> None:
     packet = SimpleNamespace(
         x509af=SimpleNamespace(
