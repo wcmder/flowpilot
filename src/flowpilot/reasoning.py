@@ -48,11 +48,15 @@ For DNS, look for NXDOMAIN/SERVFAIL/refused or missing answers. For DHCP, look f
 discover/offer/request/ack exchanges, repeated requests, missing ACKs, server identifiers,
 lease details, and requested versus offered addresses.
 
-If more packet evidence is needed, request only allow-listed tools in evidence_requests.
-Allowed tools: deep_tcp_flow, deep_udp_flow, deep_tls_flow. Use deep_tls_flow for TLS
-or DTLS handshake, certificate, SNI, alert, and related TCP/UDP header details. Use
-deep_udp_flow for UDP, DNS, or DHCP transaction/header details. Include the Flow ID
-and a concise reason. Do not invent tools."""
+Tool access is delegated through the JSON evidence_requests field; you do not call
+tools directly. If more packet evidence is needed, do not say you lack access to
+an allowed tool. Instead, add an evidence_requests item with one allow-listed tool,
+the Flow ID, and a concise reason. FlowPilot/LangGraph will run the requested tool
+and call you again with additional_tool_evidence. Allowed tools: deep_tcp_flow,
+deep_udp_flow, deep_tls_flow. Use deep_tls_flow for TLS or DTLS handshake,
+certificate, SNI, alert, cipher, hash/signature algorithm, and related TCP/UDP
+header details. Use deep_udp_flow for UDP, DNS, or DHCP transaction/header details.
+Do not invent tools."""
 
 
 def openai_client() -> OpenAI:
@@ -206,6 +210,8 @@ def _reason_with_responses(
                 "content": (
                     "Diagnose likely data-transfer issues in this packet-capture summary. "
                     "Return findings, hypotheses, and next checks. Do not just summarize flows. "
+                    "If deeper packet evidence is needed, request it through the "
+                    "evidence_requests JSON field; do not claim tool access is unavailable. "
                     "Pay special attention to long-lived low-throughput ESP/IPsec or UDP flows, "
                     "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
                     "SMB transfer inefficiency or errors, "
@@ -241,6 +247,8 @@ def _reason_with_chat_completions(
                     f"{json.dumps(ReasoningReport.model_json_schema(), indent=2)}\n\n"
                     "Diagnose likely data-transfer issues in this packet-capture summary. "
                     "Return findings, hypotheses, and next checks. Do not just summarize flows. "
+                    "If deeper packet evidence is needed, request it through the "
+                    "evidence_requests JSON field; do not claim tool access is unavailable. "
                     "Pay special attention to long-lived low-throughput ESP/IPsec or UDP flows, "
                     "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
                     "SMB transfer inefficiency or errors, "

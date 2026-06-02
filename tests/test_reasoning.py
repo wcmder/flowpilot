@@ -15,6 +15,12 @@ def test_rate_limit_can_be_disabled(monkeypatch) -> None:
     reasoning._respect_llm_rate_limit()
 
 
+def test_system_prompt_delegates_tool_access_through_evidence_requests() -> None:
+    assert "deep_tls_flow" in reasoning.SYSTEM_PROMPT
+    assert "evidence_requests" in reasoning.SYSTEM_PROMPT
+    assert "do not say you lack access" in reasoning.SYSTEM_PROMPT
+
+
 def test_chat_input_includes_metadata_report_and_recent_history() -> None:
     summary = CaptureSummary(
         packet_count=0,

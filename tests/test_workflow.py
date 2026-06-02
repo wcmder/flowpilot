@@ -292,6 +292,74 @@ def test_agent_reasoning_auto_tools_runs_deterministic_router(monkeypatch, tmp_p
 
 
 @pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_agent_reasoning_runs_llm_requested_deep_tls_tool(monkeypatch, tmp_path) -> None:
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(
+            key=FlowKey(
+                endpoint_a="10.0.0.10",
+                endpoint_b="10.0.0.20",
+                port_a=53150,
+                port_b=443,
+                protocol="TCP",
+            ),
+            tls_alerts={"fatal handshake_failure": 1},
+        )
+    ]
+    evidence = {
+        "tool": "deep_tls_flow",
+        "flow_id": 1,
+        "status": "ok",
+        "packet_count": 5,
+        "tls_alerts": [{"level": "fatal", "description": "handshake_failure"}],
+    }
+    additional_evidence_seen = []
+
+    reports = [
+        ReasoningReport(
+            executive_summary="Need TLS detail.",
+            risk_level="medium",
+            findings=[],
+            next_questions=[],
+            evidence_requests=[
+                {
+                    "tool": "deep_tls_flow",
+                    "flow_id": 1,
+                    "reason": "Need TLS alert sender and handshake details.",
+                }
+            ],
+        ),
+        ReasoningReport(
+            executive_summary="TLS alert ended the session.",
+            risk_level="medium",
+            findings=[],
+            next_questions=[],
+        ),
+    ]
+
+    def fake_deep_tls_flow(*_args, **_kwargs):
+        return evidence
+
+    def fake_reason(summary, *, model, max_flows, additional_evidence):
+        additional_evidence_seen.append(additional_evidence)
+        return reports.pop(0)
+
+    monkeypatch.setattr(workflow, "deep_tls_flow", fake_deep_tls_flow)
+    monkeypatch.setattr(workflow, "reason_about_capture", fake_reason)
+
+    state = workflow.run_agent_reasoning_state(
+        summary,
+        capture_path=tmp_path / "capture.pcap",
+        model="test-model",
+        max_flows=3,
+    )
+
+    assert state["deep_evidence"] == [evidence]
+    assert state["report"].executive_summary == "TLS alert ended the session."
+    assert additional_evidence_seen == [[], [evidence]]
+
+
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
 def test_agent_chat_graph_returns_answer(monkeypatch) -> None:
     report = ReasoningReport(
         executive_summary="agent report",
