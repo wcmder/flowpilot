@@ -21,6 +21,10 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         deep_tools=("deep_tcp_flow",),
         deep_tool_runner_hooks=("flowpilot.protocols.tcp.deep_tcp_flow",),
         deep_reason_hook="flowpilot.protocols.tcp.deep_tcp_reason",
+        transport_prompt=(
+            "TCP: focus on loss, retransmissions, duplicate ACKs, out-of-order delivery, "
+            "resets, zero windows, initial RTT, throughput, and directionality."
+        ),
         notes="Transport troubleshooting metadata and TCP deep header rereads.",
     ),
     ProtocolModule(
@@ -31,6 +35,10 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         deep_tools=("deep_udp_flow",),
         deep_tool_runner_hooks=("flowpilot.protocols.udp.deep_udp_flow",),
         deep_reason_hook="flowpilot.protocols.udp.deep_udp_reason",
+        transport_prompt=(
+            "UDP: focus on one-way visibility, packet rate, throughput, checksum status, "
+            "port reachability, and request/response visibility."
+        ),
         notes="UDP transport metadata plus DNS/DHCP deep transaction rereads.",
     ),
     ProtocolModule(
@@ -49,6 +57,16 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         deep_tools=("deep_tls_flow",),
         deep_tool_runner_hooks=("flowpilot.protocols.tls.deep_tls_flow",),
         deep_reason_hook="flowpilot.protocols.tls.deep_tls_reason",
+        transport_prompt=(
+            "TLS/DTLS: use SNI, certificates, cipher/hash/signature/group fields, and alerts "
+            "only to explain handshake compatibility, authentication/session failure, "
+            "session termination, or transfer reachability."
+        ),
+        security_prompt=(
+            "TLS/DTLS: assess certificate validity, issuer/subject/SAN consistency, "
+            "alert meaning, cipher/hash/signature/group negotiation, and authentication "
+            "or session-failure evidence. Do not claim vulnerabilities beyond supplied metadata."
+        ),
         notes="Visible TLS/DTLS handshake, certificate, SNI, alert, and algorithm metadata.",
     ),
     ProtocolModule(
@@ -65,6 +83,14 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         record_hook="flowpilot.protocols.smb.record_smb",
         render_hook="flowpilot.protocols.smb.render_smb_details",
         compact_metadata_key="smb",
+        transport_prompt=(
+            "SMB: assess transfer efficiency from read/write operations, bytes, files, "
+            "statuses, errors, TCP symptoms, duration, and transfer_mbps."
+        ),
+        security_prompt=(
+            "SMB: assess encryption/signing/capability clues, authentication/session failures, "
+            "unexpected cleartext visibility, and status values relevant to access failures."
+        ),
         notes="SMB command/status, capability, file transfer, and efficiency metadata.",
     ),
     ProtocolModule(
@@ -75,6 +101,14 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         record_hook="flowpilot.protocols.sip.record_sip",
         render_hook="flowpilot.protocols.sip.render_sip_details",
         compact_metadata_key="sip",
+        transport_prompt=(
+            "SIP: use per-call trace, caller/callee, methods, status codes, and direction "
+            "to identify call setup failure, response code, and likely next network checks."
+        ),
+        security_prompt=(
+            "SIP: assess authentication or session-failure signals visible in SIP methods, "
+            "status codes, caller/callee, and trace metadata."
+        ),
         notes="SIP call identity, caller/callee, methods, status, issue, and trace metadata.",
     ),
     ProtocolModule(
@@ -90,6 +124,14 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         record_hook="flowpilot.protocols.dns.record_dns",
         render_hook="flowpilot.protocols.dns.render_dns_details",
         compact_metadata_key="dns",
+        transport_prompt=(
+            "DNS: look for NXDOMAIN, SERVFAIL, refused responses, missing answers, "
+            "request/response visibility, and resolution failures that block data transfer."
+        ),
+        security_prompt=(
+            "DNS: assess suspicious or unexpected names, NXDOMAIN/SERVFAIL/refused responses, "
+            "and answer patterns only when DNS metadata is present."
+        ),
         notes="DNS query, type, response code, answer, and error metadata.",
     ),
     ProtocolModule(
@@ -107,6 +149,15 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         record_hook="flowpilot.protocols.dhcp.record_dhcp",
         render_hook="flowpilot.protocols.dhcp.render_dhcp_details",
         compact_metadata_key="dhcp",
+        transport_prompt=(
+            "DHCP: look for incomplete discover/offer/request/ack exchanges, repeated requests, "
+            "missing ACKs, server identifiers, lease details, and requested versus offered "
+            "addresses."
+        ),
+        security_prompt=(
+            "DHCP: assess unexpected server identifiers, client identity clues, repeated leases, "
+            "and incomplete exchanges only when DHCP metadata is present."
+        ),
         notes="DHCP transaction, client, requested/offered address, server, and lease metadata.",
     ),
     ProtocolModule(
@@ -116,6 +167,15 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         extract_hook="flowpilot.protocols.esp.extract_esp",
         record_hook="flowpilot.protocols.esp.record_esp",
         compact_metadata_key="esp",
+        transport_prompt=(
+            "ESP/IPsec: reason from duration, bytes, throughput, directionality, SPI, sequence "
+            "gaps, missing or duplicate sequence numbers, out-of-order sequences, and peer "
+            "behavior."
+        ),
+        security_prompt=(
+            "ESP/IPsec: assess visible tunnel metadata such as SPI, peer behavior, sequence "
+            "anomalies, and replay/duplicate indicators without claiming decrypted content."
+        ),
         notes="ESP SPI and visible sequence gap/out-of-order/duplicate metadata.",
     ),
 )

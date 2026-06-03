@@ -10,6 +10,7 @@ from openai import APIStatusError, APITimeoutError, OpenAI
 from pydantic import ValidationError
 
 from .models import AgentChatResponse, CaptureSummary, ReasoningReport
+from .protocols.registry import PROTOCOL_REGISTRY
 
 AnalysisFocus = Literal["transport", "security"]
 
@@ -29,14 +30,10 @@ investigation unless the user explicitly asks for one.
 
 Prioritize network transport evidence: throughput over duration, one-way traffic, TCP loss,
 TCP retransmissions, duplicate ACKs, out-of-order delivery, resets, zero windows, RTT
-median/p95/max/initial RTT, UDP/ESP visibility limits, protocol or port blocking, MTU/path issues,
-congestion, shaping/policing, asymmetric routing, and tunnel health. Treat DNS, DHCP, SIP, SMB,
-TLS, filenames, and application names as supporting context unless they directly explain a
-transport symptom.
-For TLS/DTLS, use certificate, cipher, hash/signature, supported group, SNI, and alert data to
-explain handshake compatibility, authentication failure, session termination, or protocol
-reachability. Do not pivot into general certificate hygiene, weak-cipher security posture, CVE,
-or vulnerability language unless it directly explains the observed transfer/session failure.
+median/p95/max/initial RTT, UDP/datagram visibility limits, protocol or port blocking,
+MTU/path issues, congestion, shaping/policing, asymmetric routing, and tunnel health.
+Treat protocol names, filenames, and application names as supporting context unless they
+directly explain a transport symptom.
 
 Only discuss protocols that are present in the provided metadata, present in additional tool
 evidence, or explicitly asked about by the user. Do not add checklist-style negative statements
@@ -45,22 +42,17 @@ absence directly answers the user's question.
 
 For ESP/IPsec and other encrypted/datagram flows, explicitly state what cannot be proven from
 the metadata, but still reason from duration, bytes, throughput_mbps, directionality, packet
-SPI, ESP sequence gaps, missing ESP sequence numbers, duplicate ESP sequence numbers,
-out-of-order ESP sequence numbers, and peer behavior. Treat ESP sequence anomalies as stronger
-evidence for packet loss, replay/duplicate delivery, capture loss, or path reordering than byte
-counts alone. If a flow has high bytes but low throughput, treat that as a potential performance
-finding and recommend concrete next checks such as tunnel counters, anti-replay drops, MTU/MSS,
-fragmentation, QoS/policing, path loss, CPU/crypto load, or comparing both tunnel endpoints.
+sequence gaps, missing sequence numbers, duplicate sequence numbers, out-of-order sequence
+numbers, and peer behavior. Treat sequence anomalies as stronger evidence for packet loss,
+replay/duplicate delivery, capture loss, or path reordering than byte counts alone. If a flow
+has high bytes but low throughput, treat that as a potential performance finding and recommend
+concrete next checks such as tunnel counters, anti-replay drops, MTU/MSS, fragmentation,
+QoS/policing, path loss, CPU/crypto load, or comparing both endpoints.
 
 Every finding must include evidence from the provided fields and a recommended action. Avoid generic
 restatements of packet counts unless they support a hypothesis. Return concise JSON matching the
-requested schema. For SIP, use the per-call trace to identify failed calls, caller/callee,
-failure response code, direction, likely cause category, and next checks. For SMB, assess whether
-file transfer behavior looks optimal or suboptimal using transfer_mbps, read/write operation counts,
-read/write bytes, SMB statuses/errors, file names, TCP issues, RTT/loss/retransmits, and duration.
-For DNS, look for NXDOMAIN/SERVFAIL/refused or missing answers. For DHCP, look for incomplete
-discover/offer/request/ack exchanges, repeated requests, missing ACKs, server identifiers,
-lease details, and requested versus offered addresses.
+requested schema. Protocol-specific guidance is supplied separately based only on protocols present
+in the metadata or additional deep evidence.
 
 Tool access is delegated through the JSON evidence_requests field; you do not call
 tools directly. If more packet evidence is needed, do not say you lack access to
@@ -72,6 +64,14 @@ certificate, SNI, alert, cipher, hash/signature algorithm, and related TCP/UDP
 header details as troubleshooting evidence, not as a standalone security review.
 Use deep_udp_flow for UDP, DNS, or DHCP transaction/header details.
 Do not invent tools."""
+
+TRANSPORT_FOCUS_PROMPT = """Transport focus is enabled. The user wants data-transfer and
+session troubleshooting, not a security analysis. If deep TLS/DTLS evidence includes
+certificates, cipher suites, hash/signature algorithms, supported groups, or alerts, use those
+fields only to explain handshake compatibility, authentication/session failure, protocol
+reachability, or why a transfer stopped. Do not label the answer as security analysis, do not
+rank security posture, and do not discuss weak ciphers, certificate hygiene, CVEs, threat
+activity, or compliance unless the user explicitly asks or --analysis-focus security is selected."""
 
 SECURITY_FOCUS_PROMPT = """Security focus is enabled. Prioritize security-relevant evidence
 visible in the capture metadata: TLS/DTLS certificate validity, issuer/subject/SAN consistency,
@@ -306,9 +306,14 @@ def _reason_with_responses(
     analysis_focus: AnalysisFocus = "transport",
 ) -> ReasoningReport:
     _respect_llm_rate_limit()
+    compact_summary = summary.compact(max_flows=max_flows)
     response = client.responses.parse(
         model=model,
-        instructions=_system_prompt(analysis_focus),
+        instructions=_system_prompt(
+            analysis_focus,
+            compact_summary=compact_summary,
+            additional_evidence=additional_evidence,
+        ),
         input=[
             {
                 "role": "user",
@@ -321,7 +326,7 @@ def _reason_with_responses(
                     "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
                     "SMB transfer inefficiency or errors, "
                     "and certificate/redirect clues.\n\n"
-                    f"{_reasoning_payload(summary, max_flows, additional_evidence, analysis_focus)}"
+                    f"{_reasoning_payload(compact_summary, additional_evidence, analysis_focus)}"
                 ),
             }
         ],
@@ -342,10 +347,18 @@ def _reason_with_chat_completions(
     analysis_focus: AnalysisFocus = "transport",
 ) -> ReasoningReport:
     _respect_llm_rate_limit()
+    compact_summary = summary.compact(max_flows=max_flows)
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": _system_prompt(analysis_focus)},
+            {
+                "role": "system",
+                "content": _system_prompt(
+                    analysis_focus,
+                    compact_summary=compact_summary,
+                    additional_evidence=additional_evidence,
+                ),
+            },
             {
                 "role": "user",
                 "content": (
@@ -359,7 +372,7 @@ def _reason_with_chat_completions(
                     "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
                     "SMB transfer inefficiency or errors, "
                     "and certificate/redirect clues.\n\n"
-                    f"{_reasoning_payload(summary, max_flows, additional_evidence, analysis_focus)}"
+                    f"{_reasoning_payload(compact_summary, additional_evidence, analysis_focus)}"
                 ),
             },
         ],
@@ -384,13 +397,17 @@ def _chat_with_responses(
     analysis_focus: AnalysisFocus = "transport",
 ) -> str:
     _respect_llm_rate_limit()
+    compact_summary = summary.compact(max_flows=max_flows)
     response = client.responses.create(
         model=model,
-        instructions=_chat_system_prompt(analysis_focus),
+        instructions=_chat_system_prompt(
+            analysis_focus,
+            compact_summary=compact_summary,
+            additional_evidence=additional_evidence,
+        ),
         input=_chat_input(
-            summary,
+            compact_summary,
             question,
-            max_flows=max_flows,
             report=report,
             history=history,
             additional_evidence=additional_evidence,
@@ -416,14 +433,21 @@ def _chat_with_chat_completions(
     analysis_focus: AnalysisFocus = "transport",
 ) -> str:
     _respect_llm_rate_limit()
+    compact_summary = summary.compact(max_flows=max_flows)
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": _chat_system_prompt(analysis_focus)},
+            {
+                "role": "system",
+                "content": _chat_system_prompt(
+                    analysis_focus,
+                    compact_summary=compact_summary,
+                    additional_evidence=additional_evidence,
+                ),
+            },
             *_chat_input(
-                summary,
+                compact_summary,
                 question,
-                max_flows=max_flows,
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
@@ -453,13 +477,17 @@ def _agent_chat_with_responses(
     analysis_focus: AnalysisFocus = "transport",
 ) -> AgentChatResponse:
     _respect_llm_rate_limit()
+    compact_summary = summary.compact(max_flows=max_flows)
     response = client.responses.parse(
         model=model,
-        instructions=_agent_chat_system_prompt(analysis_focus),
+        instructions=_agent_chat_system_prompt(
+            analysis_focus,
+            compact_summary=compact_summary,
+            additional_evidence=additional_evidence,
+        ),
         input=_chat_input(
-            summary,
+            compact_summary,
             question,
-            max_flows=max_flows,
             report=report,
             history=history,
             additional_evidence=additional_evidence,
@@ -485,10 +513,18 @@ def _agent_chat_with_chat_completions(
     analysis_focus: AnalysisFocus = "transport",
 ) -> AgentChatResponse:
     _respect_llm_rate_limit()
+    compact_summary = summary.compact(max_flows=max_flows)
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": _agent_chat_system_prompt(analysis_focus)},
+            {
+                "role": "system",
+                "content": _agent_chat_system_prompt(
+                    analysis_focus,
+                    compact_summary=compact_summary,
+                    additional_evidence=additional_evidence,
+                ),
+            },
             {
                 "role": "user",
                 "content": (
@@ -497,9 +533,8 @@ def _agent_chat_with_chat_completions(
                 ),
             },
             *_chat_input(
-                summary,
+                compact_summary,
                 question,
-                max_flows=max_flows,
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
@@ -550,13 +585,19 @@ def _agent_chat_plain_fallback(
     structured_finish_reason: str | None = None,
 ) -> str:
     _respect_llm_rate_limit()
+    compact_summary = summary.compact(max_flows=max_flows)
+    system_prompt = _system_prompt(
+        analysis_focus,
+        compact_summary=compact_summary,
+        additional_evidence=additional_evidence,
+    )
     response = client.chat.completions.create(
         model=model,
         messages=[
             {
                 "role": "system",
                 "content": (
-                    f"{_system_prompt(analysis_focus)}\n\n"
+                    f"{system_prompt}\n\n"
                     "You are in interactive follow-up mode. Answer in plain text only. "
                     "Do not return JSON. If additional_tool_evidence is present, use it "
                     "as the newest and most specific packet evidence. Provide the final "
@@ -566,9 +607,8 @@ def _agent_chat_plain_fallback(
                 ),
             },
             *_chat_input(
-                summary,
+                compact_summary,
                 question,
-                max_flows=max_flows,
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
@@ -606,19 +646,21 @@ def _empty_llm_report(reason: str) -> ReasoningReport:
 
 
 def _chat_input(
-    summary: CaptureSummary,
+    compact_summary: dict[str, Any] | CaptureSummary,
     question: str,
     *,
-    max_flows: int,
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
     additional_evidence: list[dict[str, Any]] | None = None,
     analysis_focus: AnalysisFocus = "transport",
 ) -> list[dict[str, str]]:
     evidence = additional_evidence or []
+    if isinstance(compact_summary, CaptureSummary):
+        compact_summary = compact_summary.compact()
     context = {
         "requested_analysis_focus": analysis_focus,
-        "summary": summary.compact(max_flows=max_flows),
+        "analysis_focus_instruction": _analysis_focus_instruction(analysis_focus),
+        "summary": compact_summary,
         "initial_reasoning": report.model_dump(mode="json") if report else None,
         "additional_tool_evidence_count": len(evidence),
         "additional_tool_evidence": evidence,
@@ -640,6 +682,10 @@ def _chat_input(
                 "content": (
                     "IMPORTANT: additional_tool_evidence is present below. Treat this "
                     "as the newest and most specific FlowPilot/LangGraph deep evidence. "
+                    f"The requested_analysis_focus is {analysis_focus}. "
+                    "If requested_analysis_focus is transport, use TLS certificate/cipher/hash "
+                    "fields only for transport/session troubleshooting and do not present the "
+                    "answer as security analysis. "
                     "Do not say the deep evidence payload was not passed into this "
                     "session context.\n\n"
                     f"additional_tool_evidence:\n{json.dumps(evidence, indent=2, default=str)}"
@@ -652,24 +698,36 @@ def _chat_input(
 
 
 def _reasoning_payload(
-    summary: CaptureSummary,
-    max_flows: int,
+    compact_summary: dict[str, Any] | CaptureSummary,
     additional_evidence: list[dict[str, Any]] | None,
     analysis_focus: AnalysisFocus = "transport",
 ) -> str:
     evidence = additional_evidence or []
+    if isinstance(compact_summary, CaptureSummary):
+        compact_summary = compact_summary.compact()
     payload = {
         "requested_analysis_focus": analysis_focus,
-        "summary": summary.compact(max_flows=max_flows),
+        "analysis_focus_instruction": _analysis_focus_instruction(analysis_focus),
+        "summary": compact_summary,
         "additional_tool_evidence_count": len(evidence),
         "additional_tool_evidence": evidence,
     }
     return json.dumps(payload, indent=2, default=str)
 
 
-def _chat_system_prompt(analysis_focus: AnalysisFocus = "transport") -> str:
+def _chat_system_prompt(
+    analysis_focus: AnalysisFocus = "transport",
+    *,
+    compact_summary: dict[str, Any] | None = None,
+    additional_evidence: list[dict[str, Any]] | None = None,
+) -> str:
+    system_prompt = _system_prompt(
+        analysis_focus,
+        compact_summary=compact_summary,
+        additional_evidence=additional_evidence,
+    )
     return (
-        f"{_system_prompt(analysis_focus)}\n\n"
+        f"{system_prompt}\n\n"
         "You are now in interactive follow-up mode. Answer the user's question directly. "
         "Use the provided metadata and prior reasoning as the source of truth. If the answer "
         "cannot be proven from the metadata, say what is unknown and suggest the next check. "
@@ -677,9 +735,19 @@ def _chat_system_prompt(analysis_focus: AnalysisFocus = "transport") -> str:
     )
 
 
-def _agent_chat_system_prompt(analysis_focus: AnalysisFocus = "transport") -> str:
+def _agent_chat_system_prompt(
+    analysis_focus: AnalysisFocus = "transport",
+    *,
+    compact_summary: dict[str, Any] | None = None,
+    additional_evidence: list[dict[str, Any]] | None = None,
+) -> str:
+    system_prompt = _system_prompt(
+        analysis_focus,
+        compact_summary=compact_summary,
+        additional_evidence=additional_evidence,
+    )
     return (
-        f"{_system_prompt(analysis_focus)}\n\n"
+        f"{system_prompt}\n\n"
         "You are now in interactive follow-up mode. Return JSON matching the requested schema. "
         "Put the user-facing response in answer. If the user asks you to inspect a specific "
         "flow or to use an allowed deep tool, request that tool in evidence_requests instead "
@@ -688,10 +756,112 @@ def _agent_chat_system_prompt(analysis_focus: AnalysisFocus = "transport") -> st
     )
 
 
-def _system_prompt(analysis_focus: AnalysisFocus = "transport") -> str:
+def _system_prompt(
+    analysis_focus: AnalysisFocus = "transport",
+    *,
+    compact_summary: dict[str, Any] | None = None,
+    additional_evidence: list[dict[str, Any]] | None = None,
+) -> str:
+    focus_prompt = SECURITY_FOCUS_PROMPT if analysis_focus == "security" else TRANSPORT_FOCUS_PROMPT
+    protocol_prompt = _protocol_focus_prompt(
+        analysis_focus,
+        compact_summary=compact_summary,
+        additional_evidence=additional_evidence,
+    )
+    sections = [SYSTEM_PROMPT, focus_prompt]
+    if protocol_prompt:
+        sections.append(protocol_prompt)
+    return "\n\n".join(sections)
+
+
+def _protocol_focus_prompt(
+    analysis_focus: AnalysisFocus,
+    *,
+    compact_summary: dict[str, Any] | None,
+    additional_evidence: list[dict[str, Any]] | None,
+) -> str:
+    present = _present_protocol_registry_names(compact_summary or {}, additional_evidence or [])
+    prompt_field = "security_prompt" if analysis_focus == "security" else "transport_prompt"
+    lines = [
+        getattr(PROTOCOL_REGISTRY[name], prompt_field)
+        for name in sorted(present)
+        if getattr(PROTOCOL_REGISTRY[name], prompt_field)
+    ]
+    if not lines:
+        return ""
+    return (
+        "Protocol-specific guidance for protocols present in this metadata:\n"
+        + "\n".join(f"- {line}" for line in lines)
+    )
+
+
+def _present_protocol_registry_names(
+    compact_summary: dict[str, Any],
+    additional_evidence: list[dict[str, Any]],
+) -> set[str]:
+    present: set[str] = set()
+    for protocol_name in compact_summary.get("protocols", {}):
+        transport = str(protocol_name).lower()
+        if transport in PROTOCOL_REGISTRY:
+            present.add(transport)
+        if transport == "tcp":
+            present.add("tcp")
+        if transport == "udp":
+            present.add("udp")
+
+    for flow in compact_summary.get("top_flows", []):
+        if not isinstance(flow, dict):
+            continue
+        transport = str(flow.get("protocol", "")).lower()
+        if transport in PROTOCOL_REGISTRY:
+            present.add(transport)
+        _add_flow_protocol_metadata(present, flow)
+
+    for evidence in additional_evidence:
+        if not isinstance(evidence, dict):
+            continue
+        tool_name = evidence.get("tool")
+        if tool_name == "deep_tls_flow":
+            present.add("tls")
+        elif tool_name == "deep_udp_flow":
+            present.add("udp")
+        elif tool_name == "deep_tcp_flow":
+            present.add("tcp")
+        if evidence.get("tls_metadata_counts"):
+            present.add("tls")
+        if evidence.get("udp_metadata_counts"):
+            present.add("udp")
+        if evidence.get("tcp_analysis_counts"):
+            present.add("tcp")
+    return present
+
+
+def _add_flow_protocol_metadata(present: set[str], flow: dict[str, Any]) -> None:
+    if flow.get("tls_certificates") or flow.get("tls_snis") or flow.get("tls_alerts"):
+        present.add("tls")
+    if flow.get("esp_spis") or flow.get("esp_sequences"):
+        present.add("esp")
+    for name in ("sip", "smb", "dns", "dhcp"):
+        metadata = flow.get(name)
+        if isinstance(metadata, dict) and any(
+            _metadata_value_present(value) for value in metadata.values()
+        ):
+            present.add(name)
+
+
+def _metadata_value_present(value: Any) -> bool:
+    if value in (None, "", [], {}, 0, 0.0, False):
+        return False
+    return True
+
+
+def _analysis_focus_instruction(analysis_focus: AnalysisFocus) -> str:
     if analysis_focus == "security":
-        return f"{SYSTEM_PROMPT}\n\n{SECURITY_FOCUS_PROMPT}"
-    return SYSTEM_PROMPT
+        return "Prioritize security-relevant metadata and distinguish it from transport findings."
+    return (
+        "Prioritize transport/session troubleshooting. Deep TLS certificate/cipher/hash fields "
+        "are compatibility/session evidence, not a request for security analysis."
+    )
 
 
 def _normalized_analysis_focus(value: str) -> AnalysisFocus:

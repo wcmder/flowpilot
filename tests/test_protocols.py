@@ -80,3 +80,5 @@ def test_tls_protocol_entry_documents_deep_tool_and_metadata_key() -> None:
     assert tls.deep_tools == ("deep_tls_flow",)
     assert tls.compact_metadata_key == "tls"
     assert "tls_certificates" in tls.flow_attributes
+    assert "handshake compatibility" in tls.transport_prompt
+    assert "certificate validity" in tls.security_prompt

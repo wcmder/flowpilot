@@ -763,7 +763,6 @@ def test_agent_chat_explicit_tool_evidence_is_prompt_visible(monkeypatch, tmp_pa
         messages = reasoning._chat_input(
             summary,
             question,
-            max_flows=max_flows,
             report=report,
             history=history,
             additional_evidence=additional_evidence,

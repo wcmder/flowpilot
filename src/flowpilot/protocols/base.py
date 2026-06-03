@@ -15,4 +15,6 @@ class ProtocolModule:
     deep_tools: tuple[str, ...] = ()
     deep_tool_runner_hooks: tuple[str, ...] = ()
     deep_reason_hook: str | None = None
+    transport_prompt: str = ""
+    security_prompt: str = ""
     notes: str = ""
