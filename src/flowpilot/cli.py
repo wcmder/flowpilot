@@ -190,7 +190,10 @@ def analyze(
             tls_keylog_file=tls_keylog_file,
             progress_callback=progress,
         )
-        observations = _materialize_observations(observations)
+        try:
+            observations = _materialize_observations(observations)
+        finally:
+            progress.finish()
         _info(
             _packet_read_complete_message(
                 pyshark_packets=progress.packet_count,
@@ -235,21 +238,25 @@ def analyze(
             llm_started_at = time.perf_counter()
             agent_evidence = []
             if agent:
+                agent_progress = _RefreshingInfo()
                 _info(
                     "LangGraph agent workflow started. "
                     f"auto_tools={agent_auto_tools}, model={model}, api={LLM_API}, "
                     f"focus={analysis_focus}, "
                     f"timeout={LLM_TIMEOUT_SECONDS:g}s. Raw packet payloads are not sent."
                 )
-                agent_state = run_agent_reasoning_state(
-                    summary,
-                    capture_path=capture_path,
-                    model=model,
-                    max_flows=max_flows,
-                    analysis_focus=analysis_focus,
-                    agent_auto_tools=agent_auto_tools,
-                    progress_callback=_info,
-                )
+                try:
+                    agent_state = run_agent_reasoning_state(
+                        summary,
+                        capture_path=capture_path,
+                        model=model,
+                        max_flows=max_flows,
+                        analysis_focus=analysis_focus,
+                        agent_auto_tools=agent_auto_tools,
+                        progress_callback=agent_progress,
+                    )
+                finally:
+                    agent_progress.finish()
                 report = agent_state["report"]
                 agent_evidence = agent_state.get("deep_evidence", [])
                 if agent_evidence:
@@ -380,6 +387,33 @@ def _info(message: str) -> None:
     console.print(f"[cyan][info][/cyan] {message}")
 
 
+class _RefreshingInfo:
+    REFRESH_PREFIX = "__flowpilot_refresh__:"
+
+    def __init__(self) -> None:
+        self._last_message_length = 0
+
+    def __call__(self, message: str) -> None:
+        if message.startswith(self.REFRESH_PREFIX):
+            self.refresh(message.removeprefix(self.REFRESH_PREFIX))
+            return
+        self.finish()
+        _info(message)
+
+    def refresh(self, message: str) -> None:
+        line = f"[info] {message}"
+        console.file.write("\r\033[2K" + line)
+        console.file.flush()
+        self._last_message_length = len(line)
+
+    def finish(self) -> None:
+        if not self._last_message_length:
+            return
+        console.file.write("\r\033[2K")
+        console.file.flush()
+        self._last_message_length = 0
+
+
 def _materialize_observations(observations) -> list:
     return list(observations)
 
@@ -452,6 +486,7 @@ class _ProgressReporter:
         self.packet_count = 0
         self._last_report_at = 0.0
         self._last_percent = -1
+        self._last_message_length = 0
 
     def __call__(self, packet_count: int) -> None:
         self.packet_count = packet_count
@@ -464,15 +499,30 @@ class _ProgressReporter:
             ):
                 return
             self._last_percent = percent
-            _info(
+            self._refresh(
                 "Local analysis progress: "
-                f"{percent}% ({packet_count}/{self.total_packets} raw packets)."
+                f"{percent}% ({packet_count}/{self.total_packets} raw packets)"
             )
         else:
             if packet_count < 1_000 or now - self._last_report_at < 10:
                 return
-            _info(f"Local analysis progress: read {packet_count} raw packets.")
+            self._refresh(f"Local analysis progress: read {packet_count} raw packets")
         self._last_report_at = now
+
+    def finish(self) -> None:
+        if not self._last_message_length:
+            return
+        clear_line = "\r" + (" " * self._last_message_length) + "\r"
+        console.file.write(clear_line)
+        console.file.flush()
+        self._last_message_length = 0
+
+    def _refresh(self, message: str) -> None:
+        line = f"[info] {message}"
+        padding = max(self._last_message_length - len(line), 0)
+        console.file.write("\r" + line + (" " * padding))
+        console.file.flush()
+        self._last_message_length = len(line)
 
 
 def _progress_reporter(total_packets: int | None) -> _ProgressReporter:
@@ -670,18 +720,22 @@ def _run_chat(
 
         _info("Sending follow-up question to LLM.")
         if agent:
-            answer = run_agent_chat(
-                summary,
-                question,
-                model=model,
-                max_flows=max_flows,
-                analysis_focus=analysis_focus,
-                report=report,
-                history=history,
-                additional_evidence=additional_evidence,
-                capture_path=capture_path,
-                progress_callback=_info,
-            )
+            agent_progress = _RefreshingInfo()
+            try:
+                answer = run_agent_chat(
+                    summary,
+                    question,
+                    model=model,
+                    max_flows=max_flows,
+                    analysis_focus=analysis_focus,
+                    report=report,
+                    history=history,
+                    additional_evidence=additional_evidence,
+                    capture_path=capture_path,
+                    progress_callback=agent_progress,
+                )
+            finally:
+                agent_progress.finish()
         else:
             answer = chat_about_capture(
                 summary,

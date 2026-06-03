@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+import threading
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
@@ -173,6 +176,7 @@ def _build_reasoning_graph() -> Any:
         return _tool_node_result(state)
 
     def reason_node(state: FlowPilotAgentState) -> dict[str, ReasoningReport]:
+        wait_message = f"LLM reasoning waiting ({state.get('model', DEFAULT_MODEL)})"
         _progress(
             state,
             (
@@ -185,13 +189,14 @@ def _build_reasoning_graph() -> Any:
             ),
         )
         try:
-            report = reason_about_capture(
-                state["summary"],
-                model=state.get("model", DEFAULT_MODEL),
-                max_flows=state.get("max_flows", 25),
-                additional_evidence=state.get("deep_evidence", []),
-                analysis_focus=state.get("analysis_focus", "transport"),
-            )
+            with _llm_wait_timer(state, wait_message):
+                report = reason_about_capture(
+                    state["summary"],
+                    model=state.get("model", DEFAULT_MODEL),
+                    max_flows=state.get("max_flows", 25),
+                    additional_evidence=state.get("deep_evidence", []),
+                    analysis_focus=state.get("analysis_focus", "transport"),
+                )
         except Exception as exc:  # pragma: no cover - defensive provider boundary
             report = ReasoningReport(
                 executive_summary=(
@@ -263,6 +268,7 @@ def _build_chat_graph() -> Any:
         return _tool_node_result(state)
 
     def chat_node(state: FlowPilotAgentState) -> dict[str, Any]:
+        wait_message = f"LLM chat waiting ({state.get('model', DEFAULT_MODEL)})"
         _progress(
             state,
             (
@@ -274,16 +280,17 @@ def _build_chat_graph() -> Any:
             ),
         )
         try:
-            response = agent_chat_about_capture(
-                state["summary"],
-                state["question"],
-                model=state.get("model", DEFAULT_MODEL),
-                max_flows=state.get("max_flows", 25),
-                report=state.get("report"),
-                history=state.get("history"),
-                additional_evidence=state.get("deep_evidence", []),
-                analysis_focus=state.get("analysis_focus", "transport"),
-            )
+            with _llm_wait_timer(state, wait_message):
+                response = agent_chat_about_capture(
+                    state["summary"],
+                    state["question"],
+                    model=state.get("model", DEFAULT_MODEL),
+                    max_flows=state.get("max_flows", 25),
+                    report=state.get("report"),
+                    history=state.get("history"),
+                    additional_evidence=state.get("deep_evidence", []),
+                    analysis_focus=state.get("analysis_focus", "transport"),
+                )
         except Exception as exc:  # pragma: no cover - defensive provider boundary
             return {
                 "answer": (
@@ -505,6 +512,35 @@ def _tool_result_error_detail(tool_result: dict[str, Any]) -> str:
     if not details:
         return ""
     return " " + " ".join(details)
+
+
+@contextmanager
+def _llm_wait_timer(
+    state: FlowPilotAgentState,
+    message: str,
+    *,
+    interval_seconds: float = 3.0,
+) -> Iterator[None]:
+    callback = state.get("progress_callback")
+    if not callback:
+        yield
+        return
+
+    stop_event = threading.Event()
+    started_at = time.monotonic()
+
+    def report_wait() -> None:
+        while not stop_event.wait(interval_seconds):
+            elapsed = time.monotonic() - started_at
+            callback(f"__flowpilot_refresh__:{message}: {elapsed:.0f}s")
+
+    timer = threading.Thread(target=report_wait, daemon=True)
+    timer.start()
+    try:
+        yield
+    finally:
+        stop_event.set()
+        timer.join(timeout=interval_seconds)
 
 
 def _progress(state: FlowPilotAgentState, message: str) -> None:

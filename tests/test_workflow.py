@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 import flowpilot.reasoning as reasoning
@@ -48,6 +50,19 @@ def test_deterministic_router_requests_deep_tcp_for_tcp_issues() -> None:
             "reason": "Likely TLS flow by TCP port; inspect TLS handshake and TCP headers.",
         }
     ]
+
+
+def test_llm_wait_timer_reports_elapsed_time() -> None:
+    messages = []
+    state = {"progress_callback": messages.append}
+
+    with workflow._llm_wait_timer(state, "Waiting for test LLM", interval_seconds=0.01):
+        time.sleep(0.025)
+
+    assert any(
+        message.startswith("__flowpilot_refresh__:Waiting for test LLM:")
+        for message in messages
+    )
 
 
 def test_deterministic_router_requests_deep_tls_for_tls_alerts() -> None:

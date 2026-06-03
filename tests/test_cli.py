@@ -1,7 +1,9 @@
+import io
 import shutil
 import struct
 from pathlib import Path
 
+import flowpilot.cli as cli
 from flowpilot.cli import (
     _CachedCaptureSession,
     _count_packets_in_capture,
@@ -12,6 +14,8 @@ from flowpilot.cli import (
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
     _percent,
+    _ProgressReporter,
+    _RefreshingInfo,
     _traffic,
 )
 from flowpilot.models import CaptureSummary, FlowKey, FlowSummary, TlsCertificateObservation
@@ -92,6 +96,38 @@ def test_packet_read_complete_message_handles_unknown_total() -> None:
         "found or could not read it, 1000 packets yielded by PyShark, "
         "170 analyzable packets extracted, 830 yielded packets skipped."
     )
+
+
+def test_progress_reporter_refreshes_same_console_line(monkeypatch) -> None:
+    output = io.StringIO()
+    monkeypatch.setattr(cli.console, "file", output)
+    reporter = _ProgressReporter(total_packets=100)
+
+    reporter(1)
+    reporter(100)
+    reporter.finish()
+
+    text = output.getvalue()
+    assert "\r[info] Local analysis progress: 1% (1/100 raw packets)" in text
+    assert "\r[info] Local analysis progress: 100% (100/100 raw packets)" in text
+    assert "\n" not in text
+
+
+def test_refreshing_info_refreshes_wait_messages_and_prints_normal_info(monkeypatch) -> None:
+    output = io.StringIO()
+    monkeypatch.setattr(cli.console, "file", output)
+    printed = []
+    monkeypatch.setattr(cli, "_info", printed.append)
+    progress = _RefreshingInfo()
+
+    progress("__flowpilot_refresh__:LLM reasoning waiting: 3s")
+    progress("__flowpilot_refresh__:LLM reasoning waiting: 6s")
+    progress("LangGraph gathered 1 deep evidence result(s).")
+
+    text = output.getvalue()
+    assert "\r\x1b[2K[info] LLM reasoning waiting: 3s" in text
+    assert "\r\x1b[2K[info] LLM reasoning waiting: 6s" in text
+    assert printed == ["LangGraph gathered 1 deep evidence result(s)."]
 
 
 def test_parse_capinfos_packet_count_reads_named_count_only() -> None:
