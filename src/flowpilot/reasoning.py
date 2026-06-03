@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from typing import Any, Literal
 
@@ -64,6 +65,11 @@ an allowed tool. Instead, add an evidence_requests item with one allow-listed to
 the Flow ID, and a concise reason. FlowPilot/LangGraph will run the requested tool
 and call you again with additional_tool_evidence. {deep_tool_guidance_prompt()}
 Flow IDs start at 1 and must reference entries from the provided top_flows list.
+Each top_flows item includes flow_id and flow_label. If the user asks about a
+specific Flow ID, use only the top_flows item and additional_tool_evidence whose
+flow_id exactly matches that number. Do not answer a Flow ID question with
+endpoints from another flow. If the requested Flow ID is not present in top_flows
+or additional_tool_evidence, say that exact flow is not in the provided metadata.
 Do not invent tools."""
 
 TRANSPORT_FOCUS_PROMPT = """Transport focus is enabled. The user wants data-transfer and
@@ -662,6 +668,7 @@ def _chat_input(
         "requested_analysis_focus": analysis_focus,
         "analysis_focus_instruction": _analysis_focus_instruction(analysis_focus),
         "summary": compact_summary,
+        "requested_flow": _requested_flow_context(compact_summary, question),
         "initial_reasoning": report.model_dump(mode="json") if report else None,
         "additional_tool_evidence_count": len(evidence),
         "additional_tool_evidence": evidence,
@@ -714,6 +721,40 @@ def _reasoning_payload(
         "additional_tool_evidence": evidence,
     }
     return json.dumps(payload, indent=2, default=str)
+
+
+def _requested_flow_context(
+    compact_summary: dict[str, Any],
+    question: str,
+) -> dict[str, Any] | None:
+    requested_flow_id = _requested_flow_id(question)
+    if requested_flow_id is None:
+        return None
+    for flow in compact_summary.get("top_flows", []):
+        if isinstance(flow, dict) and flow.get("flow_id") == requested_flow_id:
+            return {
+                "flow_id": requested_flow_id,
+                "match_status": "found",
+                "flow": flow,
+            }
+    return {
+        "flow_id": requested_flow_id,
+        "match_status": "not_found",
+        "message": "Requested Flow ID is not present in the provided top_flows metadata.",
+    }
+
+
+def _requested_flow_id(question: str) -> int | None:
+    patterns = (
+        r"\bflow\s*id\s*[:#-]?\s*(\d+)\b",
+        r"\bflow\s*#\s*(\d+)\b",
+        r"\bflow\s+(\d+)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, question, flags=re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    return None
 
 
 def _chat_system_prompt(

@@ -1,7 +1,7 @@
 import httpx
 
 import flowpilot.reasoning as reasoning
-from flowpilot.models import CaptureSummary, ReasoningReport
+from flowpilot.models import CaptureSummary, FlowKey, FlowSummary, ReasoningReport
 from flowpilot.reasoning import _json_object
 
 
@@ -18,6 +18,7 @@ def test_rate_limit_can_be_disabled(monkeypatch) -> None:
 def test_system_prompt_delegates_tool_access_through_evidence_requests() -> None:
     assert "deep_tls_flow" in reasoning.SYSTEM_PROMPT
     assert "deep_smb2_flow" in reasoning.SYSTEM_PROMPT
+    assert "flow_id exactly matches" in reasoning.SYSTEM_PROMPT
     assert "evidence_requests" in reasoning.SYSTEM_PROMPT
     assert "do not say you lack access" in reasoning.SYSTEM_PROMPT
 
@@ -89,6 +90,56 @@ def test_chat_input_includes_metadata_report_and_recent_history() -> None:
     assert "ESP flow looks slow." in messages[0]["content"]
     assert messages[1]["content"] == "question 2"
     assert messages[-1] == {"role": "user", "content": "what should I check?"}
+
+
+def test_chat_input_includes_exact_requested_flow_context() -> None:
+    summary = CaptureSummary(
+        packet_count=4,
+        total_bytes=4000,
+        flow_count=2,
+        protocols={"TCP": 4},
+        top_ports={"443": 2, "445": 2},
+        issue_counts={},
+        names=[],
+        flows=[
+            FlowSummary(
+                key=FlowKey(
+                    endpoint_a="10.0.0.1",
+                    endpoint_b="10.0.0.2",
+                    port_a=50000,
+                    port_b=443,
+                    protocol="TCP",
+                ),
+                byte_count=3000,
+            ),
+            FlowSummary(
+                key=FlowKey(
+                    endpoint_a="10.0.0.3",
+                    endpoint_b="10.0.0.4",
+                    port_a=50001,
+                    port_b=445,
+                    protocol="TCP",
+                ),
+                byte_count=1000,
+            ),
+        ],
+    )
+
+    messages = reasoning._chat_input(
+        summary,
+        "please explain flow id 1",
+        report=None,
+        history=None,
+    )
+
+    assert '"requested_flow"' in messages[0]["content"]
+    assert '"flow_id": 1' in messages[0]["content"]
+    assert '"match_status": "found"' in messages[0]["content"]
+    assert "10.0.0.1:50000" in messages[0]["content"]
+    assert "10.0.0.3:50001" in messages[0]["content"]
+    requested_flow_section = messages[0]["content"].split('"requested_flow"', maxsplit=1)[1]
+    assert "10.0.0.1:50000" in requested_flow_section
+    assert "10.0.0.3:50001" not in requested_flow_section
 
 
 def test_chat_input_promotes_additional_tool_evidence_to_own_message() -> None:

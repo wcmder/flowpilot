@@ -223,6 +223,10 @@ def test_compact_metadata_keeps_protocol_detail_for_llm() -> None:
     dns_flow = next(flow for flow in compact_flows if flow["protocol"] == "UDP")
     smb_flow = next(flow for flow in compact_flows if flow["protocol"] == "TCP")
 
+    assert dns_flow["flow_id"] == 1
+    assert dns_flow["flow_label"] == "UDP 10.0.0.10:53000 <-> 192.0.2.53:53"
+    assert smb_flow["flow_id"] == 2
+    assert smb_flow["flow_label"] == "TCP 10.0.0.10:55000 <-> 10.0.0.30:445"
     assert dns_flow["dns"]["answers"] == answers
     assert smb_flow["smb"]["read_bytes_by_file"] == {"\\\\share\\download.iso": 2_097_152}
 

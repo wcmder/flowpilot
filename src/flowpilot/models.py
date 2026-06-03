@@ -545,6 +545,8 @@ class CaptureSummary(BaseModel):
             "observed_names": self.names[:50],
             "top_flows": [
                 {
+                    "flow_id": flow_id,
+                    "flow_label": _flow_label(flow),
                     "protocol": flow.key.protocol,
                     "endpoint_a": flow.key.endpoint_a,
                     "port_a": flow.key.port_a,
@@ -653,7 +655,7 @@ class CaptureSummary(BaseModel):
                     },
                     "names": flow.names,
                 }
-                for flow in flows
+                for flow_id, flow in enumerate(flows, start=1)
             ],
             "issue_counts": self.issue_counts,
         }
@@ -695,6 +697,18 @@ class AgentChatResponse(BaseModel):
 
 def counter_to_sorted_dict(counter: Counter[str], limit: int) -> dict[str, int]:
     return dict(counter.most_common(limit))
+
+
+def _flow_label(flow: FlowSummary) -> str:
+    return (
+        f"{flow.key.protocol} "
+        f"{_endpoint_label(flow.key.endpoint_a, flow.key.port_a)} <-> "
+        f"{_endpoint_label(flow.key.endpoint_b, flow.key.port_b)}"
+    )
+
+
+def _endpoint_label(endpoint: str, port: int | None) -> str:
+    return endpoint if port is None else f"{endpoint}:{port}"
 
 
 def _endpoint_sort_key(endpoint: tuple[str, int | None]) -> tuple[str, int]:
