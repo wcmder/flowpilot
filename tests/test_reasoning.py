@@ -1,7 +1,13 @@
 import httpx
 
 import flowpilot.reasoning as reasoning
-from flowpilot.models import CaptureSummary, FlowKey, FlowSummary, ReasoningReport
+from flowpilot.models import (
+    AgentChatResponse,
+    CaptureSummary,
+    FlowKey,
+    FlowSummary,
+    ReasoningReport,
+)
 from flowpilot.reasoning import _json_object
 
 
@@ -173,6 +179,110 @@ def test_chat_input_promotes_additional_tool_evidence_to_own_message() -> None:
     assert "do not present the answer as security analysis" in messages[1]["content"]
     assert '"tool": "deep_tls_flow"' in messages[1]["content"]
     assert messages[-1] == {"role": "user", "content": "what did the deep evidence show?"}
+
+
+def test_answer_ip_guard_allows_ips_from_current_metadata() -> None:
+    summary = CaptureSummary(
+        packet_count=1,
+        total_bytes=1000,
+        flow_count=1,
+        protocols={"TCP": 1},
+        top_ports={"443": 1},
+        issue_counts={},
+        names=[],
+        flows=[
+            FlowSummary(
+                key=FlowKey(
+                    endpoint_a="10.0.0.1",
+                    endpoint_b="10.0.0.2",
+                    port_a=50000,
+                    port_b=443,
+                    protocol="TCP",
+                )
+            )
+        ],
+    )
+
+    answer = reasoning._guard_answer_ips(
+        "Flow 1 is between 10.0.0.1 and 10.0.0.2.",
+        summary,
+        max_flows=25,
+        additional_evidence=None,
+    )
+
+    assert answer == "Flow 1 is between 10.0.0.1 and 10.0.0.2."
+
+
+def test_answer_ip_guard_suppresses_ips_absent_from_metadata() -> None:
+    summary = CaptureSummary(
+        packet_count=1,
+        total_bytes=1000,
+        flow_count=1,
+        protocols={"TCP": 1},
+        top_ports={"443": 1},
+        issue_counts={},
+        names=[],
+        flows=[
+            FlowSummary(
+                key=FlowKey(
+                    endpoint_a="10.0.0.1",
+                    endpoint_b="10.0.0.2",
+                    port_a=50000,
+                    port_b=443,
+                    protocol="TCP",
+                )
+            )
+        ],
+    )
+
+    answer = reasoning._guard_answer_ips(
+        "The alert came from 192.0.2.99.",
+        summary,
+        max_flows=25,
+        additional_evidence=None,
+    )
+
+    assert "suppressed the LLM answer" in answer
+    assert "192.0.2.99" in answer
+    assert "10.0.0.1:50000" in answer
+    assert "The alert came from 192.0.2.99." not in answer
+
+
+def test_agent_chat_ip_guard_clears_tool_requests_when_answer_is_suppressed() -> None:
+    summary = CaptureSummary(
+        packet_count=1,
+        total_bytes=1000,
+        flow_count=1,
+        protocols={"TCP": 1},
+        top_ports={"443": 1},
+        issue_counts={},
+        names=[],
+        flows=[
+            FlowSummary(
+                key=FlowKey(
+                    endpoint_a="10.0.0.1",
+                    endpoint_b="10.0.0.2",
+                    port_a=50000,
+                    port_b=443,
+                    protocol="TCP",
+                )
+            )
+        ],
+    )
+    response = AgentChatResponse(
+        answer="The alert came from 192.0.2.99.",
+        evidence_requests=[{"tool": "deep_tls_flow", "flow_id": 1, "reason": "More."}],
+    )
+
+    guarded = reasoning._guard_agent_chat_response_ips(
+        response,
+        summary,
+        max_flows=25,
+        additional_evidence=None,
+    )
+
+    assert "suppressed the LLM answer" in guarded.answer
+    assert guarded.evidence_requests == []
 
 
 def test_chat_input_includes_requested_analysis_focus() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -185,7 +186,7 @@ def chat_about_capture(
     try:
         client = openai_client()
         if LLM_API in {"chat", "chat_completions", "chat-completions"}:
-            return _chat_with_chat_completions(
+            answer = _chat_with_chat_completions(
                 client,
                 summary,
                 question,
@@ -196,9 +197,15 @@ def chat_about_capture(
                 additional_evidence=additional_evidence,
                 analysis_focus=analysis_focus,
             )
+            return _guard_answer_ips(
+                answer,
+                summary,
+                max_flows=max_flows,
+                additional_evidence=additional_evidence,
+            )
         if LLM_API == "auto":
             try:
-                return _chat_with_responses(
+                answer = _chat_with_responses(
                     client,
                     summary,
                     question,
@@ -208,11 +215,17 @@ def chat_about_capture(
                     history=history,
                     additional_evidence=additional_evidence,
                     analysis_focus=analysis_focus,
+                )
+                return _guard_answer_ips(
+                    answer,
+                    summary,
+                    max_flows=max_flows,
+                    additional_evidence=additional_evidence,
                 )
             except APIStatusError as exc:
                 if exc.status_code != 404:
                     raise
-                return _chat_with_chat_completions(
+                answer = _chat_with_chat_completions(
                     client,
                     summary,
                     question,
@@ -223,7 +236,13 @@ def chat_about_capture(
                     additional_evidence=additional_evidence,
                     analysis_focus=analysis_focus,
                 )
-        return _chat_with_responses(
+                return _guard_answer_ips(
+                    answer,
+                    summary,
+                    max_flows=max_flows,
+                    additional_evidence=additional_evidence,
+                )
+        answer = _chat_with_responses(
             client,
             summary,
             question,
@@ -233,6 +252,12 @@ def chat_about_capture(
             history=history,
             additional_evidence=additional_evidence,
             analysis_focus=analysis_focus,
+        )
+        return _guard_answer_ips(
+            answer,
+            summary,
+            max_flows=max_flows,
+            additional_evidence=additional_evidence,
         )
     except APITimeoutError:
         return f"The LLM request timed out after {LLM_TIMEOUT_SECONDS:g} seconds."
@@ -253,7 +278,7 @@ def agent_chat_about_capture(
     try:
         client = openai_client()
         if LLM_API in {"chat", "chat_completions", "chat-completions"}:
-            return _agent_chat_with_chat_completions(
+            response = _agent_chat_with_chat_completions(
                 client,
                 summary,
                 question,
@@ -264,9 +289,15 @@ def agent_chat_about_capture(
                 additional_evidence=additional_evidence,
                 analysis_focus=analysis_focus,
             )
+            return _guard_agent_chat_response_ips(
+                response,
+                summary,
+                max_flows=max_flows,
+                additional_evidence=additional_evidence,
+            )
         if LLM_API == "auto":
             try:
-                return _agent_chat_with_responses(
+                response = _agent_chat_with_responses(
                     client,
                     summary,
                     question,
@@ -276,11 +307,17 @@ def agent_chat_about_capture(
                     history=history,
                     additional_evidence=additional_evidence,
                     analysis_focus=analysis_focus,
+                )
+                return _guard_agent_chat_response_ips(
+                    response,
+                    summary,
+                    max_flows=max_flows,
+                    additional_evidence=additional_evidence,
                 )
             except APIStatusError as exc:
                 if exc.status_code != 404:
                     raise
-                return _agent_chat_with_chat_completions(
+                response = _agent_chat_with_chat_completions(
                     client,
                     summary,
                     question,
@@ -291,7 +328,13 @@ def agent_chat_about_capture(
                     additional_evidence=additional_evidence,
                     analysis_focus=analysis_focus,
                 )
-        return _agent_chat_with_responses(
+                return _guard_agent_chat_response_ips(
+                    response,
+                    summary,
+                    max_flows=max_flows,
+                    additional_evidence=additional_evidence,
+                )
+        response = _agent_chat_with_responses(
             client,
             summary,
             question,
@@ -301,6 +344,12 @@ def agent_chat_about_capture(
             history=history,
             additional_evidence=additional_evidence,
             analysis_focus=analysis_focus,
+        )
+        return _guard_agent_chat_response_ips(
+            response,
+            summary,
+            max_flows=max_flows,
+            additional_evidence=additional_evidence,
         )
     except APITimeoutError:
         return AgentChatResponse(
@@ -1005,6 +1054,91 @@ def _finish_reason_detail(
     if plain_finish_reason:
         reasons.append(f"plain_finish_reason={plain_finish_reason}")
     return " " + " ".join(reasons) if reasons else ""
+
+
+def _guard_agent_chat_response_ips(
+    response: AgentChatResponse,
+    summary: CaptureSummary,
+    *,
+    max_flows: int,
+    additional_evidence: list[dict[str, Any]] | None,
+) -> AgentChatResponse:
+    guarded_answer = _guard_answer_ips(
+        response.answer,
+        summary,
+        max_flows=max_flows,
+        additional_evidence=additional_evidence,
+    )
+    if guarded_answer == response.answer:
+        return response
+    return response.model_copy(update={"answer": guarded_answer, "evidence_requests": []})
+
+
+def _guard_answer_ips(
+    answer: str,
+    summary: CaptureSummary,
+    *,
+    max_flows: int,
+    additional_evidence: list[dict[str, Any]] | None,
+) -> str:
+    invalid_ips = _unverified_answer_ips(
+        answer,
+        summary.compact(max_flows=max_flows),
+        additional_evidence or [],
+    )
+    if not invalid_ips:
+        return answer
+    inventory = summary.compact(max_flows=max_flows).get("flow_endpoint_inventory", {})
+    valid_endpoints = ", ".join(inventory.get("endpoint_ports", [])[:20]) or "none"
+    return (
+        "FlowPilot suppressed the LLM answer because it mentioned IP address(es) "
+        "that are not present in the current pcap metadata or deep evidence: "
+        f"{', '.join(invalid_ips)}.\n\n"
+        f"Valid observed flow endpoints provided to the LLM: {valid_endpoints}.\n\n"
+        "Ask again using the Flow ID or run the relevant deep tool; FlowPilot will only "
+        "trust endpoints present in the current capture metadata."
+    )
+
+
+def _unverified_answer_ips(
+    answer: str,
+    compact_summary: dict[str, Any],
+    additional_evidence: list[dict[str, Any]],
+) -> list[str]:
+    mentioned_ips = _ips_in_text(answer)
+    if not mentioned_ips:
+        return []
+    allowed_ips = _ips_in_value(compact_summary) | _ips_in_value(additional_evidence)
+    return sorted(mentioned_ips - allowed_ips)
+
+
+def _ips_in_value(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return _ips_in_text(value)
+    if isinstance(value, dict):
+        ips: set[str] = set()
+        for nested in value.values():
+            ips.update(_ips_in_value(nested))
+        return ips
+    if isinstance(value, (list, tuple, set)):
+        ips: set[str] = set()
+        for nested in value:
+            ips.update(_ips_in_value(nested))
+        return ips
+    return set()
+
+
+def _ips_in_text(text: str) -> set[str]:
+    candidates = re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text)
+    ips = set()
+    for candidate in candidates:
+        try:
+            address = ipaddress.ip_address(candidate)
+        except ValueError:
+            continue
+        if address.version == 4:
+            ips.add(str(address))
+    return ips
 
 
 def _model_dump(value: Any) -> dict[str, Any]:
