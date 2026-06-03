@@ -219,6 +219,11 @@ def test_deterministic_router_requests_deep_udp_for_incomplete_dhcp() -> None:
 
 
 def test_llm_tool_requests_are_allow_listed_and_deduplicated() -> None:
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(key=FlowKey(endpoint_a=f"10.0.0.{index}", endpoint_b="10.0.0.20"))
+        for index in range(1, 5)
+    ]
     report = ReasoningReport(
         executive_summary="Need more evidence.",
         risk_level="medium",
@@ -234,6 +239,7 @@ def test_llm_tool_requests_are_allow_listed_and_deduplicated() -> None:
     )
     state = {
         "capture_path": "capture.pcap",
+        "summary": summary,
         "report": report,
         "completed_tool_requests": ["deep_tcp_flow:2"],
     }
@@ -242,6 +248,34 @@ def test_llm_tool_requests_are_allow_listed_and_deduplicated() -> None:
         {"tool": "deep_tcp_flow", "flow_id": 1, "reason": "Need TCP headers."},
         {"tool": "deep_udp_flow", "flow_id": 3, "reason": "Need DNS transaction details."},
         {"tool": "deep_tls_flow", "flow_id": 4, "reason": "Need TLS handshake."},
+    ]
+
+
+def test_llm_tool_requests_reject_invalid_flow_ids() -> None:
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="UDP"))
+    ]
+    report = ReasoningReport(
+        executive_summary="Need more evidence.",
+        risk_level="medium",
+        findings=[],
+        next_questions=[],
+        evidence_requests=[
+            {"tool": "deep_udp_flow", "flow_id": 0, "reason": "Invalid zero."},
+            {"tool": "deep_udp_flow", "flow_id": 2, "reason": "Out of range."},
+            {"tool": "deep_udp_flow", "flow_id": 1, "reason": "Valid."},
+        ],
+    )
+    state = {
+        "capture_path": "capture.pcap",
+        "summary": summary,
+        "report": report,
+        "completed_tool_requests": [],
+    }
+
+    assert workflow._llm_tool_requests(state) == [
+        {"tool": "deep_udp_flow", "flow_id": 1, "reason": "Valid."}
     ]
 
 

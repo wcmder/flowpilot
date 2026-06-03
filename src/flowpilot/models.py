@@ -673,7 +673,10 @@ class EvidenceRequest(BaseModel):
             "Allowed tool name: deep_tcp_flow, deep_udp_flow, or deep_tls_flow."
         )
     )
-    flow_id: int | None = Field(default=None, description="Flow ID from the Top Flows table.")
+    flow_id: int | None = Field(
+        default=None,
+        description="Flow ID from the Top Flows table. Flow IDs start at 1.",
+    )
     reason: str
 
 

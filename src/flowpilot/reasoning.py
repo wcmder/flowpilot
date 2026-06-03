@@ -63,6 +63,7 @@ deep_udp_flow, deep_tls_flow. Use deep_tls_flow for TLS or DTLS handshake,
 certificate, SNI, alert, cipher, hash/signature algorithm, and related TCP/UDP
 header details as troubleshooting evidence, not as a standalone security review.
 Use deep_udp_flow for UDP, DNS, or DHCP transaction/header details.
+Flow IDs start at 1 and must reference entries from the provided top_flows list.
 Do not invent tools."""
 
 TRANSPORT_FOCUS_PROMPT = """Transport focus is enabled. The user wants data-transfer and

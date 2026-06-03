@@ -416,7 +416,7 @@ def _valid_tool_requests(
 ) -> list[dict[str, Any]]:
     requests = []
     for request in evidence_requests:
-        if request.tool not in ALLOWED_TOOLS or request.flow_id is None:
+        if request.tool not in ALLOWED_TOOLS or not _valid_flow_id(state, request.flow_id):
             continue
         request_dict = request.model_dump()
         if _tool_request_key(request_dict) not in state.get("completed_tool_requests", []):
@@ -449,7 +449,10 @@ def _run_tool_request(state: FlowPilotAgentState, request: dict[str, Any]) -> di
             "flow_id": flow_id,
             "status": "not_found",
             "reason": request.get("reason", ""),
-            "message": "Flow ID was not found in the current summary.",
+            "message": (
+                "Flow ID was not found in the current summary. Flow IDs start at 1 "
+                "and must reference the Top Flows table."
+            ),
         }
     return run_deep_tool(
         tool,
@@ -557,6 +560,15 @@ def _flow_by_id(flows: list[FlowSummary], flow_id: Any) -> FlowSummary | None:
     if not isinstance(flow_id, int):
         return None
     return _flow_ids(flows).get(flow_id)
+
+
+def _valid_flow_id(state: FlowPilotAgentState, flow_id: Any) -> bool:
+    if not isinstance(flow_id, int) or flow_id < 1:
+        return False
+    summary = state.get("summary")
+    if not summary:
+        return False
+    return flow_id <= len(summary.flows)
 
 
 def _langgraph_primitives() -> tuple[Any, Any, Any]:
