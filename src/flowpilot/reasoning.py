@@ -10,7 +10,11 @@ from openai import APIStatusError, APITimeoutError, OpenAI
 from pydantic import ValidationError
 
 from .models import AgentChatResponse, CaptureSummary, ReasoningReport
-from .protocols.registry import PROTOCOL_REGISTRY
+from .protocols.registry import (
+    PROTOCOL_REGISTRY,
+    deep_tool_guidance_prompt,
+    protocol_name_for_deep_tool,
+)
 
 AnalysisFocus = Literal["transport", "security"]
 
@@ -23,7 +27,7 @@ LLM_REQUESTS_PER_MINUTE = int(os.getenv("FLOWPILOT_LLM_REQUESTS_PER_MINUTE", "12
 LLM_TIMEOUT_SECONDS = float(os.getenv("FLOWPILOT_LLM_TIMEOUT_SECONDS", "120"))
 _last_llm_request_at = 0.0
 
-SYSTEM_PROMPT = """You are FlowPilot, a network transport troubleshooting agent for data-transfer
+SYSTEM_PROMPT = f"""You are FlowPilot, a network transport troubleshooting agent for data-transfer
 issues. Do not merely summarize the flows. Diagnose likely transport issues from derived metadata.
 This is not a cybersecurity audit, vulnerability assessment, compliance review, or threat
 investigation unless the user explicitly asks for one.
@@ -58,13 +62,7 @@ Tool access is delegated through the JSON evidence_requests field; you do not ca
 tools directly. If more packet evidence is needed, do not say you lack access to
 an allowed tool. Instead, add an evidence_requests item with one allow-listed tool,
 the Flow ID, and a concise reason. FlowPilot/LangGraph will run the requested tool
-and call you again with additional_tool_evidence. Allowed tools: deep_tcp_flow,
-deep_udp_flow, deep_tls_flow, deep_smb2_flow. Use deep_tls_flow for TLS or DTLS
-handshake, certificate, SNI, alert, cipher, hash/signature algorithm, and related
-TCP/UDP header details as troubleshooting evidence, not as a standalone security review.
-Use deep_smb2_flow for SMB2 credit request/grant/charge, statuses, transfer headers,
-and related TCP symptoms.
-Use deep_udp_flow for UDP, DNS, or DHCP transaction/header details.
+and call you again with additional_tool_evidence. {deep_tool_guidance_prompt()}
 Flow IDs start at 1 and must reference entries from the provided top_flows list.
 Do not invent tools."""
 
@@ -824,14 +822,8 @@ def _present_protocol_registry_names(
         if not isinstance(evidence, dict):
             continue
         tool_name = evidence.get("tool")
-        if tool_name == "deep_tls_flow":
-            present.add("tls")
-        elif tool_name == "deep_udp_flow":
-            present.add("udp")
-        elif tool_name == "deep_tcp_flow":
-            present.add("tcp")
-        elif tool_name == "deep_smb2_flow":
-            present.add("smb")
+        if protocol_name := protocol_name_for_deep_tool(str(tool_name)):
+            present.add(protocol_name)
         if evidence.get("tls_metadata_counts"):
             present.add("tls")
         if evidence.get("udp_metadata_counts"):

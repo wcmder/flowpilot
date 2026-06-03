@@ -21,6 +21,10 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         deep_tools=("deep_tcp_flow",),
         deep_tool_runner_hooks=("flowpilot.protocols.tcp.deep_tcp_flow",),
         deep_reason_hook="flowpilot.protocols.tcp.deep_tcp_reason",
+        deep_tool_prompt=(
+            "Use deep_tcp_flow for TCP loss, retransmission, reset, zero-window, "
+            "one-way, low-throughput, sequence, ACK, flag, window, and TCP length details."
+        ),
         transport_prompt=(
             "TCP: focus on loss, retransmissions, duplicate ACKs, out-of-order delivery, "
             "resets, zero windows, initial RTT, throughput, and directionality."
@@ -35,6 +39,9 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         deep_tools=("deep_udp_flow",),
         deep_tool_runner_hooks=("flowpilot.protocols.udp.deep_udp_flow",),
         deep_reason_hook="flowpilot.protocols.udp.deep_udp_reason",
+        deep_tool_prompt=(
+            "Use deep_udp_flow for UDP, DNS, or DHCP transaction/header details."
+        ),
         transport_prompt=(
             "UDP: focus on one-way visibility, packet rate, throughput, checksum status, "
             "port reachability, and request/response visibility."
@@ -57,6 +64,11 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         deep_tools=("deep_tls_flow",),
         deep_tool_runner_hooks=("flowpilot.protocols.tls.deep_tls_flow",),
         deep_reason_hook="flowpilot.protocols.tls.deep_tls_reason",
+        deep_tool_prompt=(
+            "Use deep_tls_flow for TLS or DTLS handshake, certificate, SNI, alert, "
+            "cipher, hash/signature algorithm, and related TCP/UDP header details as "
+            "troubleshooting evidence, not as a standalone security review."
+        ),
         transport_prompt=(
             "TLS/DTLS: use SNI, certificates, cipher/hash/signature/group fields, and alerts "
             "only to explain handshake compatibility, authentication/session failure, "
@@ -86,6 +98,10 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         deep_tools=("deep_smb2_flow",),
         deep_tool_runner_hooks=("flowpilot.protocols.smb.deep_smb2_flow",),
         deep_reason_hook="flowpilot.protocols.smb.deep_smb2_reason",
+        deep_tool_prompt=(
+            "Use deep_smb2_flow for SMB2 credit request/grant/charge, statuses, "
+            "transfer headers, and related TCP symptoms."
+        ),
         transport_prompt=(
             "SMB: assess transfer efficiency from read/write operations, bytes, files, "
             "SMB2 credit request/grant/charge, statuses, errors, TCP symptoms, duration, "
@@ -228,6 +244,32 @@ def deep_tool_hooks() -> tuple[tuple[str, Callable, Callable], ...]:
         ):
             hooks.append((tool_name, _load_hook(runner_hook), reason))
     return tuple(hooks)
+
+
+def deep_tool_guidance_prompt() -> str:
+    tool_names = [
+        tool_name
+        for protocol in PROTOCOLS
+        for tool_name in protocol.deep_tools
+    ]
+    if not tool_names:
+        return "Allowed tools: none."
+    prompt_lines = [
+        protocol.deep_tool_prompt
+        for protocol in PROTOCOLS
+        if protocol.deep_tools and protocol.deep_tool_prompt
+    ]
+    guidance = f"Allowed tools: {', '.join(tool_names)}."
+    if prompt_lines:
+        guidance += " " + " ".join(prompt_lines)
+    return guidance
+
+
+def protocol_name_for_deep_tool(tool_name: str) -> str | None:
+    for protocol in PROTOCOLS:
+        if tool_name in protocol.deep_tools:
+            return protocol.name
+    return None
 
 
 def _load_hook(path: str):

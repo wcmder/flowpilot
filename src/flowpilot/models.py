@@ -670,8 +670,7 @@ class AnalysisFinding(BaseModel):
 class EvidenceRequest(BaseModel):
     tool: str = Field(
         description=(
-            "Allowed tool name: deep_tcp_flow, deep_udp_flow, deep_tls_flow, "
-            "or deep_smb2_flow."
+            "Allowed deep tool name from the FlowPilot protocol registry."
         )
     )
     flow_id: int | None = Field(

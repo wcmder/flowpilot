@@ -2,7 +2,13 @@ import importlib
 
 from flowpilot.deep_tools import deep_tool_names
 from flowpilot.protocols import PROTOCOL_REGISTRY, protocol_names, protocols
-from flowpilot.protocols.registry import deep_tool_hooks, extract_hooks, record_hooks
+from flowpilot.protocols.registry import (
+    deep_tool_guidance_prompt,
+    deep_tool_hooks,
+    extract_hooks,
+    protocol_name_for_deep_tool,
+    record_hooks,
+)
 
 
 def test_protocol_registry_lists_existing_protocol_modules() -> None:
@@ -45,6 +51,21 @@ def test_protocol_registry_deep_tool_hooks_are_importable() -> None:
             module_name, function_name = hook_path.rsplit(".", 1)
             module = importlib.import_module(module_name)
             assert hasattr(module, function_name)
+
+
+def test_protocol_registry_builds_deep_tool_guidance_prompt() -> None:
+    prompt = deep_tool_guidance_prompt()
+
+    assert "Allowed tools:" in prompt
+    assert "deep_tls_flow" in prompt
+    assert "deep_smb2_flow" in prompt
+    assert "SMB2 credit request/grant/charge" in prompt
+
+
+def test_protocol_registry_maps_deep_tool_to_protocol_name() -> None:
+    assert protocol_name_for_deep_tool("deep_smb2_flow") == "smb"
+    assert protocol_name_for_deep_tool("deep_tls_flow") == "tls"
+    assert protocol_name_for_deep_tool("missing_tool") is None
 
 
 def test_protocol_registry_render_hooks_are_importable() -> None:
