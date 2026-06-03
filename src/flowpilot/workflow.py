@@ -189,7 +189,7 @@ def _build_reasoning_graph() -> Any:
             ),
         )
         try:
-            with _llm_wait_timer(state, wait_message):
+            with _llm_wait_timer(state, wait_message, interval_seconds=1.0):
                 report = reason_about_capture(
                     state["summary"],
                     model=state.get("model", DEFAULT_MODEL),
@@ -280,7 +280,7 @@ def _build_chat_graph() -> Any:
             ),
         )
         try:
-            with _llm_wait_timer(state, wait_message):
+            with _llm_wait_timer(state, wait_message, interval_seconds=1.0):
                 response = agent_chat_about_capture(
                     state["summary"],
                     state["question"],

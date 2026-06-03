@@ -1,4 +1,5 @@
 import time
+from contextlib import contextmanager
 
 import pytest
 
@@ -63,6 +64,53 @@ def test_llm_wait_timer_reports_elapsed_time() -> None:
         message.startswith("__flowpilot_refresh__:Waiting for test LLM:")
         for message in messages
     )
+
+
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_agent_reasoning_uses_one_second_wait_timer(monkeypatch) -> None:
+    intervals = []
+
+    @contextmanager
+    def fake_wait_timer(state, message, *, interval_seconds=3.0):
+        intervals.append(interval_seconds)
+        yield
+
+    monkeypatch.setattr(workflow, "_llm_wait_timer", fake_wait_timer)
+    monkeypatch.setattr(
+        workflow,
+        "reason_about_capture",
+        lambda *_args, **_kwargs: ReasoningReport(
+            executive_summary="ok",
+            risk_level="low",
+            findings=[],
+            next_questions=[],
+        ),
+    )
+
+    workflow.run_agent_reasoning(_summary())
+
+    assert intervals == [1.0]
+
+
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_agent_chat_uses_one_second_wait_timer(monkeypatch) -> None:
+    intervals = []
+
+    @contextmanager
+    def fake_wait_timer(state, message, *, interval_seconds=3.0):
+        intervals.append(interval_seconds)
+        yield
+
+    monkeypatch.setattr(workflow, "_llm_wait_timer", fake_wait_timer)
+    monkeypatch.setattr(
+        workflow,
+        "agent_chat_about_capture",
+        lambda *_args, **_kwargs: AgentChatResponse(answer="ok"),
+    )
+
+    workflow.run_agent_chat(_summary(), "what next?")
+
+    assert intervals == [1.0]
 
 
 def test_deterministic_router_requests_deep_tls_for_tls_alerts() -> None:

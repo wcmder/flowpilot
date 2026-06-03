@@ -43,6 +43,7 @@ from .workflow import run_agent_chat, run_agent_reasoning_state
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
+LOCAL_PROGRESS_REFRESH_SECONDS = 5
 
 
 @app.callback()
@@ -495,7 +496,10 @@ class _ProgressReporter:
             percent = min(int((packet_count / self.total_packets) * 100), 100)
             if (
                 percent == self._last_percent
-                or (percent < 100 and now - self._last_report_at < 10)
+                or (
+                    percent < 100
+                    and now - self._last_report_at < LOCAL_PROGRESS_REFRESH_SECONDS
+                )
             ):
                 return
             self._last_percent = percent
@@ -504,7 +508,10 @@ class _ProgressReporter:
                 f"{percent}% ({packet_count}/{self.total_packets} raw packets)"
             )
         else:
-            if packet_count < 1_000 or now - self._last_report_at < 10:
+            if (
+                packet_count < 1_000
+                or now - self._last_report_at < LOCAL_PROGRESS_REFRESH_SECONDS
+            ):
                 return
             self._refresh(f"Local analysis progress: read {packet_count} raw packets")
         self._last_report_at = now

@@ -113,6 +113,23 @@ def test_progress_reporter_refreshes_same_console_line(monkeypatch) -> None:
     assert "\n" not in text
 
 
+def test_progress_reporter_refreshes_after_five_seconds(monkeypatch) -> None:
+    output = io.StringIO()
+    monkeypatch.setattr(cli.console, "file", output)
+    times = iter([100.0, 104.9, 105.0])
+    monkeypatch.setattr(cli.time, "monotonic", lambda: next(times))
+    reporter = _ProgressReporter(total_packets=100)
+
+    reporter(1)
+    reporter(2)
+    reporter(3)
+
+    text = output.getvalue()
+    assert "1% (1/100 raw packets)" in text
+    assert "2% (2/100 raw packets)" not in text
+    assert "3% (3/100 raw packets)" in text
+
+
 def test_refreshing_info_refreshes_wait_messages_and_prints_normal_info(monkeypatch) -> None:
     output = io.StringIO()
     monkeypatch.setattr(cli.console, "file", output)
