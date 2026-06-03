@@ -106,6 +106,13 @@ def analyze(
     ] = None,
     max_flows: Annotated[int, typer.Option(help="Maximum top flows sent to the model.")] = 25,
     show_flows: Annotated[int, typer.Option(help="Maximum flows shown in the terminal.")] = 10,
+    analysis_focus: Annotated[
+        str,
+        typer.Option(
+            "--analysis-focus",
+            help="LLM focus: transport or security. Local packet analysis is unchanged.",
+        ),
+    ] = "transport",
     no_llm: Annotated[bool, typer.Option(help="Only print the local flow summary.")] = False,
     chat: Annotated[
         bool,
@@ -159,6 +166,8 @@ def analyze(
         )
     if agent_auto_tools and not agent:
         raise typer.BadParameter("--agent-auto-tools requires --agent.")
+    if analysis_focus not in {"transport", "security"}:
+        raise typer.BadParameter("--analysis-focus must be either transport or security.")
     if keep_cache:
         cache_pcap = True
 
@@ -229,6 +238,7 @@ def analyze(
                 _info(
                     "LangGraph agent workflow started. "
                     f"auto_tools={agent_auto_tools}, model={model}, api={LLM_API}, "
+                    f"focus={analysis_focus}, "
                     f"timeout={LLM_TIMEOUT_SECONDS:g}s. Raw packet payloads are not sent."
                 )
                 agent_state = run_agent_reasoning_state(
@@ -236,6 +246,7 @@ def analyze(
                     capture_path=capture_path,
                     model=model,
                     max_flows=max_flows,
+                    analysis_focus=analysis_focus,
                     agent_auto_tools=agent_auto_tools,
                     progress_callback=_info,
                 )
@@ -247,11 +258,17 @@ def analyze(
                 _info(
                     "Sending derived metadata to LLM: "
                     f"model={model}, api={LLM_API}, "
+                    f"focus={analysis_focus}, "
                     f"timeout={LLM_TIMEOUT_SECONDS:g}s, "
                     f"top_flows={min(summary.flow_count, max_flows)}. "
                     "Raw packet payloads are not sent."
                 )
-                report = reason_about_capture(summary, model=model, max_flows=max_flows)
+                report = reason_about_capture(
+                    summary,
+                    model=model,
+                    max_flows=max_flows,
+                    analysis_focus=analysis_focus,
+                )
             llm_elapsed = time.perf_counter() - llm_started_at
             _info(f"LLM reasoning finished in {llm_elapsed:.2f}s.")
 
@@ -274,6 +291,7 @@ def analyze(
                 model=model,
                 max_flows=max_flows,
                 agent=agent,
+                analysis_focus=analysis_focus,
                 additional_evidence=agent_evidence if agent else None,
                 capture_path=capture_path if agent else None,
             )
@@ -629,6 +647,7 @@ def _run_chat(
     model: str,
     max_flows: int,
     agent: bool = False,
+    analysis_focus: str = "transport",
     additional_evidence: list[dict] | None = None,
     capture_path: Path | None = None,
 ) -> None:
@@ -656,6 +675,7 @@ def _run_chat(
                 question,
                 model=model,
                 max_flows=max_flows,
+                analysis_focus=analysis_focus,
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
@@ -668,6 +688,7 @@ def _run_chat(
                 question,
                 model=model,
                 max_flows=max_flows,
+                analysis_focus=analysis_focus,
                 report=report,
                 history=history,
             )

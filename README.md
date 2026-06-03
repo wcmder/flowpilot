@@ -315,6 +315,7 @@ Core options:
 | `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP/TLS rereads run only when the LLM requests an allow-listed tool. |
 | `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
+| `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
 | `--json PATH` | Write the summary and optional LLM report to a JSON file. |
 | `--cache-pcap` | Copy the capture into a temporary FlowPilot session workspace before analysis. This preserves full captured packet bytes and headers for future agentic rereads during the run. |
 | `--keep-cache` | Keep the temporary session workspace after analysis for debugging. Implies `--cache-pcap`. |

@@ -16,6 +16,7 @@ from .reasoning import (
     DEFAULT_MODEL,
     LLM_API,
     LLM_TIMEOUT_SECONDS,
+    AnalysisFocus,
     agent_chat_about_capture,
     reason_about_capture,
 )
@@ -27,6 +28,7 @@ class FlowPilotAgentState(TypedDict, total=False):
     summary: CaptureSummary
     capture_path: Path
     model: str
+    analysis_focus: AnalysisFocus
     max_flows: int
     report: ReasoningReport
     question: str
@@ -48,6 +50,7 @@ def run_agent_reasoning(
     capture_path: Path | None = None,
     model: str = DEFAULT_MODEL,
     max_flows: int = 25,
+    analysis_focus: AnalysisFocus = "transport",
     max_tool_rereads: int = 2,
     agent_auto_tools: bool = False,
     progress_callback: Callable[[str], None] | None = None,
@@ -57,6 +60,7 @@ def run_agent_reasoning(
         capture_path=capture_path,
         model=model,
         max_flows=max_flows,
+        analysis_focus=analysis_focus,
         max_tool_rereads=max_tool_rereads,
         agent_auto_tools=agent_auto_tools,
         progress_callback=progress_callback,
@@ -69,6 +73,7 @@ def run_agent_reasoning_state(
     capture_path: Path | None = None,
     model: str = DEFAULT_MODEL,
     max_flows: int = 25,
+    analysis_focus: AnalysisFocus = "transport",
     max_tool_rereads: int = 2,
     agent_auto_tools: bool = False,
     progress_callback: Callable[[str], None] | None = None,
@@ -77,6 +82,7 @@ def run_agent_reasoning_state(
     state: FlowPilotAgentState = {
         "summary": summary,
         "model": model,
+        "analysis_focus": analysis_focus,
         "max_flows": max_flows,
         "max_tool_rereads": max_tool_rereads,
         "tool_loop_count": 0,
@@ -98,6 +104,7 @@ def run_agent_chat(
     *,
     model: str = DEFAULT_MODEL,
     max_flows: int = 25,
+    analysis_focus: AnalysisFocus = "transport",
     report: ReasoningReport | None = None,
     history: list[dict[str, str]] | None = None,
     additional_evidence: list[dict[str, Any]] | None = None,
@@ -109,6 +116,7 @@ def run_agent_chat(
     state: FlowPilotAgentState = {
         "summary": summary,
         "model": model,
+        "analysis_focus": analysis_focus,
         "max_flows": max_flows,
         "question": question,
         "history": history or [],
@@ -170,6 +178,7 @@ def _build_reasoning_graph() -> Any:
             (
                 "Sending derived metadata to LLM through LangGraph: "
                 f"model={state.get('model', DEFAULT_MODEL)}, api={LLM_API}, "
+                f"focus={state.get('analysis_focus', 'transport')}, "
                 f"timeout={LLM_TIMEOUT_SECONDS:g}s, "
                 f"top_flows={min(state['summary'].flow_count, state.get('max_flows', 25))}, "
                 f"deep_evidence={len(state.get('deep_evidence', []))}."
@@ -181,6 +190,7 @@ def _build_reasoning_graph() -> Any:
                 model=state.get("model", DEFAULT_MODEL),
                 max_flows=state.get("max_flows", 25),
                 additional_evidence=state.get("deep_evidence", []),
+                analysis_focus=state.get("analysis_focus", "transport"),
             )
         except Exception as exc:  # pragma: no cover - defensive provider boundary
             report = ReasoningReport(
@@ -258,6 +268,7 @@ def _build_chat_graph() -> Any:
             (
                 "Sending follow-up question to LLM through LangGraph agent chat: "
                 f"model={state.get('model', DEFAULT_MODEL)}, api={LLM_API}, "
+                f"focus={state.get('analysis_focus', 'transport')}, "
                 f"timeout={LLM_TIMEOUT_SECONDS:g}s, "
                 f"deep_evidence={len(state.get('deep_evidence', []))}."
             ),
@@ -271,6 +282,7 @@ def _build_chat_graph() -> Any:
                 report=state.get("report"),
                 history=state.get("history"),
                 additional_evidence=state.get("deep_evidence", []),
+                analysis_focus=state.get("analysis_focus", "transport"),
             )
         except Exception as exc:  # pragma: no cover - defensive provider boundary
             return {

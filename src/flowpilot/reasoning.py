@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any
+from typing import Any, Literal
 
 from dotenv import load_dotenv
 from openai import APIStatusError, APITimeoutError, OpenAI
 from pydantic import ValidationError
 
 from .models import AgentChatResponse, CaptureSummary, ReasoningReport
+
+AnalysisFocus = Literal["transport", "security"]
 
 load_dotenv()
 
@@ -22,6 +24,8 @@ _last_llm_request_at = 0.0
 
 SYSTEM_PROMPT = """You are FlowPilot, a network transport troubleshooting agent for data-transfer
 issues. Do not merely summarize the flows. Diagnose likely transport issues from derived metadata.
+This is not a cybersecurity audit, vulnerability assessment, compliance review, or threat
+investigation unless the user explicitly asks for one.
 
 Prioritize network transport evidence: throughput over duration, one-way traffic, TCP loss,
 TCP retransmissions, duplicate ACKs, out-of-order delivery, resets, zero windows, RTT
@@ -29,6 +33,10 @@ median/p95/max/initial RTT, UDP/ESP visibility limits, protocol or port blocking
 congestion, shaping/policing, asymmetric routing, and tunnel health. Treat DNS, DHCP, SIP, SMB,
 TLS, filenames, and application names as supporting context unless they directly explain a
 transport symptom.
+For TLS/DTLS, use certificate, cipher, hash/signature, supported group, SNI, and alert data to
+explain handshake compatibility, authentication failure, session termination, or protocol
+reachability. Do not pivot into general certificate hygiene, weak-cipher security posture, CVE,
+or vulnerability language unless it directly explains the observed transfer/session failure.
 
 Only discuss protocols that are present in the provided metadata, present in additional tool
 evidence, or explicitly asked about by the user. Do not add checklist-style negative statements
@@ -61,8 +69,16 @@ the Flow ID, and a concise reason. FlowPilot/LangGraph will run the requested to
 and call you again with additional_tool_evidence. Allowed tools: deep_tcp_flow,
 deep_udp_flow, deep_tls_flow. Use deep_tls_flow for TLS or DTLS handshake,
 certificate, SNI, alert, cipher, hash/signature algorithm, and related TCP/UDP
-header details. Use deep_udp_flow for UDP, DNS, or DHCP transaction/header details.
+header details as troubleshooting evidence, not as a standalone security review.
+Use deep_udp_flow for UDP, DNS, or DHCP transaction/header details.
 Do not invent tools."""
+
+SECURITY_FOCUS_PROMPT = """Security focus is enabled. Prioritize security-relevant evidence
+visible in the capture metadata: TLS/DTLS certificate validity, issuer/subject/SAN consistency,
+TLS alerts, cipher/hash/signature/group negotiation, SMB encryption/signing/capabilities,
+unexpected cleartext protocols, suspicious DNS responses, and authentication/session failures.
+Still distinguish security findings from transport findings, and do not claim vulnerabilities
+that are not evidenced by the supplied metadata."""
 
 
 def openai_client() -> OpenAI:
@@ -93,7 +109,9 @@ def reason_about_capture(
     model: str = DEFAULT_MODEL,
     max_flows: int = 25,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> ReasoningReport:
+    analysis_focus = _normalized_analysis_focus(analysis_focus)
     try:
         client = openai_client()
         if LLM_API in {"chat", "chat_completions", "chat-completions"}:
@@ -103,6 +121,7 @@ def reason_about_capture(
                 model=model,
                 max_flows=max_flows,
                 additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
             )
         if LLM_API == "auto":
             try:
@@ -112,6 +131,7 @@ def reason_about_capture(
                     model=model,
                     max_flows=max_flows,
                     additional_evidence=additional_evidence,
+                    analysis_focus=analysis_focus,
                 )
             except APIStatusError as exc:
                 if exc.status_code != 404:
@@ -122,6 +142,7 @@ def reason_about_capture(
                     model=model,
                     max_flows=max_flows,
                     additional_evidence=additional_evidence,
+                    analysis_focus=analysis_focus,
                 )
         return _reason_with_responses(
             client,
@@ -129,6 +150,7 @@ def reason_about_capture(
             model=model,
             max_flows=max_flows,
             additional_evidence=additional_evidence,
+            analysis_focus=analysis_focus,
         )
     except APITimeoutError:
         return _empty_llm_report(
@@ -145,7 +167,9 @@ def chat_about_capture(
     report: ReasoningReport | None = None,
     history: list[dict[str, str]] | None = None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> str:
+    analysis_focus = _normalized_analysis_focus(analysis_focus)
     try:
         client = openai_client()
         if LLM_API in {"chat", "chat_completions", "chat-completions"}:
@@ -158,6 +182,7 @@ def chat_about_capture(
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
             )
         if LLM_API == "auto":
             try:
@@ -170,6 +195,7 @@ def chat_about_capture(
                     report=report,
                     history=history,
                     additional_evidence=additional_evidence,
+                    analysis_focus=analysis_focus,
                 )
             except APIStatusError as exc:
                 if exc.status_code != 404:
@@ -183,6 +209,7 @@ def chat_about_capture(
                     report=report,
                     history=history,
                     additional_evidence=additional_evidence,
+                    analysis_focus=analysis_focus,
                 )
         return _chat_with_responses(
             client,
@@ -193,6 +220,7 @@ def chat_about_capture(
             report=report,
             history=history,
             additional_evidence=additional_evidence,
+            analysis_focus=analysis_focus,
         )
     except APITimeoutError:
         return f"The LLM request timed out after {LLM_TIMEOUT_SECONDS:g} seconds."
@@ -207,7 +235,9 @@ def agent_chat_about_capture(
     report: ReasoningReport | None = None,
     history: list[dict[str, str]] | None = None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> AgentChatResponse:
+    analysis_focus = _normalized_analysis_focus(analysis_focus)
     try:
         client = openai_client()
         if LLM_API in {"chat", "chat_completions", "chat-completions"}:
@@ -220,6 +250,7 @@ def agent_chat_about_capture(
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
             )
         if LLM_API == "auto":
             try:
@@ -232,6 +263,7 @@ def agent_chat_about_capture(
                     report=report,
                     history=history,
                     additional_evidence=additional_evidence,
+                    analysis_focus=analysis_focus,
                 )
             except APIStatusError as exc:
                 if exc.status_code != 404:
@@ -245,6 +277,7 @@ def agent_chat_about_capture(
                     report=report,
                     history=history,
                     additional_evidence=additional_evidence,
+                    analysis_focus=analysis_focus,
                 )
         return _agent_chat_with_responses(
             client,
@@ -255,6 +288,7 @@ def agent_chat_about_capture(
             report=report,
             history=history,
             additional_evidence=additional_evidence,
+            analysis_focus=analysis_focus,
         )
     except APITimeoutError:
         return AgentChatResponse(
@@ -269,11 +303,12 @@ def _reason_with_responses(
     model: str,
     max_flows: int,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> ReasoningReport:
     _respect_llm_rate_limit()
     response = client.responses.parse(
         model=model,
-        instructions=SYSTEM_PROMPT,
+        instructions=_system_prompt(analysis_focus),
         input=[
             {
                 "role": "user",
@@ -286,7 +321,7 @@ def _reason_with_responses(
                     "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
                     "SMB transfer inefficiency or errors, "
                     "and certificate/redirect clues.\n\n"
-                    f"{_reasoning_payload(summary, max_flows, additional_evidence)}"
+                    f"{_reasoning_payload(summary, max_flows, additional_evidence, analysis_focus)}"
                 ),
             }
         ],
@@ -304,12 +339,13 @@ def _reason_with_chat_completions(
     model: str,
     max_flows: int,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> ReasoningReport:
     _respect_llm_rate_limit()
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": _system_prompt(analysis_focus)},
             {
                 "role": "user",
                 "content": (
@@ -323,7 +359,7 @@ def _reason_with_chat_completions(
                     "one-way flows, packet gaps, TCP issue counters, SIP call failures, "
                     "SMB transfer inefficiency or errors, "
                     "and certificate/redirect clues.\n\n"
-                    f"{_reasoning_payload(summary, max_flows, additional_evidence)}"
+                    f"{_reasoning_payload(summary, max_flows, additional_evidence, analysis_focus)}"
                 ),
             },
         ],
@@ -345,11 +381,12 @@ def _chat_with_responses(
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> str:
     _respect_llm_rate_limit()
     response = client.responses.create(
         model=model,
-        instructions=_chat_system_prompt(),
+        instructions=_chat_system_prompt(analysis_focus),
         input=_chat_input(
             summary,
             question,
@@ -357,6 +394,7 @@ def _chat_with_responses(
             report=report,
             history=history,
             additional_evidence=additional_evidence,
+            analysis_focus=analysis_focus,
         ),
     )
     answer = getattr(response, "output_text", None)
@@ -375,12 +413,13 @@ def _chat_with_chat_completions(
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> str:
     _respect_llm_rate_limit()
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": _chat_system_prompt()},
+            {"role": "system", "content": _chat_system_prompt(analysis_focus)},
             *_chat_input(
                 summary,
                 question,
@@ -388,6 +427,7 @@ def _chat_with_chat_completions(
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
             ),
         ],
     )
@@ -410,11 +450,12 @@ def _agent_chat_with_responses(
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> AgentChatResponse:
     _respect_llm_rate_limit()
     response = client.responses.parse(
         model=model,
-        instructions=_agent_chat_system_prompt(),
+        instructions=_agent_chat_system_prompt(analysis_focus),
         input=_chat_input(
             summary,
             question,
@@ -422,6 +463,7 @@ def _agent_chat_with_responses(
             report=report,
             history=history,
             additional_evidence=additional_evidence,
+            analysis_focus=analysis_focus,
         ),
         text_format=AgentChatResponse,
     )
@@ -440,12 +482,13 @@ def _agent_chat_with_chat_completions(
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> AgentChatResponse:
     _respect_llm_rate_limit()
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": _agent_chat_system_prompt()},
+            {"role": "system", "content": _agent_chat_system_prompt(analysis_focus)},
             {
                 "role": "user",
                 "content": (
@@ -460,6 +503,7 @@ def _agent_chat_with_chat_completions(
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
             ),
         ],
         response_format={"type": "json_object"},
@@ -476,6 +520,7 @@ def _agent_chat_with_chat_completions(
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
                 structured_finish_reason=_choice_finish_reason(response.choices[0]),
             )
         )
@@ -501,6 +546,7 @@ def _agent_chat_plain_fallback(
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
     structured_finish_reason: str | None = None,
 ) -> str:
     _respect_llm_rate_limit()
@@ -510,7 +556,7 @@ def _agent_chat_plain_fallback(
             {
                 "role": "system",
                 "content": (
-                    f"{SYSTEM_PROMPT}\n\n"
+                    f"{_system_prompt(analysis_focus)}\n\n"
                     "You are in interactive follow-up mode. Answer in plain text only. "
                     "Do not return JSON. If additional_tool_evidence is present, use it "
                     "as the newest and most specific packet evidence. Provide the final "
@@ -526,6 +572,7 @@ def _agent_chat_plain_fallback(
                 report=report,
                 history=history,
                 additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
             ),
         ],
     )
@@ -566,9 +613,11 @@ def _chat_input(
     report: ReasoningReport | None,
     history: list[dict[str, str]] | None,
     additional_evidence: list[dict[str, Any]] | None = None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> list[dict[str, str]]:
     evidence = additional_evidence or []
     context = {
+        "requested_analysis_focus": analysis_focus,
         "summary": summary.compact(max_flows=max_flows),
         "initial_reasoning": report.model_dump(mode="json") if report else None,
         "additional_tool_evidence_count": len(evidence),
@@ -606,9 +655,11 @@ def _reasoning_payload(
     summary: CaptureSummary,
     max_flows: int,
     additional_evidence: list[dict[str, Any]] | None,
+    analysis_focus: AnalysisFocus = "transport",
 ) -> str:
     evidence = additional_evidence or []
     payload = {
+        "requested_analysis_focus": analysis_focus,
         "summary": summary.compact(max_flows=max_flows),
         "additional_tool_evidence_count": len(evidence),
         "additional_tool_evidence": evidence,
@@ -616,9 +667,9 @@ def _reasoning_payload(
     return json.dumps(payload, indent=2, default=str)
 
 
-def _chat_system_prompt() -> str:
+def _chat_system_prompt(analysis_focus: AnalysisFocus = "transport") -> str:
     return (
-        f"{SYSTEM_PROMPT}\n\n"
+        f"{_system_prompt(analysis_focus)}\n\n"
         "You are now in interactive follow-up mode. Answer the user's question directly. "
         "Use the provided metadata and prior reasoning as the source of truth. If the answer "
         "cannot be proven from the metadata, say what is unknown and suggest the next check. "
@@ -626,15 +677,27 @@ def _chat_system_prompt() -> str:
     )
 
 
-def _agent_chat_system_prompt() -> str:
+def _agent_chat_system_prompt(analysis_focus: AnalysisFocus = "transport") -> str:
     return (
-        f"{SYSTEM_PROMPT}\n\n"
+        f"{_system_prompt(analysis_focus)}\n\n"
         "You are now in interactive follow-up mode. Return JSON matching the requested schema. "
         "Put the user-facing response in answer. If the user asks you to inspect a specific "
         "flow or to use an allowed deep tool, request that tool in evidence_requests instead "
         "of saying you cannot call it. If additional_tool_evidence already contains the needed "
         "tool result, answer from that evidence and leave evidence_requests empty."
     )
+
+
+def _system_prompt(analysis_focus: AnalysisFocus = "transport") -> str:
+    if analysis_focus == "security":
+        return f"{SYSTEM_PROMPT}\n\n{SECURITY_FOCUS_PROMPT}"
+    return SYSTEM_PROMPT
+
+
+def _normalized_analysis_focus(value: str) -> AnalysisFocus:
+    if value == "security":
+        return "security"
+    return "transport"
 
 
 def _json_object(content: str) -> dict[str, Any]:

@@ -26,6 +26,20 @@ def test_system_prompt_avoids_absent_protocol_checklists() -> None:
     assert "checklist-style negative statements" in reasoning.SYSTEM_PROMPT
 
 
+def test_system_prompt_frames_tls_metadata_as_troubleshooting_not_security_audit() -> None:
+    assert "not a cybersecurity audit" in reasoning.SYSTEM_PROMPT
+    assert "handshake compatibility" in reasoning.SYSTEM_PROMPT
+    assert "not as a standalone security review" in reasoning.SYSTEM_PROMPT
+
+
+def test_security_focus_adds_security_prompt_without_replacing_transport_context() -> None:
+    prompt = reasoning._system_prompt("security")
+
+    assert "network transport troubleshooting" in prompt
+    assert "Security focus is enabled" in prompt
+    assert "TLS/DTLS certificate validity" in prompt
+
+
 def test_chat_input_includes_metadata_report_and_recent_history() -> None:
     summary = CaptureSummary(
         packet_count=0,
@@ -88,6 +102,30 @@ def test_chat_input_promotes_additional_tool_evidence_to_own_message() -> None:
     assert "IMPORTANT: additional_tool_evidence is present below" in messages[1]["content"]
     assert '"tool": "deep_tls_flow"' in messages[1]["content"]
     assert messages[-1] == {"role": "user", "content": "what did the deep evidence show?"}
+
+
+def test_chat_input_includes_requested_analysis_focus() -> None:
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+
+    messages = reasoning._chat_input(
+        summary,
+        "check security",
+        max_flows=25,
+        report=None,
+        history=None,
+        analysis_focus="security",
+    )
+
+    assert '"requested_analysis_focus": "security"' in messages[0]["content"]
 
 
 def test_chat_completions_reasoning_handles_empty_message_content(monkeypatch) -> None:

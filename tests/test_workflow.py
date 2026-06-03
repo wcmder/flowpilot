@@ -296,11 +296,12 @@ def test_agent_reasoning_graph_returns_report(monkeypatch) -> None:
         next_questions=[],
     )
 
-    def fake_reason(summary, *, model, max_flows, additional_evidence):
+    def fake_reason(summary, *, model, max_flows, additional_evidence, analysis_focus):
         assert summary.packet_count == 0
         assert model == "test-model"
         assert max_flows == 3
         assert additional_evidence == []
+        assert analysis_focus == "transport"
         return expected
 
     monkeypatch.setattr(workflow, "reason_about_capture", fake_reason)
@@ -308,6 +309,31 @@ def test_agent_reasoning_graph_returns_report(monkeypatch) -> None:
     report = workflow.run_agent_reasoning(_summary(), model="test-model", max_flows=3)
 
     assert report == expected
+
+
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_agent_reasoning_passes_security_focus_to_llm(monkeypatch) -> None:
+    seen_focus = []
+
+    def fake_reason(summary, *, model, max_flows, additional_evidence, analysis_focus):
+        seen_focus.append(analysis_focus)
+        return ReasoningReport(
+            executive_summary="security report",
+            risk_level="medium",
+            findings=[],
+            next_questions=[],
+        )
+
+    monkeypatch.setattr(workflow, "reason_about_capture", fake_reason)
+
+    workflow.run_agent_reasoning(
+        _summary(),
+        model="test-model",
+        max_flows=3,
+        analysis_focus="security",
+    )
+
+    assert seen_focus == ["security"]
 
 
 @pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
@@ -340,7 +366,7 @@ def test_agent_reasoning_waits_for_llm_tool_requests_by_default(monkeypatch, tmp
         )
     ]
 
-    def fake_reason(summary, *, model, max_flows, additional_evidence):
+    def fake_reason(summary, *, model, max_flows, additional_evidence, analysis_focus):
         assert additional_evidence == []
         return ReasoningReport(
             executive_summary="agent report",
@@ -381,7 +407,7 @@ def test_agent_reasoning_auto_tools_runs_deterministic_router(monkeypatch, tmp_p
     def fake_run_deep_tool(*_args, **_kwargs):
         return evidence
 
-    def fake_reason(summary, *, model, max_flows, additional_evidence):
+    def fake_reason(summary, *, model, max_flows, additional_evidence, analysis_focus):
         assert additional_evidence == [evidence]
         return ReasoningReport(
             executive_summary="agent report",
@@ -453,7 +479,7 @@ def test_agent_reasoning_runs_llm_requested_deep_tls_tool(monkeypatch, tmp_path)
     def fake_run_deep_tool(*_args, **_kwargs):
         return evidence
 
-    def fake_reason(summary, *, model, max_flows, additional_evidence):
+    def fake_reason(summary, *, model, max_flows, additional_evidence, analysis_focus):
         additional_evidence_seen.append(additional_evidence)
         return reports.pop(0)
 
@@ -481,7 +507,17 @@ def test_agent_chat_graph_returns_answer(monkeypatch) -> None:
         next_questions=[],
     )
 
-    def fake_chat(summary, question, *, model, max_flows, report, history, additional_evidence):
+    def fake_chat(
+        summary,
+        question,
+        *,
+        model,
+        max_flows,
+        report,
+        history,
+        additional_evidence,
+        analysis_focus,
+    ):
         assert summary.packet_count == 0
         assert question == "what next?"
         assert model == "test-model"
@@ -547,7 +583,17 @@ def test_agent_chat_runs_llm_requested_deep_tls_tool(monkeypatch, tmp_path) -> N
     def fake_run_deep_tool(*_args, **_kwargs):
         return evidence
 
-    def fake_chat(summary, question, *, model, max_flows, report, history, additional_evidence):
+    def fake_chat(
+        summary,
+        question,
+        *,
+        model,
+        max_flows,
+        report,
+        history,
+        additional_evidence,
+        analysis_focus,
+    ):
         additional_evidence_seen.append(additional_evidence)
         return responses.pop(0)
 
@@ -586,7 +632,17 @@ def test_agent_chat_runs_explicit_deep_tls_request_before_llm(monkeypatch, tmp_p
     def fake_run_deep_tool(*_args, **_kwargs):
         return evidence
 
-    def fake_chat(summary, question, *, model, max_flows, report, history, additional_evidence):
+    def fake_chat(
+        summary,
+        question,
+        *,
+        model,
+        max_flows,
+        report,
+        history,
+        additional_evidence,
+        analysis_focus,
+    ):
         assert additional_evidence == [evidence]
         assert "FlowPilot has already run" in question
         assert "Do not say the tool is unavailable" in question
@@ -630,7 +686,17 @@ def test_agent_chat_explicit_tool_evidence_is_prompt_visible(monkeypatch, tmp_pa
     def fake_run_deep_tool(*_args, **_kwargs):
         return evidence
 
-    def fake_chat(summary, question, *, model, max_flows, report, history, additional_evidence):
+    def fake_chat(
+        summary,
+        question,
+        *,
+        model,
+        max_flows,
+        report,
+        history,
+        additional_evidence,
+        analysis_focus,
+    ):
         messages = reasoning._chat_input(
             summary,
             question,
