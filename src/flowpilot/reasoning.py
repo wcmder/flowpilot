@@ -567,10 +567,12 @@ def _chat_input(
     history: list[dict[str, str]] | None,
     additional_evidence: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
+    evidence = additional_evidence or []
     context = {
         "summary": summary.compact(max_flows=max_flows),
         "initial_reasoning": report.model_dump(mode="json") if report else None,
-        "additional_tool_evidence": additional_evidence or [],
+        "additional_tool_evidence_count": len(evidence),
+        "additional_tool_evidence": evidence,
     }
     messages = [
         {
@@ -582,6 +584,19 @@ def _chat_input(
             ),
         }
     ]
+    if evidence:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "IMPORTANT: additional_tool_evidence is present below. Treat this "
+                    "as the newest and most specific FlowPilot/LangGraph deep evidence. "
+                    "Do not say the deep evidence payload was not passed into this "
+                    "session context.\n\n"
+                    f"additional_tool_evidence:\n{json.dumps(evidence, indent=2, default=str)}"
+                ),
+            }
+        )
     messages.extend((history or [])[-12:])
     messages.append({"role": "user", "content": question})
     return messages
@@ -592,9 +607,11 @@ def _reasoning_payload(
     max_flows: int,
     additional_evidence: list[dict[str, Any]] | None,
 ) -> str:
+    evidence = additional_evidence or []
     payload = {
         "summary": summary.compact(max_flows=max_flows),
-        "additional_tool_evidence": additional_evidence or [],
+        "additional_tool_evidence_count": len(evidence),
+        "additional_tool_evidence": evidence,
     }
     return json.dumps(payload, indent=2, default=str)
 

@@ -18,6 +18,8 @@ def test_deep_tool_name_pattern_accepts_aliases() -> None:
     assert re.search(pattern, "run deep_tls_flow for flow 1", flags=re.IGNORECASE)
     assert re.search(pattern, "run deep tls flow for flow 1", flags=re.IGNORECASE)
     assert re.search(pattern, "run deep-tls-flow for flow 1", flags=re.IGNORECASE)
+    assert re.search(pattern, "run deep tls tool for flow 1", flags=re.IGNORECASE)
+    assert re.search(pattern, "run deep-tls-tool for flow 1", flags=re.IGNORECASE)
 
 
 def test_deep_tool_requests_prefers_tls_before_tcp_for_tls_port() -> None:

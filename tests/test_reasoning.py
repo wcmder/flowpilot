@@ -62,6 +62,34 @@ def test_chat_input_includes_metadata_report_and_recent_history() -> None:
     assert messages[-1] == {"role": "user", "content": "what should I check?"}
 
 
+def test_chat_input_promotes_additional_tool_evidence_to_own_message() -> None:
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+    evidence = [{"tool": "deep_tls_flow", "flow_id": 1, "status": "ok"}]
+
+    messages = reasoning._chat_input(
+        summary,
+        "what did the deep evidence show?",
+        max_flows=25,
+        report=None,
+        history=None,
+        additional_evidence=evidence,
+    )
+
+    assert '"additional_tool_evidence_count": 1' in messages[0]["content"]
+    assert "IMPORTANT: additional_tool_evidence is present below" in messages[1]["content"]
+    assert '"tool": "deep_tls_flow"' in messages[1]["content"]
+    assert messages[-1] == {"role": "user", "content": "what did the deep evidence show?"}
+
+
 def test_chat_completions_reasoning_handles_empty_message_content(monkeypatch) -> None:
     class _Message:
         content = None

@@ -80,7 +80,17 @@ def _tool_phrase_pattern(name: str) -> str:
 def _deep_tool_aliases(tool_name: str) -> tuple[str, ...]:
     spaced = tool_name.replace("_", " ")
     hyphenated = tool_name.replace("_", "-")
-    return (spaced, hyphenated)
+    aliases = [spaced, hyphenated]
+    if tool_name.startswith("deep_") and tool_name.endswith("_flow"):
+        protocol = tool_name.removeprefix("deep_").removesuffix("_flow")
+        aliases.extend(
+            (
+                f"deep {protocol} tool",
+                f"deep-{protocol}-tool",
+                f"deep_{protocol}_tool",
+            )
+        )
+    return tuple(aliases)
 
 
 def _deep_tool_priority(tool_name: str) -> int:
