@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from .models import FlowSummary, PacketObservation
+from rich.console import Console
+from rich.table import Table
+
+from ..models import CaptureSummary, FlowSummary, PacketObservation
 
 
 def record_dns(flow: FlowSummary, packet: PacketObservation) -> None:
@@ -50,3 +53,47 @@ def dns_response_explanation(response_code: str) -> str:
     if "formerr" in normalized or normalized.startswith("1"):
         return "FORMERR: DNS server could not understand the query"
     return f"DNS error response: {response_code}"
+
+
+def render_dns_details(
+    summary: CaptureSummary,
+    *,
+    show_flows: int,
+    console: Console,
+) -> None:
+    table = dns_details_table(summary, show_flows=show_flows)
+    if table:
+        console.print(table)
+
+
+def dns_details_table(summary: CaptureSummary, *, show_flows: int) -> Table | None:
+    rows = [
+        (flow_id, flow)
+        for flow_id, flow in enumerate(summary.flows[:show_flows], start=1)
+        if flow.dns_queries or flow.dns_response_codes or flow.dns_answers
+    ]
+    if not rows:
+        return None
+
+    table = Table(title="DNS Details In Top Flows", show_lines=True)
+    table.add_column("Flow ID", justify="right")
+    table.add_column("Queries", overflow="fold")
+    table.add_column("Types", overflow="fold")
+    table.add_column("RCode", overflow="fold")
+    table.add_column("Answers", overflow="fold")
+    table.add_column("Issue", overflow="fold")
+
+    for flow_id, flow in rows:
+        table.add_row(
+            str(flow_id),
+            _format_counter_lines(flow.dns_queries),
+            _format_counter_lines(flow.dns_query_types),
+            _format_counter_lines(flow.dns_response_codes),
+            "\n".join(flow.dns_answers[:10]),
+            dns_issue_summary(flow.dns_response_codes),
+        )
+    return table
+
+
+def _format_counter_lines(counts: dict[str, int]) -> str:
+    return "\n".join(f"{key}: {value}" for key, value in counts.items()) or "-"

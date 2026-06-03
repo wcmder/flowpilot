@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from .models import FlowSummary, PacketObservation
+from rich.console import Console
+from rich.table import Table
+
+from ..models import CaptureSummary, FlowSummary, PacketObservation
+
+SMB_TRANSFER_FILE_MIN_BYTES = 1_048_576
 
 SMB1_COMMAND_NAMES = {
     "0": "SMBmkdir",
@@ -106,7 +111,6 @@ SMB2_COMMAND_NAMES = {
     "0x0012": "SMB2oplockbreak",
 }
 
-# Backward-compatible alias for callers that only need SMB1 numeric fallback labels.
 SMB_COMMAND_NAMES = SMB1_COMMAND_NAMES
 
 SMB_STATUS_NAMES = {
@@ -210,6 +214,140 @@ def record_smb(flow: FlowSummary, packet: PacketObservation) -> None:
         )
     if _is_smb_error_status(packet.smb_status):
         flow.smb_error_count += 1
+
+
+def render_smb_details(
+    summary: CaptureSummary,
+    *,
+    show_flows: int,
+    console: Console,
+) -> None:
+    table = smb_details_table(summary, show_flows=show_flows)
+    if table:
+        console.print(table)
+
+
+def smb_details_table(summary: CaptureSummary, *, show_flows: int) -> Table | None:
+    rows = [
+        (flow_id, flow)
+        for flow_id, flow in enumerate(summary.flows[:show_flows], start=1)
+        if (
+            flow.smb_commands
+            or flow.smb_statuses
+            or flow.smb_filenames
+            or flow.smb_encrypted_packets
+        )
+    ]
+    if not rows:
+        return None
+
+    table = Table(title="SMB Details In Top Flows", show_lines=True)
+    table.add_column("Flow ID", justify="right")
+    table.add_column("Commands", overflow="fold")
+    table.add_column("Statuses", overflow="fold")
+    table.add_column("Capabilities", overflow="fold")
+    table.add_column("Transfer", overflow="fold")
+    table.add_column("Issue", overflow="fold")
+
+    for flow_id, flow in rows:
+        table.add_row(
+            str(flow_id),
+            format_smb_counter_lines(flow.smb_commands, SMB1_COMMAND_NAMES),
+            format_smb_counter_lines(flow.smb_statuses, SMB_STATUS_NAMES),
+            format_smb_capabilities(flow),
+            format_smb_transfer(flow),
+            "\n".join(flow.smb_diagnostic_hints),
+        )
+    return table
+
+
+def format_smb_counter_lines(counts: dict[str, int], names: dict[str, str]) -> str:
+    if not counts:
+        return ""
+    return "\n".join(
+        f"{smb_display_value(value, names)}: {count}"
+        for value, count in list(counts.items())[:10]
+    )
+
+
+def format_smb_transfer(flow) -> str:
+    return "\n".join(
+        [
+            format_smb_transfer_line(
+                "read",
+                flow.smb_read_ops,
+                flow.smb_read_bytes,
+                flow.smb_read_unknown_bytes_ops,
+                flow.smb_read_offset_inferred_ops,
+                _format_smb_transfer_files("download", flow.smb_read_bytes_by_file),
+            ),
+            format_smb_transfer_line(
+                "write",
+                flow.smb_write_ops,
+                flow.smb_write_bytes,
+                flow.smb_write_unknown_bytes_ops,
+                flow.smb_write_offset_inferred_ops,
+                _format_smb_transfer_files("upload", flow.smb_write_bytes_by_file),
+            ),
+            f"smb payload {flow.smb_transfer_mbps:.3f} Mbps",
+            f"flow total {flow.throughput_mbps:.3f} Mbps",
+        ]
+    )
+
+
+def format_smb_capabilities(flow) -> str:
+    capability_sources: dict[str, set[str]] = {}
+    for capability in flow.smb_client_capabilities:
+        capability_sources.setdefault(capability, set()).add("c")
+    for capability in flow.smb_server_capabilities:
+        capability_sources.setdefault(capability, set()).add("s")
+    lines = [
+        f"{capability} ({','.join(source for source in ('c', 's') if source in sources)})"
+        for capability, sources in list(capability_sources.items())[:20]
+    ]
+    return "\n".join(lines)
+
+
+def format_smb_transfer_line(
+    label: str,
+    ops: int,
+    byte_count: int,
+    unknown_ops: int,
+    inferred_ops: int = 0,
+    files: list[str] | None = None,
+) -> str:
+    line = f"{label} {ops} ops / {byte_count} bytes"
+    notes = []
+    if inferred_ops:
+        notes.append(f"{inferred_ops} ops inferred from offsets")
+    if unknown_ops:
+        notes.append(f"{unknown_ops} ops length unavailable")
+    if notes:
+        line += f" ({', '.join(notes)})"
+    if files:
+        line += "\n" + "\n".join(files)
+    return line
+
+
+def _format_smb_transfer_files(label: str, bytes_by_file: dict[str, int]) -> list[str]:
+    transferred_files = [
+        (filename, byte_count)
+        for filename, byte_count in bytes_by_file.items()
+        if byte_count >= SMB_TRANSFER_FILE_MIN_BYTES
+    ]
+    transferred_files.sort(key=lambda item: item[1], reverse=True)
+    return [
+        f"{label} {filename} ({_format_bytes(byte_count)})"
+        for filename, byte_count in transferred_files[:10]
+    ]
+
+
+def _format_bytes(byte_count: int) -> str:
+    if byte_count >= 1_048_576:
+        return f"{byte_count / 1_048_576:.1f} MiB"
+    if byte_count >= 1024:
+        return f"{byte_count / 1024:.1f} KiB"
+    return f"{byte_count} bytes"
 
 
 def _packet_smb_commands(packet: PacketObservation) -> list[str]:

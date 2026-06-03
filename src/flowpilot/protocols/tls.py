@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
-from .models import TlsCertificateObservation
+from rich.console import Console
+from rich.table import Table
+
+from ..models import CaptureSummary, TlsCertificateObservation
 
 
 def tls_sni(packet: Any) -> str | None:
     return _layer_attr(packet, "tls", "handshake_extensions_server_name") or _layer_attr(
-        packet, "ssl", "handshake_extensions_server_name"
+        packet,
+        "ssl",
+        "handshake_extensions_server_name",
     )
 
 
@@ -73,6 +79,201 @@ def tls_certificates(packet: Any) -> list[TlsCertificateObservation]:
     if any([fallback.subject, fallback.issuer, fallback.serial, fallback.fingerprint_sha256]):
         return [fallback]
     return []
+
+
+def render_tls_details(summary: CaptureSummary, *, show_flows: int, console: Console) -> None:
+    table = tls_details_table(summary, show_flows=show_flows)
+    if table:
+        console.print(table)
+
+
+def tls_details_table(summary: CaptureSummary, *, show_flows: int) -> Table | None:
+    rows = tls_detail_rows(summary, show_flows=show_flows)
+    if not rows:
+        return None
+
+    table = Table(title="TLS Details Observed In Flows", show_lines=True)
+    table.add_column("Flow ID", justify="right")
+    table.add_column("Endpoint", overflow="fold")
+    table.add_column("SNI", overflow="fold")
+    table.add_column("Subject", overflow="fold")
+    table.add_column("Issuer", overflow="fold")
+    table.add_column("Expiration", overflow="fold")
+    table.add_column("SAN", overflow="fold")
+    table.add_column("Issue", overflow="fold")
+
+    for flow_id, flow, role, endpoint, certificates in rows:
+        table.add_row(
+            str(flow_id),
+            tls_endpoint_with_role(endpoint, role),
+            tls_sni_for_endpoint(flow, endpoint),
+            format_certificate_column(certificates, "subject"),
+            format_certificate_column(certificates, "issuer"),
+            format_certificate_column(certificates, "expiration"),
+            format_certificate_column(certificates, "san"),
+            tls_issue_text(flow, endpoint, certificates),
+        )
+    return table
+
+
+def tls_endpoint_with_role(endpoint: str, role: str) -> str:
+    return endpoint if role == "-" else f"{endpoint}\n({role})"
+
+
+def tls_sni_for_endpoint(flow, endpoint: str) -> str:
+    return "\n".join(flow.tls_sni_endpoints.get(endpoint, [])[:5]) or "-"
+
+
+def tls_detail_rows(
+    summary: CaptureSummary,
+    *,
+    show_flows: int,
+) -> list[tuple[int, object, str, str, list]]:
+    flow_ids = _flow_ids(summary.flows)
+    certificate_flows = []
+    observed_tls_rows = []
+    for flow in summary.flows[:show_flows]:
+        if flow.tls_certificates:
+            certificate_flows.extend(_tls_certificate_rows(flow_ids[id(flow)], flow))
+        elif flow.tls_snis or flow.tls_alerts or _likely_tls_flow(flow):
+            observed_tls_rows.append((flow_ids[id(flow)], flow, "-", _flow_endpoint_text(flow), []))
+    return [*certificate_flows, *observed_tls_rows][:show_flows]
+
+
+def _tls_certificate_rows(flow_id: int, flow) -> list[tuple[int, object, str, str, list]]:
+    groups: dict[tuple[str, str], list] = {}
+    for certificate in flow.tls_certificates:
+        role = certificate.presenter_role or "-"
+        endpoint = certificate_endpoint(flow, certificate)
+        groups.setdefault((role, endpoint), []).append(certificate)
+    return [
+        (flow_id, flow, role, endpoint, certificates)
+        for (role, endpoint), certificates in groups.items()
+    ]
+
+
+def format_certificate_column(certificates: list, field_name: str) -> str:
+    values = []
+    for index, certificate in enumerate(certificates, start=1):
+        values.append(f"Cert {index}: {_certificate_field(certificate, field_name)}")
+    return "\n".join(values) or "-"
+
+
+def _certificate_field(certificate, field_name: str) -> str:
+    if field_name == "subject":
+        return certificate.subject_cn or certificate.subject or "-"
+    if field_name == "issuer":
+        return certificate.issuer_cn or certificate.issuer or "-"
+    if field_name == "expiration":
+        return expiration(certificate)
+    if field_name == "san":
+        return ", ".join(certificate.san_dns[:5]) or "-"
+    return "-"
+
+
+def format_tls_certificates(flow) -> str:
+    lines = []
+    for index, certificate in enumerate(flow.tls_certificates, start=1):
+        parts = [
+            f"cert {index}",
+            f"role={certificate.presenter_role or '-'}",
+            f"endpoint={certificate_endpoint(flow, certificate)}",
+            f"subject={certificate.subject_cn or certificate.subject or '-'}",
+            f"issuer={certificate.issuer_cn or certificate.issuer or '-'}",
+            f"expiration={expiration(certificate)}",
+            f"san={', '.join(certificate.san_dns[:5]) or '-'}",
+        ]
+        certificate_issues = certificate_issue_lines(certificate)
+        if certificate_issues:
+            parts.append(f"issue={'; '.join(certificate_issues)}")
+        lines.append(" / ".join(parts))
+    return "\n".join(lines) or "-"
+
+
+def tls_issue_text(flow, endpoint: str, certificates: list | None = None) -> str:
+    issues = []
+    is_flow_endpoint = endpoint == _flow_endpoint_text(flow)
+    endpoint_alerts = (
+        flow.tls_alerts
+        if is_flow_endpoint
+        else flow.tls_alert_endpoints.get(endpoint, {})
+    )
+    if endpoint_alerts:
+        issues.extend(
+            f"{'tls alert' if is_flow_endpoint else 'sent tls alert'}: {alert} (x{count})"
+            for alert, count in endpoint_alerts.items()
+        )
+    for certificate in certificates or []:
+        issues.extend(certificate_issue_lines(certificate))
+    if not flow.tls_certificates:
+        if flow.tls_alerts and not endpoint_alerts and endpoint != _flow_endpoint_text(flow):
+            issues.append("tls alert sent by peer")
+        issues.append("tls observed but certificate not extracted")
+    return "\n".join(issues)
+
+
+def certificate_issue_lines(certificate) -> list[str]:
+    issues = []
+    expires_at = parse_certificate_datetime(certificate.not_after)
+    starts_at = parse_certificate_datetime(certificate.not_before)
+    now = datetime.now(timezone.utc)
+    if expires_at and expires_at < now:
+        issues.append(f"certificate expired {certificate.not_after}")
+    if starts_at and starts_at > now:
+        issues.append(f"certificate not valid until {certificate.not_before}")
+    return issues
+
+
+def certificate_endpoint(flow, certificate) -> str:
+    ip = certificate.presenter_ip
+    port = certificate.presenter_port
+    if ip:
+        return _endpoint(ip, port)
+    return (
+        f"{_endpoint(flow.key.endpoint_a, flow.key.port_a)} or "
+        f"{_endpoint(flow.key.endpoint_b, flow.key.port_b)}"
+    )
+
+
+def expiration(certificate) -> str:
+    if not certificate.not_after:
+        return "-"
+    return certificate.not_after[:10] if len(certificate.not_after) >= 10 else certificate.not_after
+
+
+def parse_certificate_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    normalized = value.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _likely_tls_flow(flow) -> bool:
+    return flow.key.protocol == "TCP" and any(
+        port in {443, 853, 8443}
+        for port in (flow.key.port_a, flow.key.port_b)
+    )
+
+
+def _endpoint(ip: str, port: int | None) -> str:
+    return f"{ip}:{port}" if port is not None else ip
+
+
+def _flow_endpoint_text(flow) -> str:
+    return (
+        f"{_endpoint(flow.key.endpoint_a, flow.key.port_a)} <-> "
+        f"{_endpoint(flow.key.endpoint_b, flow.key.port_b)}"
+    )
+
+
+def _flow_ids(flows) -> dict[object, int]:
+    return {id(flow): index for index, flow in enumerate(flows, start=1)}
 
 
 def _certificates_from_x509_layers(packet: Any) -> list[TlsCertificateObservation]:

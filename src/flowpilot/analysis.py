@@ -4,9 +4,6 @@ import re
 from collections import Counter
 from collections.abc import Iterable
 
-from .dhcp import record_dhcp
-from .dns import record_dns
-from .esp import record_esp_sequence
 from .models import (
     CaptureSummary,
     FlowKey,
@@ -14,8 +11,11 @@ from .models import (
     PacketObservation,
     counter_to_sorted_dict,
 )
-from .sip import record_sip
-from .smb import record_smb
+from .protocols.dhcp import record_dhcp
+from .protocols.dns import record_dns
+from .protocols.esp import record_esp_sequence
+from .protocols.sip import record_sip
+from .protocols.smb import record_smb
 
 
 def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSummary:

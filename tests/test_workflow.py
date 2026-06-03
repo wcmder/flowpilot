@@ -361,7 +361,7 @@ def test_agent_reasoning_auto_tools_runs_deterministic_router(monkeypatch, tmp_p
     ]
     evidence = {"tool": "deep_tls_flow", "flow_id": 1, "status": "ok", "packet_count": 2}
 
-    def fake_deep_tls_flow(*_args, **_kwargs):
+    def fake_run_deep_tool(*_args, **_kwargs):
         return evidence
 
     def fake_reason(summary, *, model, max_flows, additional_evidence):
@@ -373,7 +373,7 @@ def test_agent_reasoning_auto_tools_runs_deterministic_router(monkeypatch, tmp_p
             next_questions=[],
         )
 
-    monkeypatch.setattr(workflow, "deep_tls_flow", fake_deep_tls_flow)
+    monkeypatch.setattr(workflow, "run_deep_tool", fake_run_deep_tool)
     monkeypatch.setattr(workflow, "reason_about_capture", fake_reason)
 
     state = workflow.run_agent_reasoning_state(
@@ -433,14 +433,14 @@ def test_agent_reasoning_runs_llm_requested_deep_tls_tool(monkeypatch, tmp_path)
         ),
     ]
 
-    def fake_deep_tls_flow(*_args, **_kwargs):
+    def fake_run_deep_tool(*_args, **_kwargs):
         return evidence
 
     def fake_reason(summary, *, model, max_flows, additional_evidence):
         additional_evidence_seen.append(additional_evidence)
         return reports.pop(0)
 
-    monkeypatch.setattr(workflow, "deep_tls_flow", fake_deep_tls_flow)
+    monkeypatch.setattr(workflow, "run_deep_tool", fake_run_deep_tool)
     monkeypatch.setattr(workflow, "reason_about_capture", fake_reason)
 
     state = workflow.run_agent_reasoning_state(
@@ -527,14 +527,14 @@ def test_agent_chat_runs_llm_requested_deep_tls_tool(monkeypatch, tmp_path) -> N
         AgentChatResponse(answer="The TLS alert came from the server side."),
     ]
 
-    def fake_deep_tls_flow(*_args, **_kwargs):
+    def fake_run_deep_tool(*_args, **_kwargs):
         return evidence
 
     def fake_chat(summary, question, *, model, max_flows, report, history, additional_evidence):
         additional_evidence_seen.append(additional_evidence)
         return responses.pop(0)
 
-    monkeypatch.setattr(workflow, "deep_tls_flow", fake_deep_tls_flow)
+    monkeypatch.setattr(workflow, "run_deep_tool", fake_run_deep_tool)
     monkeypatch.setattr(workflow, "agent_chat_about_capture", fake_chat)
 
     answer = workflow.run_agent_chat(
@@ -566,7 +566,7 @@ def test_agent_chat_runs_explicit_deep_tls_request_before_llm(monkeypatch, tmp_p
     ]
     evidence = {"tool": "deep_tls_flow", "flow_id": 1, "status": "ok", "packet_count": 5}
 
-    def fake_deep_tls_flow(*_args, **_kwargs):
+    def fake_run_deep_tool(*_args, **_kwargs):
         return evidence
 
     def fake_chat(summary, question, *, model, max_flows, report, history, additional_evidence):
@@ -575,7 +575,7 @@ def test_agent_chat_runs_explicit_deep_tls_request_before_llm(monkeypatch, tmp_p
         assert "Do not say the tool is unavailable" in question
         return AgentChatResponse(answer="I used the deep TLS evidence.")
 
-    monkeypatch.setattr(workflow, "deep_tls_flow", fake_deep_tls_flow)
+    monkeypatch.setattr(workflow, "run_deep_tool", fake_run_deep_tool)
     monkeypatch.setattr(workflow, "agent_chat_about_capture", fake_chat)
 
     answer = workflow.run_agent_chat(

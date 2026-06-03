@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from .models import FlowSummary, PacketObservation, SipCallSummary
+from rich.console import Console
+from rich.table import Table
+
+from ..models import CaptureSummary, FlowSummary, PacketObservation, SipCallSummary
 
 
 def record_sip(flow: FlowSummary, packet: PacketObservation) -> None:
@@ -74,6 +77,67 @@ def format_sip_trace(trace: list[dict[str, str | None]]) -> str:
         f"{event.get('from_endpoint')} -> {event.get('to_endpoint')} {event.get('message')}"
         for event in trace[:8]
     )
+
+
+def render_sip_details(
+    summary: CaptureSummary,
+    *,
+    show_flows: int,
+    console: Console,
+) -> None:
+    table = sip_details_table(summary, show_flows=show_flows)
+    if table:
+        console.print(table)
+
+
+def sip_details_table(summary: CaptureSummary, *, show_flows: int) -> Table | None:
+    rows = [
+        (flow_id, flow)
+        for flow_id, flow in enumerate(summary.flows[:show_flows], start=1)
+        if flow.sip_call_ids or flow.sip_methods or flow.sip_statuses
+    ]
+    if not rows:
+        return None
+
+    table = Table(title="SIP Details In Top Flows", show_lines=True)
+    table.add_column("Flow ID", justify="right")
+    table.add_column("Call ID", overflow="fold")
+    table.add_column("Caller", overflow="fold")
+    table.add_column("Callee", overflow="fold")
+    table.add_column("Methods", overflow="fold")
+    table.add_column("Statuses", overflow="fold")
+    table.add_column("Issue", overflow="fold")
+    table.add_column("Trace", overflow="fold")
+
+    for flow_id, flow in rows:
+        if flow.sip_calls:
+            for call in list(flow.sip_calls.values())[:10]:
+                table.add_row(
+                    str(flow_id),
+                    call.call_id,
+                    call.caller or "-",
+                    call.callee or "-",
+                    _format_counter_lines(call.methods),
+                    _format_counter_lines(call.statuses),
+                    "\n".join(call.issues),
+                    format_sip_trace(call.trace),
+                )
+        else:
+            table.add_row(
+                str(flow_id),
+                "\n".join(flow.sip_call_ids[:10]),
+                "-",
+                "-",
+                _format_counter_lines(flow.sip_methods),
+                _format_counter_lines(flow.sip_statuses),
+                "",
+                "",
+            )
+    return table
+
+
+def _format_counter_lines(counts: dict[str, int]) -> str:
+    return "\n".join(f"{key}: {value}" for key, value in counts.items()) or "-"
 
 
 def _endpoint(ip: str, port: int | None) -> str:

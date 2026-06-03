@@ -8,7 +8,6 @@ import struct
 import subprocess
 import tempfile
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -20,15 +19,18 @@ from rich.table import Table
 
 from .analysis import summarize_capture
 from .capture import read_capture
-from .dhcp import has_dhcp_ack
-from .dns import dns_issue_summary
-from .esp import format_esp_sequences
 from .filters import (
     FlowFilter,
     filter_observations,
     filter_sip_calls_by_phone,
     include_redirect_related_flows,
 )
+from .protocols.dhcp import render_dhcp_details
+from .protocols.dns import render_dns_details
+from .protocols.esp import format_esp_sequences
+from .protocols.sip import render_sip_details
+from .protocols.smb import render_smb_details
+from .protocols.tls import render_tls_details
 from .reasoning import (
     DEFAULT_MODEL,
     LLM_API,
@@ -37,13 +39,10 @@ from .reasoning import (
     list_openai_models,
     reason_about_capture,
 )
-from .sip import format_sip_trace
-from .smb import SMB1_COMMAND_NAMES, SMB_STATUS_NAMES, smb_display_value
 from .workflow import run_agent_chat, run_agent_reasoning_state
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
-SMB_TRANSFER_FILE_MIN_BYTES = 1_048_576
 
 
 @app.callback()
@@ -352,11 +351,11 @@ def _render_summary(summary, *, show_flows: int) -> None:
             _format_flow_issues(flow),
         )
     console.print(table)
-    _render_dns_details(summary, show_flows=show_flows)
-    _render_dhcp_details(summary, show_flows=show_flows)
-    _render_sip_details(summary, show_flows=show_flows)
-    _render_smb_details(summary, show_flows=show_flows)
-    _render_tls_certificates(summary, show_flows=show_flows)
+    render_dns_details(summary, show_flows=show_flows, console=console)
+    render_dhcp_details(summary, show_flows=show_flows, console=console)
+    render_sip_details(summary, show_flows=show_flows, console=console)
+    render_smb_details(summary, show_flows=show_flows, console=console)
+    render_tls_details(summary, show_flows=show_flows, console=console)
 
 
 def _info(message: str) -> None:
@@ -570,297 +569,6 @@ def _count_packets_in_pcapng(capture_file) -> int | None:
         capture_file.seek(remaining, 1)
 
 
-def _render_sip_details(summary, *, show_flows: int) -> None:
-    flow_ids = _flow_ids(summary.flows)
-    rows = [
-        (flow_ids[id(flow)], flow)
-        for flow in summary.flows[:show_flows]
-        if flow.sip_call_ids or flow.sip_methods or flow.sip_statuses
-    ]
-    if not rows:
-        return
-
-    table = Table(title="SIP Details In Top Flows", show_lines=True)
-    table.add_column("Flow ID", justify="right")
-    table.add_column("Call ID", overflow="fold")
-    table.add_column("Caller", overflow="fold")
-    table.add_column("Callee", overflow="fold")
-    table.add_column("Methods", overflow="fold")
-    table.add_column("Statuses", overflow="fold")
-    table.add_column("Issue", overflow="fold")
-    table.add_column("Trace", overflow="fold")
-
-    for flow_id, flow in rows:
-        if flow.sip_calls:
-            for call in list(flow.sip_calls.values())[:10]:
-                table.add_row(
-                    str(flow_id),
-                    call.call_id,
-                    call.caller or "-",
-                    call.callee or "-",
-                    _format_counter_lines(call.methods),
-                    _format_counter_lines(call.statuses),
-                    "\n".join(call.issues),
-                    format_sip_trace(call.trace),
-                )
-        else:
-            table.add_row(
-                str(flow_id),
-                "\n".join(flow.sip_call_ids[:10]),
-                "-",
-                "-",
-                _format_counter_lines(flow.sip_methods),
-                _format_counter_lines(flow.sip_statuses),
-                "",
-                "",
-            )
-    console.print(table)
-
-
-def _render_smb_details(summary, *, show_flows: int) -> None:
-    flow_ids = _flow_ids(summary.flows)
-    rows = [
-        (flow_ids[id(flow)], flow)
-        for flow in summary.flows[:show_flows]
-        if (
-            flow.smb_commands
-            or flow.smb_statuses
-            or flow.smb_filenames
-            or flow.smb_encrypted_packets
-        )
-    ]
-    if not rows:
-        return
-
-    table = Table(title="SMB Details In Top Flows", show_lines=True)
-    table.add_column("Flow ID", justify="right")
-    table.add_column("Commands", overflow="fold")
-    table.add_column("Statuses", overflow="fold")
-    table.add_column("Capabilities", overflow="fold")
-    table.add_column("Transfer", overflow="fold")
-    table.add_column("Issue", overflow="fold")
-
-    for flow_id, flow in rows:
-        table.add_row(
-            str(flow_id),
-            _format_smb_counter_lines(flow.smb_commands, SMB1_COMMAND_NAMES),
-            _format_smb_counter_lines(flow.smb_statuses, SMB_STATUS_NAMES),
-            _format_smb_capabilities(flow),
-            _format_smb_transfer(flow),
-            "\n".join(flow.smb_diagnostic_hints),
-        )
-    console.print(table)
-
-
-def _render_dns_details(summary, *, show_flows: int) -> None:
-    flow_ids = _flow_ids(summary.flows)
-    rows = [
-        (flow_ids[id(flow)], flow)
-        for flow in summary.flows[:show_flows]
-        if flow.dns_queries or flow.dns_response_codes or flow.dns_answers
-    ]
-    if not rows:
-        return
-
-    table = Table(title="DNS Details In Top Flows", show_lines=True)
-    table.add_column("Flow ID", justify="right")
-    table.add_column("Queries", overflow="fold")
-    table.add_column("Types", overflow="fold")
-    table.add_column("RCode", overflow="fold")
-    table.add_column("Answers", overflow="fold")
-    table.add_column("Issue", overflow="fold")
-
-    for flow_id, flow in rows:
-        table.add_row(
-            str(flow_id),
-            _format_counter_lines(flow.dns_queries),
-            _format_counter_lines(flow.dns_query_types),
-            _format_counter_lines(flow.dns_response_codes),
-            "\n".join(flow.dns_answers[:10]),
-            dns_issue_summary(flow.dns_response_codes),
-        )
-    console.print(table)
-
-
-def _render_dhcp_details(summary, *, show_flows: int) -> None:
-    flow_ids = _flow_ids(summary.flows)
-    rows = [
-        (flow_ids[id(flow)], flow)
-        for flow in summary.flows[:show_flows]
-        if flow.dhcp_message_types or flow.dhcp_client_macs or flow.dhcp_requested_ips
-    ]
-    if not rows:
-        return
-
-    table = Table(title="DHCP Details In Top Flows", show_lines=True)
-    table.add_column("Flow ID", justify="right")
-    table.add_column("Messages", overflow="fold")
-    table.add_column("Client", overflow="fold")
-    table.add_column("Requested/Offered", overflow="fold")
-    table.add_column("Server", overflow="fold")
-    table.add_column("Lease", overflow="fold")
-    table.add_column("Issue", overflow="fold")
-
-    for flow_id, flow in rows:
-        table.add_row(
-            str(flow_id),
-            _format_counter_lines(flow.dhcp_message_types),
-            "\n".join([*flow.dhcp_client_macs[:5], *flow.dhcp_hostnames[:5]]),
-            "\n".join(
-                [
-                    *[f"requested {ip}" for ip in flow.dhcp_requested_ips[:5]],
-                    *[f"offered {ip}" for ip in flow.dhcp_offered_ips[:5]],
-                ]
-            ),
-            "\n".join(flow.dhcp_server_ids[:10]),
-            "\n".join(flow.dhcp_lease_times[:10]),
-            "dhcp exchange lacks ack in observed packets"
-            if flow.dhcp_message_types and not has_dhcp_ack(flow.dhcp_message_types)
-            else "",
-        )
-    console.print(table)
-
-
-def _render_tls_certificates(summary, *, show_flows: int) -> None:
-    rows = _tls_detail_rows(summary, show_flows=show_flows)
-    if not rows:
-        return
-
-    table = Table(title="TLS Details Observed In Flows", show_lines=True)
-    table.add_column("Flow ID", justify="right")
-    table.add_column("Endpoint", overflow="fold")
-    table.add_column("SNI", overflow="fold")
-    table.add_column("Subject", overflow="fold")
-    table.add_column("Issuer", overflow="fold")
-    table.add_column("Expiration", overflow="fold")
-    table.add_column("SAN", overflow="fold")
-    table.add_column("Issue", overflow="fold")
-
-    for flow_id, flow, role, endpoint, certificates in rows:
-        table.add_row(
-            str(flow_id),
-            _tls_endpoint_with_role(endpoint, role),
-            _tls_sni_for_endpoint(flow, endpoint),
-            _format_certificate_column(certificates, "subject"),
-            _format_certificate_column(certificates, "issuer"),
-            _format_certificate_column(certificates, "expiration"),
-            _format_certificate_column(certificates, "san"),
-            _tls_issue_text(flow, endpoint, certificates),
-        )
-    console.print(table)
-
-
-def _tls_endpoint_with_role(endpoint: str, role: str) -> str:
-    return endpoint if role == "-" else f"{endpoint}\n({role})"
-
-
-def _tls_sni_for_endpoint(flow, endpoint: str) -> str:
-    return "\n".join(flow.tls_sni_endpoints.get(endpoint, [])[:5]) or "-"
-
-
-def _tls_detail_rows(summary, *, show_flows: int) -> list[tuple[int, object, str, str, list]]:
-    flow_ids = _flow_ids(summary.flows)
-    certificate_flows = []
-    observed_tls_rows = []
-    for flow in summary.flows[:show_flows]:
-        if flow.tls_certificates:
-            certificate_flows.extend(_tls_certificate_rows(flow_ids[id(flow)], flow))
-        elif flow.tls_snis or flow.tls_alerts or _likely_tls_flow(flow):
-            observed_tls_rows.append((flow_ids[id(flow)], flow, "-", _flow_endpoint_text(flow), []))
-    return [*certificate_flows, *observed_tls_rows][:show_flows]
-
-
-def _tls_certificate_rows(flow_id: int, flow) -> list[tuple[int, object, str, str, list]]:
-    groups: dict[tuple[str, str], list] = {}
-    for certificate in flow.tls_certificates:
-        role = certificate.presenter_role or "-"
-        endpoint = _certificate_endpoint(flow, certificate)
-        groups.setdefault((role, endpoint), []).append(certificate)
-    return [
-        (flow_id, flow, role, endpoint, certificates)
-        for (role, endpoint), certificates in groups.items()
-    ]
-
-
-def _format_certificate_column(certificates: list, field_name: str) -> str:
-    values = []
-    for index, certificate in enumerate(certificates, start=1):
-        values.append(f"Cert {index}: {_certificate_field(certificate, field_name)}")
-    return "\n".join(values) or "-"
-
-
-def _certificate_field(certificate, field_name: str) -> str:
-    if field_name == "subject":
-        return certificate.subject_cn or certificate.subject or "-"
-    if field_name == "issuer":
-        return certificate.issuer_cn or certificate.issuer or "-"
-    if field_name == "expiration":
-        return _expiration(certificate)
-    if field_name == "san":
-        return ", ".join(certificate.san_dns[:5]) or "-"
-    return "-"
-
-
-def _format_tls_certificates(flow) -> str:
-    lines = []
-    for index, certificate in enumerate(flow.tls_certificates, start=1):
-        parts = [
-            f"cert {index}",
-            f"role={certificate.presenter_role or '-'}",
-            f"endpoint={_certificate_endpoint(flow, certificate)}",
-            f"subject={certificate.subject_cn or certificate.subject or '-'}",
-            f"issuer={certificate.issuer_cn or certificate.issuer or '-'}",
-            f"expiration={_expiration(certificate)}",
-            f"san={', '.join(certificate.san_dns[:5]) or '-'}",
-        ]
-        certificate_issues = _certificate_issue_lines(certificate)
-        if certificate_issues:
-            parts.append(f"issue={'; '.join(certificate_issues)}")
-        lines.append(" / ".join(parts))
-    return "\n".join(lines) or "-"
-
-
-def _tls_issue_text(flow, endpoint: str, certificates: list | None = None) -> str:
-    issues = []
-    is_flow_endpoint = endpoint == _flow_endpoint_text(flow)
-    endpoint_alerts = (
-        flow.tls_alerts
-        if is_flow_endpoint
-        else flow.tls_alert_endpoints.get(endpoint, {})
-    )
-    if endpoint_alerts:
-        issues.extend(
-            f"{'tls alert' if is_flow_endpoint else 'sent tls alert'}: {alert} (x{count})"
-            for alert, count in endpoint_alerts.items()
-        )
-    for certificate in certificates or []:
-        issues.extend(_certificate_issue_lines(certificate))
-    if not flow.tls_certificates:
-        if flow.tls_alerts and not endpoint_alerts and endpoint != _flow_endpoint_text(flow):
-            issues.append("tls alert sent by peer")
-        issues.append("tls observed but certificate not extracted")
-    return "\n".join(issues)
-
-
-def _certificate_issue_lines(certificate) -> list[str]:
-    issues = []
-    expires_at = _parse_certificate_datetime(certificate.not_after)
-    starts_at = _parse_certificate_datetime(certificate.not_before)
-    now = datetime.now(timezone.utc)
-    if expires_at and expires_at < now:
-        issues.append(f"certificate expired {certificate.not_after}")
-    if starts_at and starts_at > now:
-        issues.append(f"certificate not valid until {certificate.not_before}")
-    return issues
-
-
-def _likely_tls_flow(flow) -> bool:
-    return flow.key.protocol == "TCP" and any(
-        port in {443, 853, 8443}
-        for port in (flow.key.port_a, flow.key.port_b)
-    )
-
-
 def _render_reasoning(report) -> None:
     console.print(Panel(report.executive_summary, title=f"LLM Risk: {report.risk_level}"))
     for finding in report.findings:
@@ -987,17 +695,6 @@ def _flow_ids(flows) -> dict[object, int]:
     return {id(flow): index for index, flow in enumerate(flows, start=1)}
 
 
-def _certificate_endpoint(flow, certificate) -> str:
-    ip = certificate.presenter_ip
-    port = certificate.presenter_port
-    if ip:
-        return _endpoint(ip, port)
-    return (
-        f"{_endpoint(flow.key.endpoint_a, flow.key.port_a)} or "
-        f"{_endpoint(flow.key.endpoint_b, flow.key.port_b)}"
-    )
-
-
 def _direction(flow) -> str:
     packet_split = f"pkts {flow.src_to_dst_packets}/{flow.dst_to_src_packets}"
     byte_split = f"bytes {flow.src_to_dst_bytes}/{flow.dst_to_src_bytes}"
@@ -1090,114 +787,6 @@ def _format_counter_lines(counts: dict[str, int]) -> str:
     if not counts:
         return ""
     return "\n".join(f"{key}: {value}" for key, value in list(counts.items())[:10])
-
-
-def _format_smb_counter_lines(counts: dict[str, int], names: dict[str, str]) -> str:
-    if not counts:
-        return ""
-    return "\n".join(
-        f"{smb_display_value(value, names)}: {count}"
-        for value, count in list(counts.items())[:10]
-    )
-
-
-def _format_smb_transfer(flow) -> str:
-    return "\n".join(
-        [
-            _format_smb_transfer_line(
-                "read",
-                flow.smb_read_ops,
-                flow.smb_read_bytes,
-                flow.smb_read_unknown_bytes_ops,
-                flow.smb_read_offset_inferred_ops,
-                _format_smb_transfer_files("download", flow.smb_read_bytes_by_file),
-            ),
-            _format_smb_transfer_line(
-                "write",
-                flow.smb_write_ops,
-                flow.smb_write_bytes,
-                flow.smb_write_unknown_bytes_ops,
-                flow.smb_write_offset_inferred_ops,
-                _format_smb_transfer_files("upload", flow.smb_write_bytes_by_file),
-            ),
-            f"smb payload {flow.smb_transfer_mbps:.3f} Mbps",
-            f"flow total {flow.throughput_mbps:.3f} Mbps",
-        ]
-    )
-
-
-def _format_smb_transfer_files(label: str, bytes_by_file: dict[str, int]) -> list[str]:
-    transferred_files = [
-        (filename, byte_count)
-        for filename, byte_count in bytes_by_file.items()
-        if byte_count >= SMB_TRANSFER_FILE_MIN_BYTES
-    ]
-    transferred_files.sort(key=lambda item: item[1], reverse=True)
-    return [
-        f"{label} {filename} ({_format_bytes(byte_count)})"
-        for filename, byte_count in transferred_files[:10]
-    ]
-
-
-def _format_smb_capabilities(flow) -> str:
-    capability_sources: dict[str, set[str]] = {}
-    for capability in flow.smb_client_capabilities:
-        capability_sources.setdefault(capability, set()).add("c")
-    for capability in flow.smb_server_capabilities:
-        capability_sources.setdefault(capability, set()).add("s")
-    lines = [
-        f"{capability} ({','.join(source for source in ('c', 's') if source in sources)})"
-        for capability, sources in list(capability_sources.items())[:20]
-    ]
-    return "\n".join(lines)
-
-
-def _format_smb_transfer_line(
-    label: str,
-    ops: int,
-    byte_count: int,
-    unknown_ops: int,
-    inferred_ops: int = 0,
-    files: list[str] | None = None,
-) -> str:
-    line = f"{label} {ops} ops / {byte_count} bytes"
-    notes = []
-    if inferred_ops:
-        notes.append(f"{inferred_ops} ops inferred from offsets")
-    if unknown_ops:
-        notes.append(f"{unknown_ops} ops length unavailable")
-    if notes:
-        line += f" ({', '.join(notes)})"
-    if files:
-        line += "\n" + "\n".join(files)
-    return line
-
-
-def _format_bytes(byte_count: int) -> str:
-    if byte_count >= 1_048_576:
-        return f"{byte_count / 1_048_576:.1f} MiB"
-    if byte_count >= 1024:
-        return f"{byte_count / 1024:.1f} KiB"
-    return f"{byte_count} bytes"
-
-
-def _expiration(certificate) -> str:
-    if not certificate.not_after:
-        return "-"
-    return certificate.not_after[:10] if len(certificate.not_after) >= 10 else certificate.not_after
-
-
-def _parse_certificate_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    normalized = value.strip().replace("Z", "+00:00")
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
 
 
 if __name__ == "__main__":

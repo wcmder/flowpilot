@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .models import EspSequenceSummary, FlowSummary, PacketObservation
+from ..models import EspSequenceSummary, FlowSummary, PacketObservation
 
 
 def record_esp_sequence(flow: FlowSummary, packet: PacketObservation) -> None:

@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from .models import PacketObservation
-from .smb import SMB2_COMMAND_NAMES
-from .tls import tls_alert, tls_certificates, tls_sni
+from .protocols.smb import SMB2_COMMAND_NAMES
+from .protocols.tls import tls_alert, tls_certificates, tls_sni
 
 
 def read_capture(

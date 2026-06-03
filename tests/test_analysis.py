@@ -11,7 +11,7 @@ from flowpilot.filters import (
     include_redirect_related_flows,
 )
 from flowpilot.models import PacketObservation, TlsCertificateObservation
-from flowpilot.tls import _all_field_values, tls_alert, tls_certificates
+from flowpilot.protocols.tls import _all_field_values, tls_alert, tls_certificates
 
 
 def test_summarize_capture_groups_bidirectional_flow() -> None:

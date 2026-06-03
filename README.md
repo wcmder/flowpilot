@@ -34,6 +34,15 @@ chat through a stateful workflow that can be extended with targeted rereads.
 - Optionally uses LangGraph for agentic LLM reasoning and interactive follow-up
   chat while keeping packet analysis deterministic.
 
+## Architecture notes
+
+FlowPilot is moving toward protocol and deep-tool registries so new protocol
+support can be added with fewer cross-cutting edits. Deep reread tools are
+registered in `src/flowpilot/deep_tools.py`. Protocol metadata is registered in
+`src/flowpilot/protocols/`; at this stage it documents existing protocol
+capabilities and extension points while the current parser and renderer behavior
+remains unchanged.
+
 ## Requirements
 
 - Python 3.10+

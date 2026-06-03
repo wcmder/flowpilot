@@ -6,29 +6,35 @@ from flowpilot.cli import (
     _CachedCaptureSession,
     _count_packets_in_capture,
     _direction,
-    _expiration,
     _format_agent_evidence_counts,
-    _format_certificate_column,
     _format_flow_issues,
-    _format_smb_capabilities,
-    _format_smb_counter_lines,
-    _format_smb_transfer,
-    _format_smb_transfer_line,
-    _format_tls_certificates,
     _local_analysis_start_message,
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
     _percent,
-    _tls_detail_rows,
-    _tls_endpoint_with_role,
-    _tls_issue_text,
-    _tls_sni_for_endpoint,
     _traffic,
 )
-from flowpilot.dns import dns_issue_summary
-from flowpilot.esp import format_esp_gap_distribution
 from flowpilot.models import CaptureSummary, FlowKey, FlowSummary, TlsCertificateObservation
-from flowpilot.smb import SMB1_COMMAND_NAMES, SMB2_COMMAND_NAMES, SMB_STATUS_NAMES
+from flowpilot.protocols.dns import dns_issue_summary
+from flowpilot.protocols.esp import format_esp_gap_distribution
+from flowpilot.protocols.smb import (
+    SMB1_COMMAND_NAMES,
+    SMB2_COMMAND_NAMES,
+    SMB_STATUS_NAMES,
+    format_smb_capabilities,
+    format_smb_counter_lines,
+    format_smb_transfer,
+    format_smb_transfer_line,
+)
+from flowpilot.protocols.tls import (
+    expiration,
+    format_certificate_column,
+    format_tls_certificates,
+    tls_detail_rows,
+    tls_endpoint_with_role,
+    tls_issue_text,
+    tls_sni_for_endpoint,
+)
 
 
 def test_format_esp_gap_distribution_groups_missing_counts() -> None:
@@ -156,19 +162,19 @@ def test_cached_capture_session_can_keep_workspace(tmp_path) -> None:
 
 
 def test_format_smb_counter_lines_labels_numeric_commands() -> None:
-    assert _format_smb_counter_lines({"0": 2, "11": 1, "Read": 1}, SMB1_COMMAND_NAMES) == (
+    assert format_smb_counter_lines({"0": 2, "11": 1, "Read": 1}, SMB1_COMMAND_NAMES) == (
         "SMBmkdir(0): 2\nSMBwrite(11): 1\nRead: 1"
     )
 
 
 def test_format_smb_counter_lines_labels_smb2_numeric_commands() -> None:
-    assert _format_smb_counter_lines({"8": 2, "9": 1, "11": 1}, SMB2_COMMAND_NAMES) == (
+    assert format_smb_counter_lines({"8": 2, "9": 1, "11": 1}, SMB2_COMMAND_NAMES) == (
         "SMB2read(8): 2\nSMB2write(9): 1\nSMB2ioctl(11): 1"
     )
 
 
 def test_format_smb_counter_lines_labels_numeric_statuses() -> None:
-    assert _format_smb_counter_lines(
+    assert format_smb_counter_lines(
         {
             "0x00000000": 2,
             "0xc0000022": 1,
@@ -183,7 +189,7 @@ def test_format_smb_counter_lines_labels_numeric_statuses() -> None:
 
 
 def test_format_smb_counter_lines_removes_hex_from_preformatted_statuses() -> None:
-    assert _format_smb_counter_lines(
+    assert format_smb_counter_lines(
         {
             "STATUS_SUCCESS (0x00000000)": 2,
             "STATUS_ACCESS_DENIED(0xc0000022)": 1,
@@ -193,13 +199,13 @@ def test_format_smb_counter_lines_removes_hex_from_preformatted_statuses() -> No
 
 
 def test_format_smb_transfer_line_shows_unavailable_lengths() -> None:
-    assert _format_smb_transfer_line("write", 10, 0, 10) == (
+    assert format_smb_transfer_line("write", 10, 0, 10) == (
         "write 10 ops / 0 bytes (10 ops length unavailable)"
     )
 
 
 def test_format_smb_transfer_line_shows_related_files() -> None:
-    assert _format_smb_transfer_line(
+    assert format_smb_transfer_line(
         "write",
         10,
         4096,
@@ -210,7 +216,7 @@ def test_format_smb_transfer_line_shows_related_files() -> None:
 
 
 def test_format_smb_transfer_line_shows_offset_inference() -> None:
-    assert _format_smb_transfer_line("write", 10, 36864, 1, 9) == (
+    assert format_smb_transfer_line("write", 10, 36864, 1, 9) == (
         "write 10 ops / 36864 bytes "
         "(9 ops inferred from offsets, 1 ops length unavailable)"
     )
@@ -226,8 +232,8 @@ def test_format_smb_transfer_labels_payload_and_flow_rates() -> None:
         smb_write_unknown_bytes_ops=10,
     )
 
-    assert "smb payload 0.000 Mbps" in _format_smb_transfer(flow)
-    assert "flow total 8.000 Mbps" in _format_smb_transfer(flow)
+    assert "smb payload 0.000 Mbps" in format_smb_transfer(flow)
+    assert "flow total 8.000 Mbps" in format_smb_transfer(flow)
 
 
 def test_format_smb_transfer_hides_small_walkthrough_files() -> None:
@@ -238,7 +244,7 @@ def test_format_smb_transfer_hides_small_walkthrough_files() -> None:
         smb_read_bytes_by_file={"\\\\share\\preview.docx": 8192},
     )
 
-    assert "download" not in _format_smb_transfer(flow)
+    assert "download" not in format_smb_transfer(flow)
 
 
 def test_format_smb_transfer_shows_large_download_files() -> None:
@@ -249,7 +255,7 @@ def test_format_smb_transfer_shows_large_download_files() -> None:
         smb_read_bytes_by_file={"\\\\share\\download.iso": 2_097_152},
     )
 
-    assert "download \\\\share\\download.iso (2.0 MiB)" in _format_smb_transfer(flow)
+    assert "download \\\\share\\download.iso (2.0 MiB)" in format_smb_transfer(flow)
 
 
 def test_format_smb_capabilities_shows_client_and_server_offers() -> None:
@@ -259,7 +265,7 @@ def test_format_smb_capabilities_shows_client_and_server_offers() -> None:
         smb_server_capabilities=["DFS", "multi-channel", "encryption"],
     )
 
-    assert _format_smb_capabilities(flow) == (
+    assert format_smb_capabilities(flow) == (
         "DFS (c,s)\n"
         "dialect=0x0311 (c)\n"
         "signing enabled (c)\n"
@@ -338,7 +344,7 @@ def test_tls_detail_rows_respect_top_flow_slice() -> None:
         flows=[larger_flow, cert_flow],
     )
 
-    rows = _tls_detail_rows(summary, show_flows=1)
+    rows = tls_detail_rows(summary, show_flows=1)
 
     assert rows == []
 
@@ -365,7 +371,7 @@ def test_tls_detail_rows_include_sni_without_certificate() -> None:
         flows=[flow],
     )
 
-    rows = _tls_detail_rows(summary, show_flows=10)
+    rows = tls_detail_rows(summary, show_flows=10)
 
     assert rows == [(1, flow, "-", "10.0.0.10:50000 <-> 203.0.113.10:443", [])]
 
@@ -393,14 +399,14 @@ def test_tls_detail_rows_include_alert_without_certificate() -> None:
         flows=[flow],
     )
 
-    rows = _tls_detail_rows(summary, show_flows=10)
+    rows = tls_detail_rows(summary, show_flows=10)
 
     assert rows == [(1, flow, "-", "10.0.0.10:50000 <-> 203.0.113.10:443", [])]
 
 
 def test_tls_endpoint_with_role_adds_role_on_second_line() -> None:
-    assert _tls_endpoint_with_role("1.1.1.1:443", "server") == "1.1.1.1:443\n(server)"
-    assert _tls_endpoint_with_role("1.1.1.1:443", "-") == "1.1.1.1:443"
+    assert tls_endpoint_with_role("1.1.1.1:443", "server") == "1.1.1.1:443\n(server)"
+    assert tls_endpoint_with_role("1.1.1.1:443", "-") == "1.1.1.1:443"
 
 
 def test_tls_sni_for_endpoint_only_shows_sender_sni() -> None:
@@ -416,8 +422,8 @@ def test_tls_sni_for_endpoint_only_shows_sender_sni() -> None:
         tls_sni_endpoints={"10.0.0.10:50000": ["api.example.com"]},
     )
 
-    assert _tls_sni_for_endpoint(flow, "10.0.0.10:50000") == "api.example.com"
-    assert _tls_sni_for_endpoint(flow, "203.0.113.10:443") == "-"
+    assert tls_sni_for_endpoint(flow, "10.0.0.10:50000") == "api.example.com"
+    assert tls_sni_for_endpoint(flow, "203.0.113.10:443") == "-"
 
 
 def test_tls_expiration_shows_only_not_after() -> None:
@@ -426,7 +432,7 @@ def test_tls_expiration_shows_only_not_after() -> None:
         not_after="2027-01-01T00:00:00+00:00",
     )
 
-    assert _expiration(certificate) == "2027-01-01"
+    assert expiration(certificate) == "2027-01-01"
 
 
 def test_tls_issue_text_lists_flow_issues_on_new_lines() -> None:
@@ -450,11 +456,11 @@ def test_tls_issue_text_lists_flow_issues_on_new_lines() -> None:
         ],
     )
 
-    assert _tls_issue_text(flow, "10.0.0.10:50000") == ""
-    assert _tls_issue_text(flow, "203.0.113.10:443") == (
+    assert tls_issue_text(flow, "10.0.0.10:50000") == ""
+    assert tls_issue_text(flow, "203.0.113.10:443") == (
         "sent tls alert: fatal (2) close_notify (0) (x1)"
     )
-    assert _tls_issue_text(flow, "10.0.0.10:50000 <-> 203.0.113.10:443") == (
+    assert tls_issue_text(flow, "10.0.0.10:50000 <-> 203.0.113.10:443") == (
         "tls alert: fatal (2) close_notify (0) (x1)"
     )
 
@@ -489,7 +495,7 @@ def test_format_tls_certificates_lists_chain_one_cert_per_line() -> None:
         ],
     )
 
-    assert _format_tls_certificates(flow) == (
+    assert format_tls_certificates(flow) == (
         "cert 1 / role=server / endpoint=203.0.113.10:443 / "
         "subject=api.example.com / issuer=Example Issuing CA / "
         "expiration=2027-01-01 / san=api.example.com\n"
@@ -515,19 +521,19 @@ def test_format_certificate_column_lists_all_certs_per_line() -> None:
         ),
     ]
 
-    assert _format_certificate_column(certificates, "subject") == (
+    assert format_certificate_column(certificates, "subject") == (
         "Cert 1: api.example.com\n"
         "Cert 2: Example Issuing CA"
     )
-    assert _format_certificate_column(certificates, "issuer") == (
+    assert format_certificate_column(certificates, "issuer") == (
         "Cert 1: Example Issuing CA\n"
         "Cert 2: Example Root CA"
     )
-    assert _format_certificate_column(certificates, "expiration") == (
+    assert format_certificate_column(certificates, "expiration") == (
         "Cert 1: 2027-01-01\n"
         "Cert 2: 2030-01-01"
     )
-    assert _format_certificate_column(certificates, "san") == (
+    assert format_certificate_column(certificates, "san") == (
         "Cert 1: api.example.com\n"
         "Cert 2: -"
     )
@@ -563,7 +569,7 @@ def test_tls_detail_rows_use_object_position_when_flow_keys_repeat() -> None:
         flows=[first_flow, later_duplicate],
     )
 
-    rows = _tls_detail_rows(summary, show_flows=1)
+    rows = tls_detail_rows(summary, show_flows=1)
 
     assert rows[0][0] == 1
     assert rows[0][2] == "-"
@@ -608,7 +614,7 @@ def test_tls_detail_rows_prioritize_certificates_within_top_flow_slice() -> None
         flows=[placeholder_flow, cert_flow],
     )
 
-    rows = _tls_detail_rows(summary, show_flows=2)
+    rows = tls_detail_rows(summary, show_flows=2)
 
     assert rows[0][0] == 2
     assert rows[0][1] == cert_flow
