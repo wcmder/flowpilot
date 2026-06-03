@@ -543,6 +543,7 @@ class CaptureSummary(BaseModel):
             "protocols": self.protocols,
             "top_ports": self.top_ports,
             "observed_names": self.names[:50],
+            "flow_endpoint_inventory": _flow_endpoint_inventory(flows),
             "top_flows": [
                 {
                     "flow_id": flow_id,
@@ -709,6 +710,23 @@ def _flow_label(flow: FlowSummary) -> str:
 
 def _endpoint_label(endpoint: str, port: int | None) -> str:
     return endpoint if port is None else f"{endpoint}:{port}"
+
+
+def _flow_endpoint_inventory(flows: list[FlowSummary]) -> dict[str, list[str]]:
+    endpoints: set[str] = set()
+    endpoint_ports: set[str] = set()
+    flow_labels: list[str] = []
+    for flow in flows:
+        endpoints.add(flow.key.endpoint_a)
+        endpoints.add(flow.key.endpoint_b)
+        endpoint_ports.add(_endpoint_label(flow.key.endpoint_a, flow.key.port_a))
+        endpoint_ports.add(_endpoint_label(flow.key.endpoint_b, flow.key.port_b))
+        flow_labels.append(_flow_label(flow))
+    return {
+        "endpoints": sorted(endpoints),
+        "endpoint_ports": sorted(endpoint_ports),
+        "flow_labels": flow_labels,
+    }
 
 
 def _endpoint_sort_key(endpoint: tuple[str, int | None]) -> tuple[str, int]:

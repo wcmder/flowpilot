@@ -367,6 +367,8 @@ def test_explicit_tool_followup_question_tells_llm_tool_already_ran() -> None:
 
     assert "FlowPilot has already run" in question
     assert "deep_tls_flow for Flow ID 1" in question
+    assert "target_flow identity" in question
+    assert "different Flow ID" in question
     assert "Do not say the tool is unavailable" in question
     assert "Original user request: run deep tls flow for flow 1" in question
 
@@ -741,7 +743,17 @@ def test_agent_chat_runs_explicit_deep_tls_request_before_llm(monkeypatch, tmp_p
         analysis_focus,
     ):
         assert additional_evidence == [evidence]
+        assert additional_evidence[0]["target_flow"] == {
+            "flow_id": 1,
+            "flow_label": "TCP 10.0.0.10:53150 <-> 10.0.0.20:443",
+            "protocol": "TCP",
+            "endpoint_a": "10.0.0.10",
+            "port_a": 53150,
+            "endpoint_b": "10.0.0.20",
+            "port_b": 443,
+        }
         assert "FlowPilot has already run" in question
+        assert "target_flow identity" in question
         assert "Do not say the tool is unavailable" in question
         return AgentChatResponse(answer="I used the deep TLS evidence.")
 
@@ -802,8 +814,14 @@ def test_agent_chat_explicit_tool_evidence_is_prompt_visible(monkeypatch, tmp_pa
             additional_evidence=additional_evidence,
         )
         assert additional_evidence == [evidence]
+        assert additional_evidence[0]["target_flow"]["flow_label"] == (
+            "TCP 10.0.0.10:53150 <-> 10.0.0.20:443"
+        )
         assert "IMPORTANT: additional_tool_evidence is present below" in messages[1]["content"]
+        assert "target_flow as the authoritative identity" in messages[1]["content"]
+        assert "absent from summary.flow_endpoint_inventory" in messages[1]["content"]
         assert '"tls_alert_packets": 1' in messages[1]["content"]
+        assert '"target_flow"' in messages[1]["content"]
         return AgentChatResponse(answer="I can see the deep TLS evidence.")
 
     monkeypatch.setattr(workflow, "run_deep_tool", fake_run_deep_tool)

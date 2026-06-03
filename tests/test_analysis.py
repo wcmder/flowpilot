@@ -219,10 +219,24 @@ def test_compact_metadata_keeps_protocol_detail_for_llm() -> None:
     ]
 
     summary = summarize_capture(packets)
-    compact_flows = summary.compact(max_flows=2)["top_flows"]
+    compact = summary.compact(max_flows=2)
+    compact_flows = compact["top_flows"]
     dns_flow = next(flow for flow in compact_flows if flow["protocol"] == "UDP")
     smb_flow = next(flow for flow in compact_flows if flow["protocol"] == "TCP")
 
+    assert compact["flow_endpoint_inventory"] == {
+        "endpoints": ["10.0.0.10", "10.0.0.30", "192.0.2.53"],
+        "endpoint_ports": [
+            "10.0.0.10:53000",
+            "10.0.0.10:55000",
+            "10.0.0.30:445",
+            "192.0.2.53:53",
+        ],
+        "flow_labels": [
+            "UDP 10.0.0.10:53000 <-> 192.0.2.53:53",
+            "TCP 10.0.0.10:55000 <-> 10.0.0.30:445",
+        ],
+    }
     assert dns_flow["flow_id"] == 1
     assert dns_flow["flow_label"] == "UDP 10.0.0.10:53000 <-> 192.0.2.53:53"
     assert smb_flow["flow_id"] == 2

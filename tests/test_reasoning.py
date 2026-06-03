@@ -19,6 +19,8 @@ def test_system_prompt_delegates_tool_access_through_evidence_requests() -> None
     assert "deep_tls_flow" in reasoning.SYSTEM_PROMPT
     assert "deep_smb2_flow" in reasoning.SYSTEM_PROMPT
     assert "flow_id exactly matches" in reasoning.SYSTEM_PROMPT
+    assert "Do not invent IP addresses" in reasoning.SYSTEM_PROMPT
+    assert "summary.flow_endpoint_inventory" in reasoning.SYSTEM_PROMPT
     assert "evidence_requests" in reasoning.SYSTEM_PROMPT
     assert "do not say you lack access" in reasoning.SYSTEM_PROMPT
 
@@ -133,6 +135,8 @@ def test_chat_input_includes_exact_requested_flow_context() -> None:
     )
 
     assert '"requested_flow"' in messages[0]["content"]
+    assert '"flow_endpoint_inventory"' in messages[0]["content"]
+    assert "Current FlowPilot metadata supersedes prior chat history" in messages[0]["content"]
     assert '"flow_id": 1' in messages[0]["content"]
     assert '"match_status": "found"' in messages[0]["content"]
     assert "10.0.0.1:50000" in messages[0]["content"]

@@ -44,6 +44,11 @@ Only discuss protocols that are present in the provided metadata, present in add
 evidence, or explicitly asked about by the user. Do not add checklist-style negative statements
 for absent protocols, such as "No TCP, SMB, SIP, DHCP, or ESP issue is evidenced", unless that
 absence directly answers the user's question.
+Do not invent IP addresses, endpoints, ports, hostnames, URLs, or flow identities. Any IP
+address or endpoint you mention must appear in the current summary.flow_endpoint_inventory,
+top_flows, requested_flow, or additional_tool_evidence target_flow/deep samples. If an
+endpoint appears only in prior chat history but not in the current FlowPilot metadata, treat
+it as unverified and do not use it as a finding.
 
 For ESP/IPsec and other encrypted/datagram flows, explicitly state what cannot be proven from
 the metadata, but still reason from duration, bytes, throughput_mbps, directionality, packet
@@ -678,7 +683,9 @@ def _chat_input(
             "role": "user",
             "content": (
                 "Use this derived FlowPilot metadata as the fixed analysis context. "
-                "Do not assume access to raw packet payloads beyond this metadata.\n\n"
+                "Do not assume access to raw packet payloads beyond this metadata. "
+                "Current FlowPilot metadata supersedes prior chat history for IPs, "
+                "endpoints, ports, hostnames, URLs, and flow identities.\n\n"
                 f"{json.dumps(context, indent=2, default=str)}"
             ),
         }
@@ -690,6 +697,13 @@ def _chat_input(
                 "content": (
                     "IMPORTANT: additional_tool_evidence is present below. Treat this "
                     "as the newest and most specific FlowPilot/LangGraph deep evidence. "
+                    "Each evidence item may include target_flow; use that target_flow as "
+                    "the authoritative identity for that tool result. If the user asked "
+                    "for a specific Flow ID, use only evidence whose flow_id and "
+                    "target_flow.flow_id match that number, and do not cite endpoints "
+                    "from another flow or another evidence item. Do not mention any "
+                    "IP or endpoint that is absent from summary.flow_endpoint_inventory "
+                    "unless it appears in this additional_tool_evidence payload. "
                     f"The requested_analysis_focus is {analysis_focus}. "
                     "If requested_analysis_focus is transport, use TLS certificate/cipher/hash "
                     "fields only for transport/session troubleshooting and do not present the "

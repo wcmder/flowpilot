@@ -404,7 +404,10 @@ def _explicit_tool_followup_question(
     return (
         "FlowPilot has already run the explicit deep evidence request before this "
         f"LLM call: {request_summary}. Use additional_tool_evidence as the source "
-        "of truth for those tool results. Do not say the tool is unavailable or "
+        "of truth for those tool results. For each requested Flow ID, use only "
+        "the evidence item with that exact flow_id and its target_flow identity. "
+        "Do not use endpoints or samples from a different Flow ID. "
+        "Do not say the tool is unavailable or "
         "not integrated. Answer the user's original request using the supplied "
         f"deep evidence.\n\nOriginal user request: {original_question}"
     )
@@ -454,13 +457,16 @@ def _run_tool_request(state: FlowPilotAgentState, request: dict[str, Any]) -> di
                 "and must reference the Top Flows table."
             ),
         }
-    return run_deep_tool(
+    result = run_deep_tool(
         tool,
         state["capture_path"],
         flow_id=flow_id,
         flow=flow,
         reason=request.get("reason", ""),
     )
+    result.setdefault("flow_id", flow_id)
+    result["target_flow"] = _tool_target_flow(flow_id, flow)
+    return result
 
 
 def _tool_node_result(state: FlowPilotAgentState) -> dict[str, Any]:
@@ -560,6 +566,30 @@ def _flow_by_id(flows: list[FlowSummary], flow_id: Any) -> FlowSummary | None:
     if not isinstance(flow_id, int):
         return None
     return _flow_ids(flows).get(flow_id)
+
+
+def _tool_target_flow(flow_id: int, flow: FlowSummary) -> dict[str, Any]:
+    return {
+        "flow_id": flow_id,
+        "flow_label": _flow_label(flow),
+        "protocol": flow.key.protocol,
+        "endpoint_a": flow.key.endpoint_a,
+        "port_a": flow.key.port_a,
+        "endpoint_b": flow.key.endpoint_b,
+        "port_b": flow.key.port_b,
+    }
+
+
+def _flow_label(flow: FlowSummary) -> str:
+    return (
+        f"{flow.key.protocol} "
+        f"{_endpoint_label(flow.key.endpoint_a, flow.key.port_a)} <-> "
+        f"{_endpoint_label(flow.key.endpoint_b, flow.key.port_b)}"
+    )
+
+
+def _endpoint_label(endpoint: str, port: int | None) -> str:
+    return endpoint if port is None else f"{endpoint}:{port}"
 
 
 def _valid_flow_id(state: FlowPilotAgentState, flow_id: Any) -> bool:
