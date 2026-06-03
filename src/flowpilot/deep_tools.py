@@ -96,6 +96,7 @@ def _deep_tool_aliases(tool_name: str) -> tuple[str, ...]:
 def _deep_tool_priority(tool_name: str) -> int:
     return {
         "deep_tls_flow": 0,
+        "deep_smb2_flow": 5,
         "deep_tcp_flow": 10,
         "deep_udp_flow": 20,
     }.get(tool_name, 100)

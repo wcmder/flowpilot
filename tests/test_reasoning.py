@@ -17,6 +17,7 @@ def test_rate_limit_can_be_disabled(monkeypatch) -> None:
 
 def test_system_prompt_delegates_tool_access_through_evidence_requests() -> None:
     assert "deep_tls_flow" in reasoning.SYSTEM_PROMPT
+    assert "deep_smb2_flow" in reasoning.SYSTEM_PROMPT
     assert "evidence_requests" in reasoning.SYSTEM_PROMPT
     assert "do not say you lack access" in reasoning.SYSTEM_PROMPT
 

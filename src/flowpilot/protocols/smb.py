@@ -1,11 +1,51 @@
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+from typing import Any
+
 from rich.console import Console
 from rich.table import Table
 
 from ..models import CaptureSummary, FlowSummary, PacketObservation
+from .deep_common import field_command, parse_field_rows, tcp_flow_filter, tshark_path
 
 SMB_TRANSFER_FILE_MIN_BYTES = 1_048_576
+
+SMB2_DEEP_FIELDS = [
+    "frame.number",
+    "frame.time_relative",
+    "ip.src",
+    "ipv6.src",
+    "ip.dst",
+    "ipv6.dst",
+    "tcp.srcport",
+    "tcp.dstport",
+    "tcp.seq",
+    "tcp.ack",
+    "tcp.len",
+    "tcp.analysis.retransmission",
+    "tcp.analysis.lost_segment",
+    "tcp.analysis.out_of_order",
+    "tcp.analysis.zero_window",
+    "smb2.cmd",
+    "smb2.flags.response",
+    "smb2.msg_id",
+    "smb2.session_id",
+    "smb2.tid",
+    "smb2.nt_status",
+    "smb2.credit.charge",
+    "smb2.credit.request_response",
+    "smb2.read.length",
+    "smb2.write.length",
+    "smb2.data_length",
+    "smb2.offset",
+    "smb2.file_id",
+    "smb2.filename",
+]
+
+SMB2_CREDIT_CHARGE_FIELD = "smb2.credit.charge"
+SMB2_CREDIT_REQUEST_RESPONSE_FIELD = "smb2.credit.request_response"
 
 SMB1_COMMAND_NAMES = {
     "0": "SMBmkdir",
@@ -263,6 +303,169 @@ def extract_smb(packet, helpers) -> dict:
         "smb_encrypted": _smb_encrypted(packet, helpers),
         "smb_capabilities": _smb_capabilities(packet, helpers),
     }
+
+
+def deep_smb2_reason(flow: FlowSummary) -> str | None:
+    if flow.key.protocol != "TCP":
+        return None
+    if (
+        flow.smb_commands
+        or flow.smb_statuses
+        or flow.smb_read_ops
+        or flow.smb_write_ops
+        or flow.smb_encrypted_packets
+    ):
+        return (
+            "SMB metadata observed; inspect SMB2 credit charge, request/grant, "
+            "statuses, transfer headers, and related TCP symptoms."
+        )
+    if 445 in _flow_ports(flow) or 139 in _flow_ports(flow):
+        return (
+            "Likely SMB flow by TCP port; inspect SMB2 credit behavior, statuses, "
+            "transfer headers, and related TCP symptoms."
+        )
+    return None
+
+
+def deep_smb2_flow(
+    capture_path: Path,
+    *,
+    flow_id: int,
+    flow: FlowSummary,
+    reason: str,
+    sample_limit: int = 200,
+    timeout: int = 120,
+) -> dict[str, Any]:
+    if flow.key.protocol != "TCP":
+        return {
+            "tool": "deep_smb2_flow",
+            "flow_id": flow_id,
+            "reason": reason,
+            "status": "skipped",
+            "message": f"Flow protocol is {flow.key.protocol}, not TCP.",
+        }
+
+    tshark = tshark_path()
+    if not tshark:
+        return {
+            "tool": "deep_smb2_flow",
+            "flow_id": flow_id,
+            "reason": reason,
+            "status": "unavailable",
+            "message": "tshark was not found on PATH or in the Wireshark app bundle.",
+        }
+
+    display_filter = f"{tcp_flow_filter(flow)} && smb2"
+    command = field_command(tshark, capture_path, display_filter, SMB2_DEEP_FIELDS)
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "tool": "deep_smb2_flow",
+            "flow_id": flow_id,
+            "reason": reason,
+            "status": "error",
+            "display_filter": display_filter,
+            "message": str(exc),
+        }
+
+    if result.returncode != 0:
+        return {
+            "tool": "deep_smb2_flow",
+            "flow_id": flow_id,
+            "reason": reason,
+            "status": "error",
+            "display_filter": display_filter,
+            "message": result.stderr.strip() or f"tshark exited with {result.returncode}",
+        }
+
+    rows = parse_field_rows(result.stdout, SMB2_DEEP_FIELDS)
+    return {
+        "tool": "deep_smb2_flow",
+        "flow_id": flow_id,
+        "reason": reason,
+        "status": "ok",
+        "display_filter": display_filter,
+        "packet_count": len(rows),
+        "smb2_credit_counts": smb2_credit_counts(rows),
+        "smb2_deep_fields": SMB2_DEEP_FIELDS,
+        "smb2_deep_samples": rows[:sample_limit],
+        "sample_limit": sample_limit,
+        "truncated": len(rows) > sample_limit,
+    }
+
+
+def smb2_credit_counts(rows: list[dict[str, str]]) -> dict[str, int]:
+    counters = {
+        "smb2_packets": 0,
+        "smb2_requests": 0,
+        "smb2_responses": 0,
+        "credit_charge_total": 0,
+        "credit_charge_max": 0,
+        "credit_request_total": 0,
+        "credit_request_max": 0,
+        "credit_grant_total": 0,
+        "credit_grant_max": 0,
+        "credit_grant_zero_packets": 0,
+        "read_packets": 0,
+        "write_packets": 0,
+        "status_error_packets": 0,
+        "tcp_loss_or_retransmission_packets": 0,
+        "tcp_zero_window_packets": 0,
+    }
+    for row in rows:
+        if row.get("smb2.cmd") or row.get(SMB2_CREDIT_REQUEST_RESPONSE_FIELD):
+            counters["smb2_packets"] += 1
+
+        is_response = _truthy_row_value(row.get("smb2.flags.response"))
+        if is_response:
+            counters["smb2_responses"] += 1
+        else:
+            counters["smb2_requests"] += 1
+
+        credit_charge = _row_int(row.get(SMB2_CREDIT_CHARGE_FIELD))
+        if credit_charge is not None:
+            counters["credit_charge_total"] += credit_charge
+            counters["credit_charge_max"] = max(counters["credit_charge_max"], credit_charge)
+
+        request_response_credit = _row_int(row.get(SMB2_CREDIT_REQUEST_RESPONSE_FIELD))
+        if request_response_credit is not None:
+            if is_response:
+                counters["credit_grant_total"] += request_response_credit
+                counters["credit_grant_max"] = max(
+                    counters["credit_grant_max"],
+                    request_response_credit,
+                )
+                if request_response_credit == 0:
+                    counters["credit_grant_zero_packets"] += 1
+            else:
+                counters["credit_request_total"] += request_response_credit
+                counters["credit_request_max"] = max(
+                    counters["credit_request_max"],
+                    request_response_credit,
+                )
+
+        command = _lookup_smb_name(row.get("smb2.cmd", ""), SMB2_COMMAND_NAMES) or ""
+        command = command.lower()
+        if "read" in command:
+            counters["read_packets"] += 1
+        if "write" in command:
+            counters["write_packets"] += 1
+        status = row.get("smb2.nt_status")
+        if status and _is_smb_error_status(status):
+            counters["status_error_packets"] += 1
+        if row.get("tcp.analysis.lost_segment") or row.get("tcp.analysis.retransmission"):
+            counters["tcp_loss_or_retransmission_packets"] += 1
+        if row.get("tcp.analysis.zero_window"):
+            counters["tcp_zero_window_packets"] += 1
+
+    return {key: value for key, value in counters.items() if value}
 
 
 def smb_command_label(command: str) -> str:
@@ -935,3 +1138,21 @@ def _is_hex_value(value: str) -> bool:
     except ValueError:
         return False
     return value.lower().startswith("0x")
+
+
+def _flow_ports(flow: FlowSummary) -> set[int]:
+    return {port for port in (flow.key.port_a, flow.key.port_b) if port is not None}
+
+
+def _row_int(value: str | None) -> int | None:
+    if value is None or value == "":
+        return None
+    first_value = value.split("|", maxsplit=1)[0].split(",", maxsplit=1)[0].strip()
+    try:
+        return int(first_value, 0)
+    except ValueError:
+        return None
+
+
+def _truthy_row_value(value: str | None) -> bool:
+    return value not in (None, "", "0", "False", "false")

@@ -83,9 +83,13 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         record_hook="flowpilot.protocols.smb.record_smb",
         render_hook="flowpilot.protocols.smb.render_smb_details",
         compact_metadata_key="smb",
+        deep_tools=("deep_smb2_flow",),
+        deep_tool_runner_hooks=("flowpilot.protocols.smb.deep_smb2_flow",),
+        deep_reason_hook="flowpilot.protocols.smb.deep_smb2_reason",
         transport_prompt=(
             "SMB: assess transfer efficiency from read/write operations, bytes, files, "
-            "statuses, errors, TCP symptoms, duration, and transfer_mbps."
+            "SMB2 credit request/grant/charge, statuses, errors, TCP symptoms, duration, "
+            "and transfer_mbps."
         ),
         security_prompt=(
             "SMB: assess encryption/signing/capability clues, authentication/session failures, "

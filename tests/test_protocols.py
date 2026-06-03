@@ -28,7 +28,12 @@ def test_protocol_registry_deep_tools_are_registered() -> None:
 def test_protocol_registry_deep_tool_hooks_are_importable() -> None:
     hooked_tool_names = {tool_name for tool_name, _, _ in deep_tool_hooks()}
 
-    assert hooked_tool_names == {"deep_tcp_flow", "deep_udp_flow", "deep_tls_flow"}
+    assert hooked_tool_names == {
+        "deep_tcp_flow",
+        "deep_udp_flow",
+        "deep_tls_flow",
+        "deep_smb2_flow",
+    }
     for protocol in protocols():
         assert len(protocol.deep_tools) == len(protocol.deep_tool_runner_hooks)
         if protocol.deep_tools:
@@ -82,3 +87,11 @@ def test_tls_protocol_entry_documents_deep_tool_and_metadata_key() -> None:
     assert "tls_certificates" in tls.flow_attributes
     assert "handshake compatibility" in tls.transport_prompt
     assert "certificate validity" in tls.security_prompt
+
+
+def test_smb_protocol_entry_documents_deep_tool_and_metadata_key() -> None:
+    smb = PROTOCOL_REGISTRY["smb"]
+
+    assert smb.deep_tools == ("deep_smb2_flow",)
+    assert smb.compact_metadata_key == "smb"
+    assert "SMB2 credit request/grant/charge" in smb.transport_prompt

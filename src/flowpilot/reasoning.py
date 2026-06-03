@@ -59,9 +59,11 @@ tools directly. If more packet evidence is needed, do not say you lack access to
 an allowed tool. Instead, add an evidence_requests item with one allow-listed tool,
 the Flow ID, and a concise reason. FlowPilot/LangGraph will run the requested tool
 and call you again with additional_tool_evidence. Allowed tools: deep_tcp_flow,
-deep_udp_flow, deep_tls_flow. Use deep_tls_flow for TLS or DTLS handshake,
-certificate, SNI, alert, cipher, hash/signature algorithm, and related TCP/UDP
-header details as troubleshooting evidence, not as a standalone security review.
+deep_udp_flow, deep_tls_flow, deep_smb2_flow. Use deep_tls_flow for TLS or DTLS
+handshake, certificate, SNI, alert, cipher, hash/signature algorithm, and related
+TCP/UDP header details as troubleshooting evidence, not as a standalone security review.
+Use deep_smb2_flow for SMB2 credit request/grant/charge, statuses, transfer headers,
+and related TCP symptoms.
 Use deep_udp_flow for UDP, DNS, or DHCP transaction/header details.
 Flow IDs start at 1 and must reference entries from the provided top_flows list.
 Do not invent tools."""
@@ -828,12 +830,16 @@ def _present_protocol_registry_names(
             present.add("udp")
         elif tool_name == "deep_tcp_flow":
             present.add("tcp")
+        elif tool_name == "deep_smb2_flow":
+            present.add("smb")
         if evidence.get("tls_metadata_counts"):
             present.add("tls")
         if evidence.get("udp_metadata_counts"):
             present.add("udp")
         if evidence.get("tcp_analysis_counts"):
             present.add("tcp")
+        if evidence.get("smb2_credit_counts"):
+            present.add("smb")
     return present
 
 

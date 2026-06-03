@@ -259,13 +259,14 @@ use deep_tls_flow for flow id 2
 run deep tls flow for flow 2
 run deep_tcp_flow for flow 5
 for flow id 7 use deep_udp_flow
+run deep_smb2_flow for flow 8
 ```
 
-The supported deep tools are `deep_tcp_flow`, `deep_udp_flow`, and
-`deep_tls_flow`. Spaced or hyphenated forms such as `deep tls flow` and
-`deep-tls-flow` are also accepted. When one of those tool names appears with a
-Flow ID, LangGraph runs the tool first and sends the result back to the LLM as
-`additional_tool_evidence`.
+The supported deep tools are `deep_tcp_flow`, `deep_udp_flow`, `deep_tls_flow`,
+and `deep_smb2_flow`. Spaced or hyphenated forms such as `deep tls flow`,
+`deep-smb2-flow`, and `deep smb2 tool` are also accepted. When one of those tool
+names appears with a Flow ID, LangGraph runs the tool first and sends the result
+back to the LLM as `additional_tool_evidence`.
 
 To also run the deterministic pre-router before the first LLM request, add:
 
@@ -279,9 +280,11 @@ zero-window, one-way, or low-throughput indicators; `deep_udp_flow` for DNS/DHCP
 errors, incomplete DHCP exchanges, visible DNS transactions, or one-way UDP
 flows; and `deep_tls_flow` for TLS/DTLS SNI, certificate chains, alerts,
 handshake fields, cipher/hash/signature/group algorithms, and related TCP or UDP
-headers. The TCP tool sends sequence, ACK, flags, window, TCP length, and
-Wireshark TCP analysis markers. The UDP tool sends UDP ports, length, checksum
-status, DNS transaction ID/query/type/rcode/answers/timing, and DHCP
+headers; and `deep_smb2_flow` for SMB2 credit charge, request/grant, statuses,
+read/write lengths, offsets, file IDs, filenames, and related TCP symptoms. The
+TCP tool sends sequence, ACK, flags, window, TCP length, and Wireshark TCP
+analysis markers. The UDP tool sends UDP ports, length, checksum status, DNS
+transaction ID/query/type/rcode/answers/timing, and DHCP
 transaction/message/client/server/lease metadata.
 
 List models from the configured OpenAI or OpenAI-compatible endpoint:
@@ -312,8 +315,8 @@ Core options:
 | `CAPTURE_PATH` | Path to a `.pcap` or `.pcapng` file. |
 | `--no-llm` | Only run local PyShark/TShark flow analysis. No metadata is sent to the LLM endpoint. |
 | `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
-| `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP/TLS rereads run only when the LLM requests an allow-listed tool. |
-| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
+| `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP/TLS/SMB2 rereads run only when the LLM requests an allow-listed tool. |
+| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2 rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
 | `--json PATH` | Write the summary and optional LLM report to a JSON file. |
