@@ -1,15 +1,8 @@
-from flowpilot.deep import (
-    TLS_DEEP_FIELDS,
-    UDP_HEADER_FIELDS,
-    _endpoint_filter,
-    _parse_field_rows,
-    _parse_tshark_rows,
-    _tcp_analysis_counts,
-    _tls_flow_filter,
-    _tls_metadata_counts,
-    _udp_metadata_counts,
-)
 from flowpilot.models import FlowKey, FlowSummary
+from flowpilot.protocols.deep_common import endpoint_filter_for_flow, parse_field_rows
+from flowpilot.protocols.tcp import parse_tcp_rows, tcp_analysis_counts
+from flowpilot.protocols.tls import TLS_DEEP_FIELDS, tls_flow_filter, tls_metadata_counts
+from flowpilot.protocols.udp import UDP_HEADER_FIELDS, udp_metadata_counts
 
 
 def test_parse_tshark_rows_includes_tcp_headers_and_analysis_markers() -> None:
@@ -18,7 +11,7 @@ def test_parse_tshark_rows_includes_tcp_headers_and_analysis_markers() -> None:
         "65535\t0x0018\t\t1\t\t\t1\t1\t\t\t\t\t\t\t\n"
     )
 
-    rows = _parse_tshark_rows(output)
+    rows = parse_tcp_rows(output)
 
     assert rows[0]["frame.number"] == "10"
     assert rows[0]["src"] == "10.0.0.1"
@@ -38,7 +31,7 @@ def test_tcp_analysis_counts_counts_presence_markers() -> None:
         {"tcp.analysis.lost_segment": "0"},
     ]
 
-    assert _tcp_analysis_counts(rows) == {
+    assert tcp_analysis_counts(rows) == {
         "tcp.analysis.lost_segment": 1,
         "tcp.analysis.retransmission": 1,
     }
@@ -66,7 +59,7 @@ def test_parse_udp_rows_includes_dns_and_dhcp_metadata() -> None:
     )
     output = "\t".join(values[field] for field in UDP_HEADER_FIELDS)
 
-    rows = _parse_field_rows(output, UDP_HEADER_FIELDS)
+    rows = parse_field_rows(output, UDP_HEADER_FIELDS)
 
     assert rows[0]["src"] == "10.0.0.10"
     assert rows[0]["dst"] == "10.0.0.53"
@@ -82,7 +75,7 @@ def test_udp_metadata_counts_tracks_dns_dhcp_and_checksum() -> None:
         {"udp.checksum.status": "bad"},
     ]
 
-    assert _udp_metadata_counts(rows) == {
+    assert udp_metadata_counts(rows) == {
         "dns_packets": 1,
         "dns_responses": 1,
         "dns_error_responses": 1,
@@ -118,7 +111,7 @@ def test_parse_tls_rows_includes_transport_and_tls_metadata() -> None:
     )
     output = "\t".join(values[field] for field in TLS_DEEP_FIELDS)
 
-    rows = _parse_field_rows(output, TLS_DEEP_FIELDS)
+    rows = parse_field_rows(output, TLS_DEEP_FIELDS)
 
     assert rows[0]["src"] == "10.0.0.10"
     assert rows[0]["tcp.srcport"] == "50000"
@@ -148,7 +141,7 @@ def test_tls_metadata_counts_tracks_tls_dtls_and_transport_markers() -> None:
         },
     ]
 
-    assert _tls_metadata_counts(rows) == {
+    assert tls_metadata_counts(rows) == {
         "tls_packets": 1,
         "dtls_packets": 1,
         "tls_handshake_packets": 1,
@@ -183,9 +176,9 @@ def test_tls_flow_filter_uses_tcp_or_udp_transport() -> None:
         )
     )
 
-    assert "tcp.port == 443" in _tls_flow_filter(tcp_flow)
-    assert "udp.port == 4433" in _tls_flow_filter(udp_flow)
-    assert "(tls || dtls)" in _tls_flow_filter(tcp_flow)
+    assert "tcp.port == 443" in tls_flow_filter(tcp_flow)
+    assert "udp.port == 4433" in tls_flow_filter(udp_flow)
+    assert "(tls || dtls)" in tls_flow_filter(tcp_flow)
 
 
 def test_endpoint_filter_uses_ipv4_field_for_ipv4_endpoints() -> None:
@@ -193,7 +186,7 @@ def test_endpoint_filter_uses_ipv4_field_for_ipv4_endpoints() -> None:
         key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.53", protocol="UDP")
     )
 
-    assert _endpoint_filter(flow) == "(ip.addr == 10.0.0.10 && ip.addr == 10.0.0.53)"
+    assert endpoint_filter_for_flow(flow) == "(ip.addr == 10.0.0.10 && ip.addr == 10.0.0.53)"
 
 
 def test_endpoint_filter_uses_ipv6_field_for_ipv6_endpoints() -> None:
@@ -201,4 +194,6 @@ def test_endpoint_filter_uses_ipv6_field_for_ipv6_endpoints() -> None:
         key=FlowKey(endpoint_a="2001:db8::1", endpoint_b="2001:db8::2", protocol="UDP")
     )
 
-    assert _endpoint_filter(flow) == "(ipv6.addr == 2001:db8::1 && ipv6.addr == 2001:db8::2)"
+    assert endpoint_filter_for_flow(flow) == (
+        "(ipv6.addr == 2001:db8::1 && ipv6.addr == 2001:db8::2)"
+    )

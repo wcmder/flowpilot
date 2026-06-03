@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from collections import Counter
 from collections.abc import Iterable
 
@@ -11,11 +10,9 @@ from .models import (
     PacketObservation,
     counter_to_sorted_dict,
 )
-from .protocols.dhcp import record_dhcp
-from .protocols.dns import record_dns
-from .protocols.esp import record_esp_sequence
-from .protocols.sip import record_sip
-from .protocols.smb import record_smb
+from .protocols.registry import record_hooks
+
+PROTOCOL_RECORD_HOOKS = record_hooks()
 
 
 def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSummary:
@@ -85,47 +82,11 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         for issue_tag in packet.issue_tags:
             flow.issue_counts[issue_tag] = flow.issue_counts.get(issue_tag, 0) + 1
 
-        if packet.esp_spi and packet.esp_spi not in flow.esp_spis:
-            flow.esp_spis = [*flow.esp_spis, packet.esp_spi][:25]
-        if packet.esp_spi and packet.esp_sequence is not None:
-            record_esp_sequence(flow, packet)
-
         if packet.http_location and packet.http_location not in flow.redirect_locations:
             flow.redirect_locations = [*flow.redirect_locations, packet.http_location][:25]
 
-        record_sip(flow, packet)
-
-        record_smb(flow, packet)
-
-        record_dns(flow, packet)
-        record_dhcp(flow, packet)
-
-        if packet.tls_sni and packet.tls_sni not in flow.tls_snis:
-            flow.tls_snis = [*flow.tls_snis, packet.tls_sni]
-        if packet.tls_sni:
-            sni_endpoint = _packet_endpoint(packet.src_ip, packet.src_port)
-            endpoint_snis = flow.tls_sni_endpoints.get(sni_endpoint, [])
-            if packet.tls_sni not in endpoint_snis:
-                flow.tls_sni_endpoints[sni_endpoint] = [*endpoint_snis, packet.tls_sni]
-        if packet.tls_alert_level or packet.tls_alert_description:
-            alert = _tls_alert_label(packet.tls_alert_level, packet.tls_alert_description)
-            flow.tls_alerts[alert] = flow.tls_alerts.get(alert, 0) + 1
-            alert_endpoint = _packet_endpoint(packet.src_ip, packet.src_port)
-            endpoint_alerts = flow.tls_alert_endpoints.setdefault(alert_endpoint, {})
-            endpoint_alerts[alert] = endpoint_alerts.get(alert, 0) + 1
-
-        presenter_roles = _certificate_presenter_roles(flow)
-        for certificate in packet.tls_certificates:
-            if certificate.presenter_role is None:
-                presenter = (certificate.presenter_ip, certificate.presenter_port)
-                role = presenter_roles.get(presenter) or _next_certificate_role(presenter_roles)
-                presenter_roles[presenter] = role
-                certificate = certificate.model_copy(update={"presenter_role": role})
-            if all(
-                certificate.summary_key != existing.summary_key
-                for existing in flow.tls_certificates
-            ):
-                flow.tls_certificates = [*flow.tls_certificates, certificate]
+        for record_protocol in PROTOCOL_RECORD_HOOKS:
+            record_protocol(flow, packet)
 
         flow_names = {packet.dns_query, packet.http_host, packet.tls_sni} - {None}
         if flow_names:
@@ -142,102 +103,3 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         names=list(counter_to_sorted_dict(names, 50).keys()),
         flows=sorted(flows.values(), key=lambda flow: flow.byte_count, reverse=True),
     )
-
-
-def _certificate_presenter_roles(flow: FlowSummary) -> dict[tuple[str | None, int | None], str]:
-    return {
-        (certificate.presenter_ip, certificate.presenter_port): certificate.presenter_role
-        for certificate in flow.tls_certificates
-        if certificate.presenter_role is not None
-    }
-
-
-def _next_certificate_role(roles: dict[tuple[str | None, int | None], str]) -> str:
-    if "server" not in roles.values():
-        return "server"
-    if "client" not in roles.values():
-        return "client"
-    return "peer"
-
-
-def _tls_alert_label(level: str | None, description: str | None) -> str:
-    level_label = _tls_alert_level_label(level)
-    description_label = _tls_alert_description_label(description)
-    if level_label and description_label:
-        return f"{level_label} {description_label}"
-    return level_label or description_label or "alert"
-
-
-TLS_ALERT_LEVELS = {
-    1: "warning",
-    2: "fatal",
-}
-
-
-TLS_ALERT_DESCRIPTIONS = {
-    0: "close_notify",
-    10: "unexpected_message",
-    20: "bad_record_mac",
-    21: "decryption_failed_RESERVED",
-    22: "record_overflow",
-    30: "decompression_failure",
-    40: "handshake_failure",
-    41: "no_certificate_RESERVED",
-    42: "bad_certificate",
-    43: "unsupported_certificate",
-    44: "certificate_revoked",
-    45: "certificate_expired",
-    46: "certificate_unknown",
-    47: "illegal_parameter",
-    48: "unknown_ca",
-    49: "access_denied",
-    50: "decode_error",
-    51: "decrypt_error",
-    60: "export_restriction_RESERVED",
-    70: "protocol_version",
-    71: "insufficient_security",
-    80: "internal_error",
-    86: "inappropriate_fallback",
-    90: "user_canceled",
-    100: "no_renegotiation",
-    109: "missing_extension",
-    110: "unsupported_extension",
-    111: "certificate_unobtainable_RESERVED",
-    112: "unrecognized_name",
-    113: "bad_certificate_status_response",
-    114: "bad_certificate_hash_value_RESERVED",
-    115: "unknown_psk_identity",
-    116: "certificate_required",
-    120: "no_application_protocol",
-}
-
-
-def _tls_alert_level_label(value: str | None) -> str | None:
-    return _tls_alert_code_label(value, TLS_ALERT_LEVELS)
-
-
-def _tls_alert_description_label(value: str | None) -> str | None:
-    return _tls_alert_code_label(value, TLS_ALERT_DESCRIPTIONS)
-
-
-def _tls_alert_code_label(value: str | None, labels: dict[int, str]) -> str | None:
-    if not value:
-        return None
-    code = _first_int(value)
-    if code is None:
-        return value
-    name = labels.get(code)
-    if name:
-        return f"{name} ({code})"
-    return f"unknown_alert_{code} ({code})"
-
-
-def _first_int(value: str) -> int | None:
-    match = re.search(r"\d+", value)
-    if not match:
-        return None
-    return int(match.group(0))
-
-
-def _packet_endpoint(ip: str, port: int | None) -> str:
-    return f"{ip}:{port}" if port is not None else ip

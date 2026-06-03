@@ -6,6 +6,19 @@ from rich.table import Table
 from ..models import CaptureSummary, FlowSummary, PacketObservation, SipCallSummary
 
 
+def extract_sip(packet, helpers) -> dict:
+    return {
+        "sip_call_id": helpers.layer_attr(packet, "sip", "call_id"),
+        "sip_method": helpers.layer_attr(packet, "sip", "method"),
+        "sip_status_code": helpers.safe_int(helpers.layer_attr(packet, "sip", "status_code")),
+        "sip_reason": helpers.layer_attr(packet, "sip", "reason_phrase"),
+        "sip_from": helpers.layer_attr(packet, "sip", "from_addr")
+        or helpers.layer_attr(packet, "sip", "from"),
+        "sip_to": helpers.layer_attr(packet, "sip", "to_addr")
+        or helpers.layer_attr(packet, "sip", "to"),
+    }
+
+
 def record_sip(flow: FlowSummary, packet: PacketObservation) -> None:
     if packet.sip_call_id and packet.sip_call_id not in flow.sip_call_ids:
         flow.sip_call_ids = [*flow.sip_call_ids, packet.sip_call_id][:25]

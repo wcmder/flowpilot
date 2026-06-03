@@ -148,6 +148,122 @@ SMB_STATUS_NAMES = {
     "0xc000035c": "STATUS_NETWORK_SESSION_EXPIRED",
 }
 
+SMB_READ_LENGTH_FIELDS = (
+    "read_length",
+    "read_count",
+    "read_data_len",
+    "read_data_length",
+    "data_length",
+    "data_len",
+    "data_len_low",
+    "data_size",
+    "file_rw_length",
+    "count",
+    "count_low",
+    "dc",
+    "tdc",
+    "bcc",
+)
+
+SMB_WRITE_LENGTH_FIELDS = (
+    "write_length",
+    "write_count",
+    "write_data_len",
+    "write_data_length",
+    "data_length",
+    "data_len",
+    "data_len_low",
+    "data_size",
+    "file_rw_length",
+    "count",
+    "count_low",
+    "dc",
+    "tdc",
+    "bcc",
+)
+
+SMB_CAPABILITY_FIELDS = {
+    "smb2": (
+        ("capabilities_dfs", "DFS"),
+        ("capabilities_leasing", "leasing"),
+        ("capabilities_large_mtu", "large MTU"),
+        ("capabilities_multi_channel", "multi-channel"),
+        ("capabilities_persistent_handles", "persistent handles"),
+        ("capabilities_directory_leasing", "directory leasing"),
+        ("capabilities_encryption", "encryption"),
+        ("capabilities_notifications", "notifications"),
+        ("sec_mode_sign_enabled", "signing enabled"),
+        ("sec_mode_sign_required", "signing required"),
+        ("ses_flags_encrypt", "session encryption"),
+        ("share_flags_encrypt_data", "share encryption required"),
+        ("share_flags_compress_data", "compressed IO"),
+    ),
+    "smb": (
+        ("server_cap_large_readx", "large ReadX"),
+        ("server_cap_large_writex", "large WriteX"),
+        ("flags2_compressed", "compression requested"),
+        ("unix_capability_large_read", "unix large read"),
+        ("unix_capability_large_write", "unix large write"),
+        ("unix_capability_encryption", "unix encryption"),
+        ("unix_capability_mandatory_crypto", "unix mandatory encryption"),
+    ),
+}
+
+SMB2_CAPABILITY_MASKS = {
+    0x0001: "DFS",
+    0x0002: "leasing",
+    0x0004: "large MTU",
+    0x0008: "multi-channel",
+    0x0010: "persistent handles",
+    0x0020: "directory leasing",
+    0x0040: "encryption",
+    0x0080: "notifications",
+}
+
+
+def extract_smb(packet, helpers) -> dict:
+    smb_commands = _smb_commands(packet, helpers)
+    return {
+        "smb_command": smb_commands[0] if smb_commands else None,
+        "smb_commands_seen": smb_commands,
+        "smb_status": _smb_value(packet, helpers, "nt_status")
+        or _smb_value(packet, helpers, "status"),
+        "smb_message_id": _smb_value(packet, helpers, "msg_id")
+        or _smb_value(packet, helpers, "mid"),
+        "smb_is_response": _smb_is_response(packet, helpers),
+        "smb_session_id": _smb_value(packet, helpers, "sesid")
+        or _smb_value(packet, helpers, "session_id"),
+        "smb_tree_id": _smb_value(packet, helpers, "tid")
+        or _smb_value(packet, helpers, "tree_id"),
+        "smb_file_id": _smb_file_id(packet, helpers),
+        "smb_filename": _smb_value(packet, helpers, "file")
+        or _smb_value(packet, helpers, "filename"),
+        "smb_create_desired_access": _smb_int_value(
+            packet,
+            helpers,
+            (
+                "create.desired_access",
+                "create_desired_access",
+                "desired_access",
+                "create_access_mask",
+            ),
+        ),
+        "smb_create_file_attributes": _smb_int_value(
+            packet,
+            helpers,
+            (
+                "create.file_attributes",
+                "create_file_attributes",
+                "file_attributes",
+            ),
+        ),
+        "smb_read_length": _smb_transfer_length(packet, helpers, SMB_READ_LENGTH_FIELDS),
+        "smb_write_length": _smb_transfer_length(packet, helpers, SMB_WRITE_LENGTH_FIELDS),
+        "smb_file_offset": _smb_file_offset(packet, helpers),
+        "smb_encrypted": _smb_encrypted(packet, helpers),
+        "smb_capabilities": _smb_capabilities(packet, helpers),
+    }
+
 
 def smb_command_label(command: str) -> str:
     return _lookup_smb_name(command, SMB1_COMMAND_NAMES) or command
@@ -348,6 +464,213 @@ def _format_bytes(byte_count: int) -> str:
     if byte_count >= 1024:
         return f"{byte_count / 1024:.1f} KiB"
     return f"{byte_count} bytes"
+
+
+def _smb_int_value(packet, helpers, attr_names: tuple[str, ...]) -> int | None:
+    match = _smb_int_match(packet, helpers, attr_names)
+    return match[1] if match else None
+
+
+def _smb_int_match(packet, helpers, attr_names: tuple[str, ...]) -> tuple[str, int] | None:
+    for attr_name in attr_names:
+        value = helpers.safe_int(_smb_value(packet, helpers, attr_name))
+        if value is not None:
+            return attr_name, value
+    return None
+
+
+def _smb_commands(packet, helpers) -> list[str]:
+    smb2_layer = getattr(packet, "smb2", None)
+    smb2_commands = [
+        *helpers.layer_attr_values(packet, "smb2", "cmd"),
+        *helpers.layer_attr_values(packet, "smb2", "command"),
+    ]
+    if smb2_commands:
+        return [SMB2_COMMAND_NAMES.get(command.lower(), command) for command in smb2_commands]
+    if smb2_layer is not None:
+        commands = [
+            *_smb_values(packet, helpers, "cmd"),
+            *_smb_values(packet, helpers, "command"),
+        ]
+        return [SMB2_COMMAND_NAMES.get(command.lower(), command) for command in commands]
+    return helpers.layer_attr_values(packet, "smb", "cmd")
+
+
+def _smb_value(packet, helpers, attr_name: str) -> str | None:
+    values = _smb_values(packet, helpers, attr_name)
+    return values[0] if values else None
+
+
+def _smb_values(packet, helpers, attr_name: str) -> list[str]:
+    for layer_name in ("smb2", "smb"):
+        values = helpers.layer_attr_values(packet, layer_name, attr_name)
+        if values:
+            return values
+    return []
+
+
+def _smb_is_response(packet, helpers) -> bool | None:
+    response_flag = _first_smb_value(packet, helpers, ("flags_response", "flags_response_to"))
+    if response_flag is None:
+        return None
+    return response_flag not in {"0", "False", "false"}
+
+
+def _smb_file_id(packet, helpers) -> str | None:
+    return _first_smb_value(
+        packet,
+        helpers,
+        (
+            "file_id",
+            "fid",
+            "fid_hash",
+            "server_fid",
+            "create_file_id",
+            "create_file_id_64b",
+        ),
+    )
+
+
+def _first_smb_value(packet, helpers, attr_names: tuple[str, ...]) -> str | None:
+    for attr_name in attr_names:
+        value = _smb_value(packet, helpers, attr_name)
+        if value:
+            return value
+    return None
+
+
+def _smb_transfer_length(packet, helpers, attr_names: tuple[str, ...]) -> int | None:
+    match = _smb_int_match(packet, helpers, attr_names)
+    if match is None:
+        return None
+    attr_name, length = match
+    base_name = attr_name.removesuffix("_low")
+    high = _smb_int_value(packet, helpers, (f"{base_name}_high",))
+    if high:
+        return length + (high << 32)
+    return length
+
+
+def _smb_file_offset(packet, helpers) -> int | None:
+    match = _smb_int_match(
+        packet,
+        helpers,
+        (
+            "file_offset",
+            "file_rw_offset",
+            "offset",
+            "offset_low",
+        ),
+    )
+    if match is None:
+        return None
+    attr_name, offset = match
+    base_name = attr_name.removesuffix("_low")
+    high = _smb_int_value(packet, helpers, (f"{base_name}_high",))
+    if high:
+        return offset + (high << 32)
+    return offset
+
+
+def _smb_encrypted(packet, helpers) -> bool:
+    smb2_layer = getattr(packet, "smb2", None)
+    if smb2_layer is None:
+        return False
+    encrypted_field_names = (
+        "transform_header",
+        "transform_session_id",
+        "transform_signature",
+        "transform_nonce",
+        "transform_original_message_size",
+    )
+    if any(
+        helpers.truthy_layer_attr(smb2_layer, field_name)
+        for field_name in encrypted_field_names
+    ):
+        return True
+    fields = getattr(smb2_layer, "_all_fields", {})
+    return any(
+        _is_smb_encrypted_payload_field(key)
+        and value not in (None, "", "0", "False", "false")
+        for key, value in fields.items()
+    )
+
+
+def _is_smb_encrypted_payload_field(field_name: str) -> bool:
+    field_name = field_name.lower()
+    return "transform" in field_name
+
+
+def _smb_capabilities(packet, helpers) -> list[str]:
+    capabilities = []
+    for layer_name, fields in SMB_CAPABILITY_FIELDS.items():
+        layer = getattr(packet, layer_name, None)
+        if layer is None:
+            continue
+        for attr_name, label in fields:
+            if helpers.truthy_layer_attr(layer, attr_name):
+                capabilities.append(label)
+        if layer_name == "smb2":
+            capabilities.extend(_smb2_capability_mask_labels(layer, helpers))
+        if layer_name == "smb2" and _smb2_encryption_capabilities(layer, helpers):
+            capabilities.append("encryption")
+    dialect = _smb_value(packet, helpers, "dialect") or _smb_value(
+        packet,
+        helpers,
+        "dialect_name",
+    )
+    security_mode = _smb_value(packet, helpers, "sec_mode") or _smb_value(
+        packet,
+        helpers,
+        "sm",
+    )
+    for label, value in (("dialect", dialect), ("security_mode", security_mode)):
+        if value:
+            capabilities.append(f"{label}={value}")
+    return list(dict.fromkeys(capabilities))
+
+
+def _smb2_capability_mask_labels(layer, helpers) -> list[str]:
+    capability_values = [
+        *helpers.layer_attr_values_from_layer(layer, "capabilities"),
+        *helpers.layer_attr_values_from_layer(layer, "server_cap"),
+    ]
+    labels = []
+    for capability_value in capability_values:
+        capability_mask = helpers.safe_int(capability_value)
+        if capability_mask is None:
+            continue
+        labels.extend(
+            label
+            for bit, label in SMB2_CAPABILITY_MASKS.items()
+            if capability_mask & bit
+        )
+    return labels
+
+
+def _smb2_encryption_capabilities(layer, helpers) -> bool:
+    encryption_capability_fields = (
+        "encryption_capabilities",
+        "encryption_capabilities_ciphers",
+        "encryption_context",
+        "negotiate_context_encryption_capabilities",
+        "neg_context_encryption_capabilities",
+    )
+    if any(
+        helpers.truthy_layer_attr(layer, field_name)
+        for field_name in encryption_capability_fields
+    ):
+        return True
+    fields = getattr(layer, "_all_fields", {})
+    for key, value in fields.items():
+        key_text = key.lower()
+        values = " ".join(helpers.string_values(value)).lower()
+        combined = f"{key_text} {values}"
+        if "encryption" in combined and ("capabil" in combined or "cipher" in combined):
+            return True
+        if "smb2_encryption_capabilities" in combined:
+            return True
+    return False
 
 
 def _packet_smb_commands(packet: PacketObservation) -> list[str]:

@@ -5,6 +5,20 @@ from collections import Counter
 from ..models import EspSequenceSummary, FlowSummary, PacketObservation
 
 
+def extract_esp(packet, helpers) -> dict:
+    return {
+        "esp_spi": helpers.layer_attr(packet, "esp", "spi"),
+        "esp_sequence": helpers.safe_int(helpers.layer_attr(packet, "esp", "sequence")),
+    }
+
+
+def record_esp(flow: FlowSummary, packet: PacketObservation) -> None:
+    if packet.esp_spi and packet.esp_spi not in flow.esp_spis:
+        flow.esp_spis = [*flow.esp_spis, packet.esp_spi][:25]
+    if packet.esp_spi and packet.esp_sequence is not None:
+        record_esp_sequence(flow, packet)
+
+
 def record_esp_sequence(flow: FlowSummary, packet: PacketObservation) -> None:
     direction = (
         f"{_endpoint(packet.src_ip, packet.src_port)} -> "

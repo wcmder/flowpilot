@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TlsCertificateObservation(BaseModel):
@@ -85,6 +85,80 @@ class EspSequenceSummary(BaseModel):
             "out_of_order_count": self.out_of_order_count,
             "duplicate_count": self.duplicate_count,
         }
+
+
+class EspFlowMetadata(BaseModel):
+    spis: list[str] = Field(default_factory=list)
+    sequences: list[EspSequenceSummary] = Field(default_factory=list)
+
+
+class TlsFlowMetadata(BaseModel):
+    certificates: list[TlsCertificateObservation] = Field(default_factory=list)
+    snis: list[str] = Field(default_factory=list)
+    sni_endpoints: dict[str, list[str]] = Field(default_factory=dict)
+    alerts: dict[str, int] = Field(default_factory=dict)
+    alert_endpoints: dict[str, dict[str, int]] = Field(default_factory=dict)
+
+
+class SipFlowMetadata(BaseModel):
+    call_ids: list[str] = Field(default_factory=list)
+    calls: dict[str, SipCallSummary] = Field(default_factory=dict)
+    methods: dict[str, int] = Field(default_factory=dict)
+    statuses: dict[str, int] = Field(default_factory=dict)
+    participants: list[str] = Field(default_factory=list)
+
+
+class SmbFlowMetadata(BaseModel):
+    commands: dict[str, int] = Field(default_factory=dict)
+    statuses: dict[str, int] = Field(default_factory=dict)
+    session_ids: list[str] = Field(default_factory=list)
+    tree_ids: list[str] = Field(default_factory=list)
+    filenames: list[str] = Field(default_factory=list)
+    read_filenames: list[str] = Field(default_factory=list)
+    write_filenames: list[str] = Field(default_factory=list)
+    client_capabilities: list[str] = Field(default_factory=list)
+    server_capabilities: list[str] = Field(default_factory=list)
+    read_ops: int = 0
+    write_ops: int = 0
+    read_bytes: int = 0
+    write_bytes: int = 0
+    read_unknown_bytes_ops: int = 0
+    write_unknown_bytes_ops: int = 0
+    read_offset_inferred_ops: int = 0
+    write_offset_inferred_ops: int = 0
+    error_count: int = 0
+    encrypted_packets: int = 0
+    read_bytes_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
+    write_bytes_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
+    file_id_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    pending_create_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    file_id_read_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    file_id_write_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    pending_create_read_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    pending_create_write_names: dict[str, str] = Field(default_factory=dict, exclude=True)
+    counted_read_message_ids: set[str] = Field(default_factory=set, exclude=True)
+    counted_write_message_ids: set[str] = Field(default_factory=set, exclude=True)
+    last_read_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
+    last_write_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
+
+
+class DnsFlowMetadata(BaseModel):
+    queries: dict[str, int] = Field(default_factory=dict)
+    query_types: dict[str, int] = Field(default_factory=dict)
+    response_codes: dict[str, int] = Field(default_factory=dict)
+    answers: list[str] = Field(default_factory=list)
+    error_count: int = 0
+
+
+class DhcpFlowMetadata(BaseModel):
+    message_types: dict[str, int] = Field(default_factory=dict)
+    transaction_ids: list[str] = Field(default_factory=list)
+    client_macs: list[str] = Field(default_factory=list)
+    hostnames: list[str] = Field(default_factory=list)
+    requested_ips: list[str] = Field(default_factory=list)
+    offered_ips: list[str] = Field(default_factory=list)
+    server_ids: list[str] = Field(default_factory=list)
+    lease_times: list[str] = Field(default_factory=list)
 
 
 class PacketObservation(BaseModel):
@@ -178,6 +252,90 @@ class FlowKey(BaseModel, frozen=True):
         )
 
 
+_ESP_FLOW_ALIASES = {
+    "esp_spis": "spis",
+    "esp_sequences": "sequences",
+}
+
+_TLS_FLOW_ALIASES = {
+    "tls_certificates": "certificates",
+    "tls_snis": "snis",
+    "tls_sni_endpoints": "sni_endpoints",
+    "tls_alerts": "alerts",
+    "tls_alert_endpoints": "alert_endpoints",
+}
+
+_SIP_FLOW_ALIASES = {
+    "sip_call_ids": "call_ids",
+    "sip_calls": "calls",
+    "sip_methods": "methods",
+    "sip_statuses": "statuses",
+    "sip_participants": "participants",
+}
+
+_SMB_FLOW_ALIASES = {
+    "smb_commands": "commands",
+    "smb_statuses": "statuses",
+    "smb_session_ids": "session_ids",
+    "smb_tree_ids": "tree_ids",
+    "smb_filenames": "filenames",
+    "smb_read_filenames": "read_filenames",
+    "smb_write_filenames": "write_filenames",
+    "smb_client_capabilities": "client_capabilities",
+    "smb_server_capabilities": "server_capabilities",
+    "smb_read_ops": "read_ops",
+    "smb_write_ops": "write_ops",
+    "smb_read_bytes": "read_bytes",
+    "smb_write_bytes": "write_bytes",
+    "smb_read_unknown_bytes_ops": "read_unknown_bytes_ops",
+    "smb_write_unknown_bytes_ops": "write_unknown_bytes_ops",
+    "smb_read_offset_inferred_ops": "read_offset_inferred_ops",
+    "smb_write_offset_inferred_ops": "write_offset_inferred_ops",
+    "smb_error_count": "error_count",
+    "smb_encrypted_packets": "encrypted_packets",
+    "smb_read_bytes_by_file": "read_bytes_by_file",
+    "smb_write_bytes_by_file": "write_bytes_by_file",
+    "smb_file_id_names": "file_id_names",
+    "smb_pending_create_names": "pending_create_names",
+    "smb_file_id_read_names": "file_id_read_names",
+    "smb_file_id_write_names": "file_id_write_names",
+    "smb_pending_create_read_names": "pending_create_read_names",
+    "smb_pending_create_write_names": "pending_create_write_names",
+    "smb_counted_read_message_ids": "counted_read_message_ids",
+    "smb_counted_write_message_ids": "counted_write_message_ids",
+    "smb_last_read_offset_by_file": "last_read_offset_by_file",
+    "smb_last_write_offset_by_file": "last_write_offset_by_file",
+}
+
+_DNS_FLOW_ALIASES = {
+    "dns_queries": "queries",
+    "dns_query_types": "query_types",
+    "dns_response_codes": "response_codes",
+    "dns_answers": "answers",
+    "dns_error_count": "error_count",
+}
+
+_DHCP_FLOW_ALIASES = {
+    "dhcp_message_types": "message_types",
+    "dhcp_transaction_ids": "transaction_ids",
+    "dhcp_client_macs": "client_macs",
+    "dhcp_hostnames": "hostnames",
+    "dhcp_requested_ips": "requested_ips",
+    "dhcp_offered_ips": "offered_ips",
+    "dhcp_server_ids": "server_ids",
+    "dhcp_lease_times": "lease_times",
+}
+
+_FLOW_PROTOCOL_ALIASES = {
+    **{legacy: ("esp", nested) for legacy, nested in _ESP_FLOW_ALIASES.items()},
+    **{legacy: ("tls", nested) for legacy, nested in _TLS_FLOW_ALIASES.items()},
+    **{legacy: ("sip", nested) for legacy, nested in _SIP_FLOW_ALIASES.items()},
+    **{legacy: ("smb", nested) for legacy, nested in _SMB_FLOW_ALIASES.items()},
+    **{legacy: ("dns", nested) for legacy, nested in _DNS_FLOW_ALIASES.items()},
+    **{legacy: ("dhcp", nested) for legacy, nested in _DHCP_FLOW_ALIASES.items()},
+}
+
+
 class FlowSummary(BaseModel):
     key: FlowKey
     packet_count: int = 0
@@ -195,64 +353,41 @@ class FlowSummary(BaseModel):
     initial_rtt_ms: float | None = None
     max_interarrival_ms: float | None = None
     issue_counts: dict[str, int] = Field(default_factory=dict)
-    esp_spis: list[str] = Field(default_factory=list)
-    esp_sequences: list[EspSequenceSummary] = Field(default_factory=list)
     redirect_locations: list[str] = Field(default_factory=list)
-    tls_certificates: list[TlsCertificateObservation] = Field(default_factory=list)
-    tls_snis: list[str] = Field(default_factory=list)
-    tls_sni_endpoints: dict[str, list[str]] = Field(default_factory=dict)
-    tls_alerts: dict[str, int] = Field(default_factory=dict)
-    tls_alert_endpoints: dict[str, dict[str, int]] = Field(default_factory=dict)
-    sip_call_ids: list[str] = Field(default_factory=list)
-    sip_calls: dict[str, SipCallSummary] = Field(default_factory=dict)
-    sip_methods: dict[str, int] = Field(default_factory=dict)
-    sip_statuses: dict[str, int] = Field(default_factory=dict)
-    sip_participants: list[str] = Field(default_factory=list)
-    smb_commands: dict[str, int] = Field(default_factory=dict)
-    smb_statuses: dict[str, int] = Field(default_factory=dict)
-    smb_session_ids: list[str] = Field(default_factory=list)
-    smb_tree_ids: list[str] = Field(default_factory=list)
-    smb_filenames: list[str] = Field(default_factory=list)
-    smb_read_filenames: list[str] = Field(default_factory=list)
-    smb_write_filenames: list[str] = Field(default_factory=list)
-    smb_client_capabilities: list[str] = Field(default_factory=list)
-    smb_server_capabilities: list[str] = Field(default_factory=list)
-    smb_read_ops: int = 0
-    smb_write_ops: int = 0
-    smb_read_bytes: int = 0
-    smb_write_bytes: int = 0
-    smb_read_unknown_bytes_ops: int = 0
-    smb_write_unknown_bytes_ops: int = 0
-    smb_read_offset_inferred_ops: int = 0
-    smb_write_offset_inferred_ops: int = 0
-    smb_error_count: int = 0
-    smb_encrypted_packets: int = 0
-    smb_read_bytes_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
-    smb_write_bytes_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
-    smb_file_id_names: dict[str, str] = Field(default_factory=dict, exclude=True)
-    smb_pending_create_names: dict[str, str] = Field(default_factory=dict, exclude=True)
-    smb_file_id_read_names: dict[str, str] = Field(default_factory=dict, exclude=True)
-    smb_file_id_write_names: dict[str, str] = Field(default_factory=dict, exclude=True)
-    smb_pending_create_read_names: dict[str, str] = Field(default_factory=dict, exclude=True)
-    smb_pending_create_write_names: dict[str, str] = Field(default_factory=dict, exclude=True)
-    smb_counted_read_message_ids: set[str] = Field(default_factory=set, exclude=True)
-    smb_counted_write_message_ids: set[str] = Field(default_factory=set, exclude=True)
-    smb_last_read_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
-    smb_last_write_offset_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
-    dns_queries: dict[str, int] = Field(default_factory=dict)
-    dns_query_types: dict[str, int] = Field(default_factory=dict)
-    dns_response_codes: dict[str, int] = Field(default_factory=dict)
-    dns_answers: list[str] = Field(default_factory=list)
-    dns_error_count: int = 0
-    dhcp_message_types: dict[str, int] = Field(default_factory=dict)
-    dhcp_transaction_ids: list[str] = Field(default_factory=list)
-    dhcp_client_macs: list[str] = Field(default_factory=list)
-    dhcp_hostnames: list[str] = Field(default_factory=list)
-    dhcp_requested_ips: list[str] = Field(default_factory=list)
-    dhcp_offered_ips: list[str] = Field(default_factory=list)
-    dhcp_server_ids: list[str] = Field(default_factory=list)
-    dhcp_lease_times: list[str] = Field(default_factory=list)
+    esp: EspFlowMetadata = Field(default_factory=EspFlowMetadata)
+    tls: TlsFlowMetadata = Field(default_factory=TlsFlowMetadata)
+    sip: SipFlowMetadata = Field(default_factory=SipFlowMetadata)
+    smb: SmbFlowMetadata = Field(default_factory=SmbFlowMetadata)
+    dns: DnsFlowMetadata = Field(default_factory=DnsFlowMetadata)
+    dhcp: DhcpFlowMetadata = Field(default_factory=DhcpFlowMetadata)
     names: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_protocol_fields(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        _move_legacy_fields(data, "esp", _ESP_FLOW_ALIASES)
+        _move_legacy_fields(data, "tls", _TLS_FLOW_ALIASES)
+        _move_legacy_fields(data, "sip", _SIP_FLOW_ALIASES)
+        _move_legacy_fields(data, "smb", _SMB_FLOW_ALIASES)
+        _move_legacy_fields(data, "dns", _DNS_FLOW_ALIASES)
+        _move_legacy_fields(data, "dhcp", _DHCP_FLOW_ALIASES)
+        return data
+
+    def __getattr__(self, name: str):
+        if name in _FLOW_PROTOCOL_ALIASES:
+            protocol_field, nested_field = _FLOW_PROTOCOL_ALIASES[name]
+            return getattr(getattr(self, protocol_field), nested_field)
+        return super().__getattr__(name)
+
+    def __setattr__(self, name: str, value) -> None:
+        if name in _FLOW_PROTOCOL_ALIASES:
+            protocol_field, nested_field = _FLOW_PROTOCOL_ALIASES[name]
+            setattr(getattr(self, protocol_field), nested_field, value)
+            return
+        super().__setattr__(name, value)
 
     @property
     def duration_seconds(self) -> float:
@@ -586,3 +721,12 @@ def _percentile(values: list[float], percentile: float) -> float | None:
 
 def _has_any_key(values: dict[str, int], wanted: set[str]) -> bool:
     return any(any(item in key.upper() for item in wanted) for key in values)
+
+
+def _move_legacy_fields(data: dict, protocol_field: str, aliases: dict[str, str]) -> None:
+    protocol_data = dict(data.get(protocol_field) or {})
+    for legacy_field, nested_field in aliases.items():
+        if legacy_field in data:
+            protocol_data[nested_field] = data.pop(legacy_field)
+    if protocol_data:
+        data[protocol_field] = protocol_data

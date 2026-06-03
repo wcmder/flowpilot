@@ -1,12 +1,147 @@
 from __future__ import annotations
 
+import re
+import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from rich.console import Console
 from rich.table import Table
 
-from ..models import CaptureSummary, TlsCertificateObservation
+from ..models import CaptureSummary, FlowSummary, TlsCertificateObservation
+from .deep_common import (
+    field_command,
+    parse_field_rows,
+    tcp_flow_filter,
+    tshark_path,
+    udp_flow_filter,
+)
+
+TLS_DEEP_FIELDS = [
+    "frame.number",
+    "frame.time_relative",
+    "ip.src",
+    "ipv6.src",
+    "ip.dst",
+    "ipv6.dst",
+    "tcp.srcport",
+    "tcp.dstport",
+    "tcp.seq",
+    "tcp.ack",
+    "tcp.len",
+    "tcp.window_size_value",
+    "tcp.flags",
+    "tcp.analysis.retransmission",
+    "tcp.analysis.lost_segment",
+    "tcp.analysis.out_of_order",
+    "tcp.analysis.zero_window",
+    "udp.srcport",
+    "udp.dstport",
+    "udp.length",
+    "udp.checksum.status",
+    "tls.record.content_type",
+    "tls.record.version",
+    "tls.handshake.type",
+    "tls.handshake.version",
+    "tls.handshake.extensions_server_name",
+    "tls.handshake.cipher_suites_length",
+    "tls.handshake.ciphersuites",
+    "tls.handshake.ciphersuite",
+    "tls.handshake.ciphersuite.undecoded",
+    "tls.handshake.extensions_supported_groups",
+    "tls.handshake.extensions_supported_group",
+    "tls.handshake.extensions_key_share_group",
+    "tls.handshake.extensions_key_share_selected_group",
+    "tls.handshake.sig_hash_alg",
+    "tls.handshake.sig_hash_hash",
+    "tls.handshake.sig_hash_sig",
+    "tls.handshake.server_curve_type",
+    "tls.handshake.server_named_curve",
+    "tls.handshake.client_cert_vrfy.sig",
+    "tls.compress_certificate.algorithm",
+    "tls.esni.suite",
+    "tls.ech.hpke.keyconfig.cipher_suite",
+    "tls.ech.hpke.keyconfig.cipher_suite.kdf_id",
+    "tls.ech.hpke.keyconfig.cipher_suite.aead_id",
+    "tls.ech.cipher_suite",
+    "tls.handshake.certificate",
+    "tls.alert_message.level",
+    "tls.alert_message.desc",
+    "x509af.subject",
+    "x509af.issuer",
+    "x509af.serialNumber",
+    "x509af.notBefore",
+    "x509af.notAfter",
+    "x509ce.dNSName",
+    "dtls.record.content_type",
+    "dtls.record.version",
+    "dtls.handshake.type",
+    "dtls.handshake.version",
+    "dtls.handshake.extensions_server_name",
+    "dtls.handshake.cipher_suites_length",
+    "dtls.handshake.ciphersuites",
+    "dtls.handshake.ciphersuite",
+    "dtls.handshake.ciphersuite.undecoded",
+    "dtls.handshake.extensions_supported_groups",
+    "dtls.handshake.extensions_supported_group",
+    "dtls.handshake.extensions_key_share_group",
+    "dtls.handshake.extensions_key_share_selected_group",
+    "dtls.handshake.sig_hash_alg",
+    "dtls.handshake.sig_hash_hash",
+    "dtls.handshake.sig_hash_sig",
+    "dtls.handshake.server_curve_type",
+    "dtls.handshake.server_named_curve",
+    "dtls.handshake.client_cert_vrfy.sig",
+    "dtls.compress_certificate.algorithm",
+    "dtls.esni.suite",
+    "dtls.ech.hpke.keyconfig.cipher_suite",
+    "dtls.ech.hpke.keyconfig.cipher_suite.kdf_id",
+    "dtls.ech.hpke.keyconfig.cipher_suite.aead_id",
+    "dtls.ech.cipher_suite",
+    "dtls.handshake.certificate",
+    "dtls.alert_message.level",
+    "dtls.alert_message.desc",
+]
+
+TLS_ALGORITHM_FIELDS = [
+    "tls.handshake.ciphersuites",
+    "tls.handshake.ciphersuite",
+    "tls.handshake.ciphersuite.undecoded",
+    "tls.handshake.extensions_supported_groups",
+    "tls.handshake.extensions_supported_group",
+    "tls.handshake.extensions_key_share_group",
+    "tls.handshake.extensions_key_share_selected_group",
+    "tls.handshake.sig_hash_alg",
+    "tls.handshake.sig_hash_hash",
+    "tls.handshake.sig_hash_sig",
+    "tls.handshake.server_curve_type",
+    "tls.handshake.server_named_curve",
+    "tls.compress_certificate.algorithm",
+    "tls.esni.suite",
+    "tls.ech.hpke.keyconfig.cipher_suite",
+    "tls.ech.hpke.keyconfig.cipher_suite.kdf_id",
+    "tls.ech.hpke.keyconfig.cipher_suite.aead_id",
+    "tls.ech.cipher_suite",
+    "dtls.handshake.ciphersuites",
+    "dtls.handshake.ciphersuite",
+    "dtls.handshake.ciphersuite.undecoded",
+    "dtls.handshake.extensions_supported_groups",
+    "dtls.handshake.extensions_supported_group",
+    "dtls.handshake.extensions_key_share_group",
+    "dtls.handshake.extensions_key_share_selected_group",
+    "dtls.handshake.sig_hash_alg",
+    "dtls.handshake.sig_hash_hash",
+    "dtls.handshake.sig_hash_sig",
+    "dtls.handshake.server_curve_type",
+    "dtls.handshake.server_named_curve",
+    "dtls.compress_certificate.algorithm",
+    "dtls.esni.suite",
+    "dtls.ech.hpke.keyconfig.cipher_suite",
+    "dtls.ech.hpke.keyconfig.cipher_suite.kdf_id",
+    "dtls.ech.hpke.keyconfig.cipher_suite.aead_id",
+    "dtls.ech.cipher_suite",
+]
 
 
 def tls_sni(packet: Any) -> str | None:
@@ -79,6 +214,202 @@ def tls_certificates(packet: Any) -> list[TlsCertificateObservation]:
     if any([fallback.subject, fallback.issuer, fallback.serial, fallback.fingerprint_sha256]):
         return [fallback]
     return []
+
+
+def extract_tls(packet, helpers) -> dict:
+    certificates = [
+        certificate.model_copy(
+            update={"presenter_ip": helpers.src_ip, "presenter_port": helpers.src_port}
+        )
+        for certificate in tls_certificates(packet)
+    ]
+    tls_alert_level, tls_alert_description = tls_alert(packet)
+    return {
+        "tls_sni": tls_sni(packet),
+        "tls_alert_level": tls_alert_level,
+        "tls_alert_description": tls_alert_description,
+        "tls_certificates": certificates,
+        "issue_tags": _tls_issue_tags(tls_alert_level, tls_alert_description),
+    }
+
+
+def record_tls(flow, packet) -> None:
+    if packet.tls_sni and packet.tls_sni not in flow.tls_snis:
+        flow.tls_snis = [*flow.tls_snis, packet.tls_sni]
+    if packet.tls_sni:
+        sni_endpoint = _endpoint(packet.src_ip, packet.src_port)
+        endpoint_snis = flow.tls_sni_endpoints.get(sni_endpoint, [])
+        if packet.tls_sni not in endpoint_snis:
+            flow.tls_sni_endpoints[sni_endpoint] = [*endpoint_snis, packet.tls_sni]
+    if packet.tls_alert_level or packet.tls_alert_description:
+        alert = _tls_alert_label(packet.tls_alert_level, packet.tls_alert_description)
+        flow.tls_alerts[alert] = flow.tls_alerts.get(alert, 0) + 1
+        alert_endpoint = _endpoint(packet.src_ip, packet.src_port)
+        endpoint_alerts = flow.tls_alert_endpoints.setdefault(alert_endpoint, {})
+        endpoint_alerts[alert] = endpoint_alerts.get(alert, 0) + 1
+
+    presenter_roles = _certificate_presenter_roles(flow)
+    for certificate in packet.tls_certificates:
+        if certificate.presenter_role is None:
+            presenter = (certificate.presenter_ip, certificate.presenter_port)
+            role = presenter_roles.get(presenter) or _next_certificate_role(presenter_roles)
+            presenter_roles[presenter] = role
+            certificate = certificate.model_copy(update={"presenter_role": role})
+        if all(
+            certificate.summary_key != existing.summary_key
+            for existing in flow.tls_certificates
+        ):
+            flow.tls_certificates = [*flow.tls_certificates, certificate]
+
+
+def deep_tls_reason(flow) -> str | None:
+    if flow.key.protocol not in {"TCP", "UDP"}:
+        return None
+    if flow.tls_alerts:
+        return "TLS/DTLS alert observed; inspect TLS/DTLS handshake, alert, and transport headers."
+    if flow.tls_certificates:
+        return (
+            "TLS certificates observed; inspect complete TLS certificate chain "
+            "and handshake fields."
+        )
+    if flow.tls_snis:
+        return "TLS SNI observed; inspect TLS ClientHello and related transport headers."
+    if flow.key.protocol == "TCP" and any(port in {443, 853, 8443} for port in _flow_ports(flow)):
+        return "Likely TLS flow by TCP port; inspect TLS handshake and TCP headers."
+    if flow.key.protocol == "UDP" and any(port in {443, 853, 4433} for port in _flow_ports(flow)):
+        return "Likely DTLS or encrypted UDP flow by port; inspect DTLS and UDP headers."
+    return None
+
+
+def deep_tls_flow(
+    capture_path: Path,
+    *,
+    flow_id: int,
+    flow: FlowSummary,
+    reason: str,
+    sample_limit: int = 200,
+    timeout: int = 120,
+) -> dict[str, Any]:
+    if flow.key.protocol not in {"TCP", "UDP"}:
+        return {
+            "tool": "deep_tls_flow",
+            "flow_id": flow_id,
+            "reason": reason,
+            "status": "skipped",
+            "message": f"Flow protocol is {flow.key.protocol}, not TCP or UDP.",
+        }
+
+    tshark = tshark_path()
+    if not tshark:
+        return {
+            "tool": "deep_tls_flow",
+            "flow_id": flow_id,
+            "reason": reason,
+            "status": "unavailable",
+            "message": "tshark was not found on PATH or in the Wireshark app bundle.",
+        }
+
+    display_filter = tls_flow_filter(flow)
+    command = field_command(
+        tshark,
+        capture_path,
+        display_filter,
+        TLS_DEEP_FIELDS,
+        occurrence="a",
+        aggregator="|",
+    )
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {
+            "tool": "deep_tls_flow",
+            "flow_id": flow_id,
+            "reason": reason,
+            "status": "error",
+            "display_filter": display_filter,
+            "message": str(exc),
+        }
+
+    if result.returncode != 0:
+        return {
+            "tool": "deep_tls_flow",
+            "flow_id": flow_id,
+            "reason": reason,
+            "status": "error",
+            "display_filter": display_filter,
+            "message": result.stderr.strip() or f"tshark exited with {result.returncode}",
+        }
+
+    rows = parse_field_rows(result.stdout, TLS_DEEP_FIELDS)
+    return {
+        "tool": "deep_tls_flow",
+        "flow_id": flow_id,
+        "reason": reason,
+        "status": "ok",
+        "display_filter": display_filter,
+        "packet_count": len(rows),
+        "tls_metadata_counts": tls_metadata_counts(rows),
+        "tls_deep_fields": TLS_DEEP_FIELDS,
+        "tls_deep_samples": rows[:sample_limit],
+        "sample_limit": sample_limit,
+        "truncated": len(rows) > sample_limit,
+    }
+
+
+def tls_flow_filter(flow: FlowSummary) -> str:
+    if flow.key.protocol == "UDP":
+        flow_filter = udp_flow_filter(flow)
+    else:
+        flow_filter = tcp_flow_filter(flow)
+    return f"{flow_filter} && (tls || dtls)"
+
+
+def tls_metadata_counts(rows: list[dict[str, str]]) -> dict[str, int]:
+    counters = {
+        "tls_packets": 0,
+        "dtls_packets": 0,
+        "tls_handshake_packets": 0,
+        "dtls_handshake_packets": 0,
+        "tls_certificate_fields": 0,
+        "tls_alert_packets": 0,
+        "dtls_alert_packets": 0,
+        "tcp_transport_packets": 0,
+        "udp_transport_packets": 0,
+        "tcp_loss_or_retransmission_packets": 0,
+        "algorithm_field_packets": 0,
+    }
+    for row in rows:
+        if row.get("tls.record.content_type") or row.get("tls.handshake.type"):
+            counters["tls_packets"] += 1
+        if row.get("dtls.record.content_type") or row.get("dtls.handshake.type"):
+            counters["dtls_packets"] += 1
+        if row.get("tls.handshake.type"):
+            counters["tls_handshake_packets"] += 1
+        if row.get("dtls.handshake.type"):
+            counters["dtls_handshake_packets"] += 1
+        if row.get("tls.handshake.certificate"):
+            counters["tls_certificate_fields"] += len(row["tls.handshake.certificate"].split("|"))
+        if row.get("dtls.handshake.certificate"):
+            counters["tls_certificate_fields"] += len(row["dtls.handshake.certificate"].split("|"))
+        if row.get("tls.alert_message.level") or row.get("tls.alert_message.desc"):
+            counters["tls_alert_packets"] += 1
+        if row.get("dtls.alert_message.level") or row.get("dtls.alert_message.desc"):
+            counters["dtls_alert_packets"] += 1
+        if row.get("tcp.srcport") or row.get("tcp.dstport"):
+            counters["tcp_transport_packets"] += 1
+        if row.get("udp.srcport") or row.get("udp.dstport"):
+            counters["udp_transport_packets"] += 1
+        if row.get("tcp.analysis.lost_segment") or row.get("tcp.analysis.retransmission"):
+            counters["tcp_loss_or_retransmission_packets"] += 1
+        if any(row.get(field) for field in TLS_ALGORITHM_FIELDS):
+            counters["algorithm_field_packets"] += 1
+    return {key: value for key, value in counters.items() if value}
 
 
 def render_tls_details(summary: CaptureSummary, *, show_flows: int, console: Console) -> None:
@@ -274,6 +605,115 @@ def _flow_endpoint_text(flow) -> str:
 
 def _flow_ids(flows) -> dict[object, int]:
     return {id(flow): index for index, flow in enumerate(flows, start=1)}
+
+
+def _flow_ports(flow) -> list[int]:
+    return [port for port in (flow.key.port_a, flow.key.port_b) if port is not None]
+
+
+def _tls_issue_tags(level: str | None, description: str | None) -> list[str]:
+    if not level and not description:
+        return []
+    tags = ["tls_alert"]
+    alert_text = f"{level or ''} {description or ''}".lower()
+    if "fatal" in alert_text or alert_text.startswith("2"):
+        tags.append("tls_fatal_alert")
+    return tags
+
+
+def _certificate_presenter_roles(flow) -> dict[tuple[str | None, int | None], str]:
+    return {
+        (certificate.presenter_ip, certificate.presenter_port): certificate.presenter_role
+        for certificate in flow.tls_certificates
+        if certificate.presenter_role is not None
+    }
+
+
+def _next_certificate_role(roles: dict[tuple[str | None, int | None], str]) -> str:
+    if "server" not in roles.values():
+        return "server"
+    if "client" not in roles.values():
+        return "client"
+    return "peer"
+
+
+def _tls_alert_label(level: str | None, description: str | None) -> str:
+    level_label = _tls_alert_level_label(level)
+    description_label = _tls_alert_description_label(description)
+    if level_label and description_label:
+        return f"{level_label} {description_label}"
+    return level_label or description_label or "alert"
+
+
+TLS_ALERT_LEVELS = {
+    1: "warning",
+    2: "fatal",
+}
+
+
+TLS_ALERT_DESCRIPTIONS = {
+    0: "close_notify",
+    10: "unexpected_message",
+    20: "bad_record_mac",
+    21: "decryption_failed_RESERVED",
+    22: "record_overflow",
+    30: "decompression_failure",
+    40: "handshake_failure",
+    41: "no_certificate_RESERVED",
+    42: "bad_certificate",
+    43: "unsupported_certificate",
+    44: "certificate_revoked",
+    45: "certificate_expired",
+    46: "certificate_unknown",
+    47: "illegal_parameter",
+    48: "unknown_ca",
+    49: "access_denied",
+    50: "decode_error",
+    51: "decrypt_error",
+    60: "export_restriction_RESERVED",
+    70: "protocol_version",
+    71: "insufficient_security",
+    80: "internal_error",
+    86: "inappropriate_fallback",
+    90: "user_canceled",
+    100: "no_renegotiation",
+    109: "missing_extension",
+    110: "unsupported_extension",
+    111: "certificate_unobtainable_RESERVED",
+    112: "unrecognized_name",
+    113: "bad_certificate_status_response",
+    114: "bad_certificate_hash_value_RESERVED",
+    115: "unknown_psk_identity",
+    116: "certificate_required",
+    120: "no_application_protocol",
+}
+
+
+def _tls_alert_level_label(value: str | None) -> str | None:
+    return _tls_alert_code_label(value, TLS_ALERT_LEVELS)
+
+
+def _tls_alert_description_label(value: str | None) -> str | None:
+    return _tls_alert_code_label(value, TLS_ALERT_DESCRIPTIONS)
+
+
+def _tls_alert_code_label(value: str | None, labels: dict[int, str]) -> str | None:
+    if not value:
+        return None
+    code = _first_int(value)
+    if code is None:
+        return value
+    name = labels.get(code)
+    if name:
+        return f"{name} ({code})"
+    return f"unknown_alert_{code} ({code})"
+
+
+def _first_int(value: str) -> int | None:
+    match = re.search(r"\d+", value)
+    if not match:
+        return None
+    return int(match.group(0))
 
 
 def _certificates_from_x509_layers(packet: Any) -> list[TlsCertificateObservation]:

@@ -30,6 +30,11 @@ congestion, shaping/policing, asymmetric routing, and tunnel health. Treat DNS, 
 TLS, filenames, and application names as supporting context unless they directly explain a
 transport symptom.
 
+Only discuss protocols that are present in the provided metadata, present in additional tool
+evidence, or explicitly asked about by the user. Do not add checklist-style negative statements
+for absent protocols, such as "No TCP, SMB, SIP, DHCP, or ESP issue is evidenced", unless that
+absence directly answers the user's question.
+
 For ESP/IPsec and other encrypted/datagram flows, explicitly state what cannot be proven from
 the metadata, but still reason from duration, bytes, throughput_mbps, directionality, packet
 SPI, ESP sequence gaps, missing ESP sequence numbers, duplicate ESP sequence numbers,

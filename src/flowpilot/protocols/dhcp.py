@@ -6,6 +6,19 @@ from rich.table import Table
 from ..models import CaptureSummary, FlowSummary, PacketObservation
 
 
+def extract_dhcp(packet, helpers) -> dict:
+    return {
+        "dhcp_message_type": _dhcp_value(packet, helpers, "option_dhcp"),
+        "dhcp_transaction_id": _dhcp_value(packet, helpers, "id"),
+        "dhcp_client_mac": _dhcp_value(packet, helpers, "hw_mac_addr"),
+        "dhcp_hostname": _dhcp_value(packet, helpers, "option_hostname"),
+        "dhcp_requested_ip": _dhcp_value(packet, helpers, "option_requested_ip_address"),
+        "dhcp_your_ip": _dhcp_value(packet, helpers, "ip_your"),
+        "dhcp_server_id": _dhcp_value(packet, helpers, "option_dhcp_server_id"),
+        "dhcp_lease_time": _dhcp_value(packet, helpers, "option_ip_address_lease_time"),
+    }
+
+
 def record_dhcp(flow: FlowSummary, packet: PacketObservation) -> None:
     if packet.dhcp_message_type:
         flow.dhcp_message_types[packet.dhcp_message_type] = (
@@ -30,6 +43,14 @@ def append_unique(flow: FlowSummary, field_name: str, value: str | None, limit: 
 
 def has_dhcp_ack(message_types: dict[str, int]) -> bool:
     return any("ACK" in key.upper() for key in message_types)
+
+
+def _dhcp_value(packet, helpers, attr_name: str) -> str | None:
+    for layer_name in ("dhcp", "bootp"):
+        value = helpers.layer_attr(packet, layer_name, attr_name)
+        if value:
+            return value
+    return None
 
 
 def render_dhcp_details(

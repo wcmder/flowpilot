@@ -21,6 +21,11 @@ def test_system_prompt_delegates_tool_access_through_evidence_requests() -> None
     assert "do not say you lack access" in reasoning.SYSTEM_PROMPT
 
 
+def test_system_prompt_avoids_absent_protocol_checklists() -> None:
+    assert "Only discuss protocols that are present" in reasoning.SYSTEM_PROMPT
+    assert "checklist-style negative statements" in reasoning.SYSTEM_PROMPT
+
+
 def test_chat_input_includes_metadata_report_and_recent_history() -> None:
     summary = CaptureSummary(
         packet_count=0,

@@ -6,6 +6,15 @@ from rich.table import Table
 from ..models import CaptureSummary, FlowSummary, PacketObservation
 
 
+def extract_dns(packet, helpers) -> dict:
+    return {
+        "dns_query": helpers.layer_attr(packet, "dns", "qry_name"),
+        "dns_query_type": helpers.layer_attr(packet, "dns", "qry_type"),
+        "dns_response_code": helpers.layer_attr(packet, "dns", "flags_rcode"),
+        "dns_answers": _dns_answers(packet, helpers),
+    }
+
+
 def record_dns(flow: FlowSummary, packet: PacketObservation) -> None:
     if packet.dns_query:
         flow.dns_queries[packet.dns_query] = flow.dns_queries.get(packet.dns_query, 0) + 1
@@ -53,6 +62,19 @@ def dns_response_explanation(response_code: str) -> str:
     if "formerr" in normalized or normalized.startswith("1"):
         return "FORMERR: DNS server could not understand the query"
     return f"DNS error response: {response_code}"
+
+
+def _dns_answers(packet, helpers) -> list[str]:
+    dns = getattr(packet, "dns", None)
+    if dns is None:
+        return []
+    answers = []
+    for attr_name in ("a", "aaaa", "resp_addr"):
+        value = getattr(dns, attr_name, None)
+        if not value:
+            continue
+        answers.extend(str(value).split(","))
+    return [answer.strip() for answer in answers if answer.strip()]
 
 
 def render_dns_details(
