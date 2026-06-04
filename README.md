@@ -308,7 +308,9 @@ JSON reports are written under the local `private/` folder. If you omit the
 filename, FlowPilot writes `private/flow-summary.json`; if you pass
 `report.json`, FlowPilot writes `private/report.json`. The JSON also records
 the source capture path so loaded summaries can still point agent deep tools
-back to the original pcap.
+back to the original pcap. The JSON summary stores all summarized flows; the
+`--show-flows` setting only limits terminal display, and `--max-flows` only
+limits how many top flows are sent to the LLM.
 
 For large captures, you can do the expensive local pass once, review the local
 tables, then reuse that saved summary for a later LLM/agent run:
@@ -343,15 +345,15 @@ Core options:
 | `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2 rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
-| `--json [PATH]` | Write the summary and optional LLM report under `private/`. Defaults to `private/flow-summary.json` when no filename is supplied. |
+| `--json [PATH]` | Write the full summary, all summarized flows, and optional LLM report under `private/`. Defaults to `private/flow-summary.json` when no filename is supplied. |
 | `--load-summary [PATH]` | Load a previous `--json` summary and skip the initial pcap read. Defaults to `private/flow-summary.json` when no filename is supplied. Flow filters such as `--port`, `--host`, `--peer`, and `--protocol` are applied to summarized flows. |
 | `--cache-pcap` | Copy the capture into a temporary FlowPilot session workspace before analysis. This preserves full captured packet bytes and headers for future agentic rereads during the run. |
 | `--keep-cache` | Keep the temporary session workspace after analysis for debugging. Implies `--cache-pcap`. |
 | `--packet-limit INTEGER` | Stop reading after this many packets. Useful for quick checks on very large captures. |
 | `--tls-keylog-file PATH` | Pass a TLS key log file to TShark for decryption, usually an `SSLKEYLOGFILE` generated during capture. |
 | `--esp-udp-port INTEGER` | Decode this UDP port as ESP before analysis. Repeat the option for multiple Cisco SD-WAN or other UDP-encapsulated ESP ports. |
-| `--max-flows INTEGER` | Maximum top flows included in the LLM request. Defaults to `25`. |
-| `--show-flows INTEGER` | Maximum flows shown in the terminal table. Defaults to `10`. |
+| `--max-flows INTEGER` | Maximum top flows included in the LLM request. Does not limit `--json` output. Defaults to `25`. |
+| `--show-flows INTEGER` | Maximum flows shown in the terminal table. Does not limit `--json` output. Defaults to `10`. |
 
 Model discovery:
 
