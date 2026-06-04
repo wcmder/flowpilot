@@ -177,7 +177,10 @@ def test_chat_input_promotes_additional_tool_evidence_to_own_message() -> None:
     assert "IMPORTANT: additional_tool_evidence is present below" in messages[1]["content"]
     assert "requested_analysis_focus is transport" in messages[1]["content"]
     assert "do not present the answer as security analysis" in messages[1]["content"]
+    assert "Markdown fenced JSON block" in messages[1]["content"]
+    assert "```json" in messages[1]["content"]
     assert '"tool": "deep_tls_flow"' in messages[1]["content"]
+    assert messages[1]["content"].rstrip().endswith("```")
     assert messages[-1] == {"role": "user", "content": "what did the deep evidence show?"}
 
 

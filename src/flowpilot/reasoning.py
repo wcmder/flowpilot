@@ -807,8 +807,11 @@ def _chat_input(
                     "fields only for transport/session troubleshooting and do not present the "
                     "answer as security analysis. "
                     "Do not say the deep evidence payload was not passed into this "
-                    "session context.\n\n"
-                    f"additional_tool_evidence:\n{json.dumps(evidence, indent=2, default=str)}"
+                    "session context. The additional_tool_evidence payload is provided "
+                    "as a Markdown fenced JSON block below; parse and use that JSON "
+                    "block as the authoritative deep evidence.\n\n"
+                    "additional_tool_evidence:\n"
+                    f"```json\n{json.dumps(evidence, indent=2, default=str)}\n```"
                 ),
             }
         )
