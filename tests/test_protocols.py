@@ -39,6 +39,7 @@ def test_protocol_registry_deep_tool_hooks_are_importable() -> None:
         "deep_udp_flow",
         "deep_tls_flow",
         "deep_smb2_flow",
+        "deep_esp_flow",
     }
     for protocol in protocols():
         assert len(protocol.deep_tools) == len(protocol.deep_tool_runner_hooks)
@@ -59,12 +60,14 @@ def test_protocol_registry_builds_deep_tool_guidance_prompt() -> None:
     assert "Allowed tools:" in prompt
     assert "deep_tls_flow" in prompt
     assert "deep_smb2_flow" in prompt
+    assert "deep_esp_flow" in prompt
     assert "SMB2 credit request/grant/charge" in prompt
 
 
 def test_protocol_registry_maps_deep_tool_to_protocol_name() -> None:
     assert protocol_name_for_deep_tool("deep_smb2_flow") == "smb"
     assert protocol_name_for_deep_tool("deep_tls_flow") == "tls"
+    assert protocol_name_for_deep_tool("deep_esp_flow") == "esp"
     assert protocol_name_for_deep_tool("missing_tool") is None
 
 
@@ -116,3 +119,12 @@ def test_smb_protocol_entry_documents_deep_tool_and_metadata_key() -> None:
     assert smb.deep_tools == ("deep_smb2_flow",)
     assert smb.compact_metadata_key == "smb"
     assert "SMB2 credit request/grant/charge" in smb.transport_prompt
+
+
+def test_esp_protocol_entry_documents_deep_tool_and_metadata_key() -> None:
+    esp = PROTOCOL_REGISTRY["esp"]
+
+    assert esp.deep_tools == ("deep_esp_flow",)
+    assert esp.compact_metadata_key == "esp"
+    assert "deep_esp_flow" in esp.deep_tool_prompt
+    assert "NAT-T" in esp.transport_prompt

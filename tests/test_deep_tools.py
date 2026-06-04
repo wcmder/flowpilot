@@ -12,6 +12,7 @@ def test_deep_tool_names_lists_registered_tools() -> None:
         "deep_udp_flow",
         "deep_tls_flow",
         "deep_smb2_flow",
+        "deep_esp_flow",
     }
 
 
@@ -31,6 +32,9 @@ def test_deep_tool_name_pattern_accepts_aliases() -> None:
     assert re.search(smb2_pattern, "run deep smb tool for flow 3", flags=re.IGNORECASE)
     assert re.search(smb2_pattern, "run deep_smb_tool for flow 3", flags=re.IGNORECASE)
     assert re.search(smb2_pattern, "run deep-smb-flow for flow 3", flags=re.IGNORECASE)
+
+    esp_pattern = deep_tool_name_pattern("deep_esp_flow")
+    assert re.search(esp_pattern, "run deep esp tool for flow 4", flags=re.IGNORECASE)
 
 
 def test_deep_tool_requests_prefers_tls_before_tcp_for_tls_port() -> None:
@@ -71,5 +75,25 @@ def test_deep_tool_requests_prefers_smb2_before_tcp_for_smb_metadata() -> None:
         "reason": (
             "SMB metadata observed; inspect SMB2 credit charge, request/grant, "
             "statuses, transfer headers, and related TCP symptoms."
+        ),
+    }
+
+
+def test_deep_tool_requests_detects_esp_flows() -> None:
+    flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="10.0.0.20",
+            protocol="ESP",
+        ),
+        packet_count=100,
+    )
+
+    assert deep_tool_requests_for_flow(3, flow) == {
+        "tool": "deep_esp_flow",
+        "flow_id": 3,
+        "reason": (
+            "Longer ESP/IPsec flow has low throughput; inspect ESP/IP headers for "
+            "loss, reordering, fragmentation, or NAT-T visibility."
         ),
     }

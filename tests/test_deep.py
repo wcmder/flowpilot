@@ -1,5 +1,15 @@
 from flowpilot.models import FlowKey, FlowSummary
 from flowpilot.protocols.deep_common import endpoint_filter_for_flow, parse_field_rows
+from flowpilot.protocols.esp import (
+    ESP_DEEP_FIELDS,
+    esp_deep_fields_for_tshark,
+    esp_direction_stats,
+    esp_metadata_counts,
+    parse_esp_rows,
+)
+from flowpilot.protocols.esp import (
+    _parse_tshark_field_names as parse_esp_tshark_field_names,
+)
 from flowpilot.protocols.smb import (
     SMB2_CREDIT_CHARGE_FIELD,
     SMB2_CREDIT_REQUEST_RESPONSE_FIELD,
@@ -137,6 +147,126 @@ def test_tcp_deep_fields_filter_invalid_tshark_fields(monkeypatch) -> None:
     assert "tcp.analysis.window_update" in fields
     assert "tcp.analysis.window_full" in fields
     assert "tcp.analysis.window_full_segment" not in fields
+
+
+def test_parse_esp_rows_includes_ip_udp_and_sequence_metadata() -> None:
+    values = {field: "" for field in ESP_DEEP_FIELDS}
+    values.update(
+        {
+            "frame.number": "40",
+            "frame.time_relative": "4.0",
+            "frame.len": "1500",
+            "ip.src": "10.0.0.1",
+            "ip.dst": "10.0.0.2",
+            "ip.len": "1480",
+            "ip.ttl": "63",
+            "ip.dsfield.dscp": "46",
+            "ip.flags.df": "1",
+            "udp.srcport": "4500",
+            "udp.dstport": "4500",
+            "udp.length": "1472",
+            "esp.spi": "0x1234",
+            "esp.sequence": "100",
+        }
+    )
+    output = "\t".join(values[field] for field in ESP_DEEP_FIELDS)
+
+    rows = parse_esp_rows(output)
+
+    assert rows[0]["src"] == "10.0.0.1"
+    assert rows[0]["dst"] == "10.0.0.2"
+    assert rows[0]["esp.spi"] == "0x1234"
+    assert rows[0]["esp.sequence"] == "100"
+
+
+def test_esp_metadata_counts_and_direction_stats_track_tunnel_signals() -> None:
+    rows = [
+        {
+            "src": "10.0.0.1",
+            "dst": "10.0.0.2",
+            "frame.len": "1500",
+            "ip.ttl": "63",
+            "ip.dsfield.dscp": "46",
+            "ip.flags.df": "1",
+            "udp.dstport": "4500",
+            "esp.sequence": "1",
+        },
+        {
+            "src": "10.0.0.1",
+            "dst": "10.0.0.2",
+            "frame.len": "1500",
+            "ip.ttl": "62",
+            "ip.dsfield.dscp": "46",
+            "ip.frag_offset": "1",
+            "esp.sequence": "4",
+        },
+        {
+            "src": "10.0.0.1",
+            "dst": "10.0.0.2",
+            "frame.len": "1500",
+            "esp.sequence": "3",
+        },
+        {
+            "src": "10.0.0.1",
+            "dst": "10.0.0.2",
+            "frame.len": "1500",
+            "esp.sequence": "4",
+            "esp.sequence-analysis.wrong-sequence-number": "1",
+        },
+    ]
+
+    assert esp_metadata_counts(rows) == {
+        "esp_packets": 4,
+        "nat_t_udp_4500_packets": 1,
+        "df_set_packets": 1,
+        "fragmented_packets": 1,
+        "wrong_sequence_packets": 1,
+        "dscp_value_count": 1,
+    }
+    assert esp_direction_stats(rows) == [
+        {
+            "direction": "10.0.0.1 -> 10.0.0.2",
+            "packets": 4,
+            "bytes": 6000,
+            "first_sequence": 1,
+            "last_sequence": 4,
+            "highest_sequence": 4,
+            "missing_count": 1,
+            "largest_sequence_gap": 2,
+            "gap_distribution": {"gap=2": 1},
+            "out_of_order_count": 1,
+            "duplicate_count": 1,
+            "ttl_min": 62,
+            "ttl_max": 63,
+            "dscp_values": ["46"],
+            "df_set_packets": 1,
+            "fragmented_packets": 1,
+            "nat_t_udp_4500_packets": 1,
+        }
+    ]
+
+
+def test_esp_deep_fields_filter_invalid_tshark_fields(monkeypatch) -> None:
+    fields_output = "\n".join(
+        [
+            "F\tFrame Number\tframe.number\tFT_UINT32\tframe\tBASE_DEC\t0x0",
+            "F\tESP SPI\tesp.spi\tFT_UINT32\tesp\tBASE_HEX_DEC\t0x0",
+            "F\tESP Sequence\tesp.sequence\tFT_UINT32\tesp\tBASE_DEC\t0x0",
+            "F\tTTL\tip.ttl\tFT_UINT8\tip\tBASE_DEC\t0x0",
+        ]
+    )
+    monkeypatch.setattr(
+        "flowpilot.protocols.esp._tshark_field_names",
+        lambda _tshark: parse_esp_tshark_field_names(fields_output),
+    )
+
+    fields = esp_deep_fields_for_tshark("fake-tshark")
+
+    assert "frame.number" in fields
+    assert "esp.spi" in fields
+    assert "esp.sequence" in fields
+    assert "ip.ttl" in fields
+    assert "udp.length" not in fields
 
 
 def test_parse_udp_rows_includes_dns_and_dhcp_metadata() -> None:

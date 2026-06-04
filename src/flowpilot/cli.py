@@ -886,6 +886,7 @@ def _format_agent_evidence_counts(evidence: dict) -> str:
         or evidence.get("udp_metadata_counts")
         or evidence.get("tls_metadata_counts")
         or evidence.get("smb2_credit_counts")
+        or evidence.get("esp_metadata_counts")
         or {}
     )
     if not counts:

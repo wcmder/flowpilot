@@ -183,14 +183,23 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
     ProtocolModule(
         name="esp",
         display_name="ESP/IPsec",
-        flow_attributes=("esp_sequences",),
+        flow_attributes=("esp_spis", "esp_sequences"),
         extract_hook="flowpilot.protocols.esp.extract_esp",
         record_hook="flowpilot.protocols.esp.record_esp",
         compact_metadata_key="esp",
+        deep_tools=("deep_esp_flow",),
+        deep_tool_runner_hooks=("flowpilot.protocols.esp.deep_esp_flow",),
+        deep_reason_hook="flowpilot.protocols.esp.deep_esp_reason",
+        deep_tool_prompt=(
+            "Use deep_esp_flow for ESP/IPsec sequence gaps, duplicate/out-of-order "
+            "packets, NAT-T UDP/4500, fragmentation, DF, DSCP, TTL/hop-limit, and "
+            "packet size evidence."
+        ),
         transport_prompt=(
-            "ESP/IPsec: reason from duration, bytes, throughput, directionality, SPI, sequence "
-            "gaps, missing or duplicate sequence numbers, out-of-order sequences, and peer "
-            "behavior."
+            "ESP/IPsec: use duration, bytes, throughput, directionality, SPI, sequence "
+            "gaps, missing or duplicate sequence numbers, out-of-order sequences, NAT-T, "
+            "fragmentation, DF, DSCP, TTL/hop-limit, and peer behavior to troubleshoot "
+            "tunnel loss, reordering, MTU, QoS, or path asymmetry."
         ),
         security_prompt=(
             "ESP/IPsec: assess visible tunnel metadata such as SPI, peer behavior, sequence "
