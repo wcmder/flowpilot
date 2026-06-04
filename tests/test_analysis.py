@@ -256,7 +256,7 @@ def test_summarize_capture_tracks_esp_spi_without_ports() -> None:
             esp_spi="0x0000abcd",
         ),
         PacketObservation(
-            timestamp=datetime(2026, 1, 1, 12, 2, 0),
+            timestamp=datetime(2026, 1, 1, 12, 3, 1),
             src_ip="198.51.100.20",
             dst_ip="192.0.2.10",
             protocol="ESP",
@@ -271,10 +271,38 @@ def test_summarize_capture_tracks_esp_spi_without_ports() -> None:
     assert summary.top_ports == {}
     assert summary.flows[0].esp_spis == ["0x0000abcd"]
     assert summary.flows[0].is_one_way is False
-    assert summary.flows[0].throughput_mbps == 0.00012
+    assert summary.flows[0].throughput_mbps < 0.001
     assert "low average throughput for long-lived flow" in summary.flows[0].diagnostic_hints
     assert summary.compact()["top_flows"][0]["esp_spis"] == ["0x0000abcd"]
     assert "diagnostic_hints" in summary.compact()["top_flows"][0]
+
+
+def test_summarize_capture_does_not_flag_two_minute_flow_as_long_lived() -> None:
+    packets = [
+        PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 0, 0),
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+        ),
+        PacketObservation(
+            timestamp=datetime(2026, 1, 1, 12, 2, 0),
+            src_ip="198.51.100.20",
+            dst_ip="192.0.2.10",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert "low average throughput for long-lived flow" not in summary.flows[0].diagnostic_hints
+    assert "encrypted or datagram flow limits direct loss/latency proof" not in (
+        summary.flows[0].diagnostic_hints
+    )
 
 
 def test_summarize_capture_does_not_flag_large_interpacket_gap() -> None:

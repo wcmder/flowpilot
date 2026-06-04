@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from ..models import EspSequenceSummary, FlowSummary, PacketObservation
-from .deep_common import field_command, parse_field_rows, tshark_path
+from .deep_common import (
+    endpoint_filter_for_flow,
+    field_command,
+    parse_field_rows,
+    tshark_path,
+)
 
 ESP_DEEP_FIELDS = [
     "frame.number",
@@ -213,7 +218,7 @@ def deep_esp_flow(
 
 
 def esp_flow_filter(flow: FlowSummary) -> str:
-    endpoint_filter = _endpoint_filter_for_flow(flow)
+    endpoint_filter = endpoint_filter_for_flow(flow)
     ports = [port for port in (flow.key.port_a, flow.key.port_b) if port is not None]
     if ports:
         port_filter = " && ".join(f"udp.port == {port}" for port in sorted(set(ports)))
@@ -404,13 +409,6 @@ def _sample_esp_rows(rows: list[dict[str, str]], sample_limit: int) -> list[dict
         {key: value for key, value in row.items() if key in sample_fields}
         for row in rows[:sample_limit]
     ]
-
-
-def _endpoint_filter_for_flow(flow: FlowSummary) -> str:
-    return (
-        f"((ip.addr == {flow.key.endpoint_a} && ip.addr == {flow.key.endpoint_b}) || "
-        f"(ipv6.addr == {flow.key.endpoint_a} && ipv6.addr == {flow.key.endpoint_b}))"
-    )
 
 
 def _row_value(row: dict[str, str], *fields: str) -> str | None:

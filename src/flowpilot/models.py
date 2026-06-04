@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+LONG_LIVED_FLOW_SECONDS = 180
+
 
 class TlsCertificateObservation(BaseModel):
     presenter_ip: str | None = None
@@ -450,7 +452,7 @@ class FlowSummary(BaseModel):
         hints = []
         if self.is_one_way and self.packet_count > 1:
             hints.append("one-way traffic observed")
-        if self.duration_seconds >= 60 and self.throughput_mbps < 2:
+        if self.duration_seconds >= LONG_LIVED_FLOW_SECONDS and self.throughput_mbps < 2:
             hints.append("low average throughput for long-lived flow")
         if self.retransmission_rate >= 0.01:
             hints.append("tcp retransmission rate above 1 percent")
@@ -468,7 +470,10 @@ class FlowSummary(BaseModel):
             hints.append("dns error responses observed")
         if self.dhcp_message_types and not _has_any_key(self.dhcp_message_types, {"ACK"}):
             hints.append("dhcp exchange lacks ack in observed packets")
-        if self.key.protocol in {"ESP", "UDP"} and self.duration_seconds >= 60:
+        if (
+            self.key.protocol in {"ESP", "UDP"}
+            and self.duration_seconds >= LONG_LIVED_FLOW_SECONDS
+        ):
             hints.append("encrypted or datagram flow limits direct loss/latency proof")
         hints.extend(self.smb_diagnostic_hints)
         return hints
@@ -507,7 +512,7 @@ class FlowSummary(BaseModel):
             avg_size = self.smb_transfer_bytes / total_ops
             if avg_size < 64 * 1024:
                 hints.append("small average smb read/write size")
-        if self.duration_seconds >= 60 and self.smb_transfer_mbps < 10:
+        if self.duration_seconds >= LONG_LIVED_FLOW_SECONDS and self.smb_transfer_mbps < 10:
             hints.append("low smb transfer throughput for long-lived flow")
         if self.max_interarrival_ms is not None and self.max_interarrival_ms >= 1_000:
             hints.append("smb transfer stalls or idle gaps observed")

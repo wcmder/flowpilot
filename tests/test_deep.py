@@ -269,6 +269,47 @@ def test_esp_deep_fields_filter_invalid_tshark_fields(monkeypatch) -> None:
     assert "udp.length" not in fields
 
 
+def test_esp_flow_filter_uses_ipv4_field_for_ipv4_endpoints() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.20", protocol="ESP")
+    )
+
+    from flowpilot.protocols.esp import esp_flow_filter
+
+    assert esp_flow_filter(flow) == "(ip.addr == 10.0.0.10 && ip.addr == 10.0.0.20) && esp"
+
+
+def test_esp_flow_filter_uses_ipv6_field_for_ipv6_endpoints() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="2001:db8::1", endpoint_b="2001:db8::2", protocol="ESP")
+    )
+
+    from flowpilot.protocols.esp import esp_flow_filter
+
+    assert esp_flow_filter(flow) == (
+        "(ipv6.addr == 2001:db8::1 && ipv6.addr == 2001:db8::2) && esp"
+    )
+
+
+def test_esp_flow_filter_includes_nat_t_ports_when_present() -> None:
+    flow = FlowSummary(
+        key=FlowKey(
+            endpoint_a="10.0.0.10",
+            endpoint_b="10.0.0.20",
+            port_a=4500,
+            port_b=4500,
+            protocol="ESP",
+        )
+    )
+
+    from flowpilot.protocols.esp import esp_flow_filter
+
+    assert esp_flow_filter(flow) == (
+        "(ip.addr == 10.0.0.10 && ip.addr == 10.0.0.20) && "
+        "(udp.port == 4500) && (esp || udp.port == 4500)"
+    )
+
+
 def test_parse_udp_rows_includes_dns_and_dhcp_metadata() -> None:
     values = {field: "" for field in UDP_HEADER_FIELDS}
     values.update(
