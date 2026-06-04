@@ -285,6 +285,44 @@ def test_agent_chat_ip_guard_clears_tool_requests_when_answer_is_suppressed() ->
     assert guarded.evidence_requests == []
 
 
+def test_agent_chat_guard_suppresses_false_missing_additional_evidence_claim() -> None:
+    response = AgentChatResponse(
+        answer=(
+            "The additional_tool_evidence payload for this specific flow is missing or "
+            "empty. Verify that FlowPilot's pipeline has successfully attached the "
+            "additional_tool_evidence block to our conversation."
+        ),
+        evidence_requests=[{"tool": "deep_smb2_flow", "flow_id": 1, "reason": "More."}],
+    )
+
+    guarded = reasoning._guard_agent_chat_response_ips(
+        response,
+        CaptureSummary(
+            packet_count=0,
+            total_bytes=0,
+            flow_count=0,
+            protocols={},
+            top_ports={},
+            issue_counts={},
+            names=[],
+            flows=[],
+        ),
+        max_flows=25,
+        additional_evidence=[
+            {
+                "tool": "deep_smb2_flow",
+                "flow_id": 1,
+                "status": "ok",
+                "packet_count": 12,
+            }
+        ],
+    )
+
+    assert "FlowPilot attached additional_tool_evidence" in guarded.answer
+    assert "deep_smb2_flow for Flow ID 1: status=ok, packets=12" in guarded.answer
+    assert guarded.evidence_requests == []
+
+
 def test_chat_input_includes_requested_analysis_focus() -> None:
     summary = CaptureSummary(
         packet_count=0,

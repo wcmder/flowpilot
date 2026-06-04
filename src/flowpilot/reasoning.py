@@ -1116,6 +1116,13 @@ def _guard_agent_chat_response_ips(
     max_flows: int,
     additional_evidence: list[dict[str, Any]] | None,
 ) -> AgentChatResponse:
+    if additional_evidence and _claims_additional_evidence_missing(response.answer):
+        return response.model_copy(
+            update={
+                "answer": _attached_evidence_guard_message(additional_evidence),
+                "evidence_requests": [],
+            }
+        )
     guarded_answer = _guard_answer_ips(
         response.answer,
         summary,
@@ -1125,6 +1132,51 @@ def _guard_agent_chat_response_ips(
     if guarded_answer == response.answer:
         return response
     return response.model_copy(update={"answer": guarded_answer, "evidence_requests": []})
+
+
+def _claims_additional_evidence_missing(answer: str) -> bool:
+    normalized = re.sub(r"\s+", " ", answer.strip().lower())
+    if (
+        "additional_tool_evidence" not in normalized
+        and "additional tool evidence" not in normalized
+    ):
+        return False
+    missing_terms = (
+        "missing",
+        "empty",
+        "not provided",
+        "not passed",
+        "not attached",
+        "not available",
+        "no evidence",
+        "cannot verify",
+        "verify that flowpilot",
+    )
+    return any(term in normalized for term in missing_terms)
+
+
+def _attached_evidence_guard_message(additional_evidence: list[dict[str, Any]]) -> str:
+    evidence_lines = []
+    for index, evidence in enumerate(additional_evidence, start=1):
+        tool = evidence.get("tool", "unknown_tool")
+        flow_id = evidence.get("flow_id", "unknown")
+        status = evidence.get("status", "unknown")
+        packet_count = evidence.get("packet_count")
+        detail = f"{index}. {tool} for Flow ID {flow_id}: status={status}"
+        if packet_count is not None:
+            detail += f", packets={packet_count}"
+        if target_flow := evidence.get("target_flow"):
+            detail += f", target_flow={target_flow}"
+        evidence_lines.append(detail)
+    return (
+        "FlowPilot attached additional_tool_evidence to this chat turn, but the LLM "
+        "provider returned an answer claiming that evidence was missing or empty. "
+        "That provider answer was suppressed.\n\n"
+        "Attached deep evidence:\n"
+        + "\n".join(evidence_lines)
+        + "\n\nAsk the follow-up again, or ask about one of the attached evidence fields; "
+        "FlowPilot will keep passing this deep evidence as additional_tool_evidence."
+    )
 
 
 def _guard_answer_ips(
