@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from .decode_as import tshark_decode_as_parameters
 from .models import PacketObservation
 from .protocols.registry import extract_hooks
 
@@ -47,6 +48,7 @@ def read_capture(
 
 def _tshark_custom_parameters(tls_keylog_file: Path | None) -> list[str] | None:
     parameters = [
+        *tshark_decode_as_parameters(),
         "-o",
         "tcp.desegment_tcp_streams:TRUE",
         "-o",
@@ -146,7 +148,7 @@ def _ip_pair(packet: Any) -> tuple[str | None, str | None]:
 
 def _transport_protocol(packet: Any) -> str:
     layers = {getattr(layer, "layer_name", "").lower() for layer in getattr(packet, "layers", [])}
-    for candidate in ("tcp", "udp", "esp", "ah", "gre", "icmp", "icmpv6"):
+    for candidate in ("tcp", "esp", "udp", "ah", "gre", "icmp", "icmpv6"):
         if candidate in layers or hasattr(packet, candidate):
             return candidate.upper()
     return getattr(packet, "highest_layer", "UNKNOWN").upper()
@@ -154,6 +156,8 @@ def _transport_protocol(packet: Any) -> str:
 
 def _ports(packet: Any, protocol: str) -> tuple[int | None, int | None]:
     layer = getattr(packet, protocol.lower(), None)
+    if protocol == "ESP" and getattr(packet, "udp", None) is not None:
+        layer = packet.udp
     if layer is None:
         return None, None
     return _safe_int(getattr(layer, "srcport", None)), _safe_int(getattr(layer, "dstport", None))

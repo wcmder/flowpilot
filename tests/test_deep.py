@@ -1,5 +1,10 @@
+from flowpilot.decode_as import set_esp_udp_ports
 from flowpilot.models import FlowKey, FlowSummary
-from flowpilot.protocols.deep_common import endpoint_filter_for_flow, parse_field_rows
+from flowpilot.protocols.deep_common import (
+    endpoint_filter_for_flow,
+    field_command,
+    parse_field_rows,
+)
 from flowpilot.protocols.esp import (
     ESP_DEEP_FIELDS,
     esp_deep_fields_for_tshark,
@@ -67,6 +72,28 @@ def test_parse_tshark_rows_includes_tcp_headers_and_analysis_markers() -> None:
     assert rows[0]["tcp.window_size_value"] == "65535"
     assert rows[0]["tcp.flags"] == "0x0018"
     assert rows[0]["tcp.analysis.retransmission"] == "1"
+
+
+def test_field_command_includes_configured_esp_udp_decode_as(tmp_path) -> None:
+    try:
+        set_esp_udp_ports([12346])
+
+        command = field_command(
+            "tshark",
+            tmp_path / "capture.pcap",
+            "esp",
+            ["frame.number"],
+        )
+
+        assert command[:5] == [
+            "tshark",
+            "-d",
+            "udp.port==12346,esp",
+            "-r",
+            str(tmp_path / "capture.pcap"),
+        ]
+    finally:
+        set_esp_udp_ports(None)
 
 
 def test_tcp_analysis_counts_counts_presence_markers() -> None:

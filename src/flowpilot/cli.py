@@ -20,6 +20,7 @@ from rich.table import Table
 
 from .analysis import summarize_capture
 from .capture import read_capture
+from .decode_as import set_esp_udp_ports
 from .filters import (
     FlowFilter,
     filter_observations,
@@ -84,6 +85,16 @@ def analyze(
     tls_keylog_file: Annotated[
         Path | None,
         typer.Option(help="TLS key log file for TShark decryption, usually SSLKEYLOGFILE output."),
+    ] = None,
+    esp_udp_port: Annotated[
+        list[int] | None,
+        typer.Option(
+            "--esp-udp-port",
+            help=(
+                "Decode this UDP port as ESP before analysis. Repeat for multiple "
+                "Cisco SD-WAN or other UDP-encapsulated ESP ports."
+            ),
+        ),
     ] = None,
     host: Annotated[
         str | None, typer.Option(help="Only include packets where this IP is either endpoint.")
@@ -214,6 +225,7 @@ def analyze(
         raise typer.BadParameter("--analysis-focus must be either transport or security.")
     if keep_cache:
         cache_pcap = True
+    set_esp_udp_ports(esp_udp_port)
 
     session = _CachedCaptureSession.create(capture_path, keep=keep_cache) if cache_pcap else None
     if session:

@@ -349,6 +349,7 @@ Core options:
 | `--keep-cache` | Keep the temporary session workspace after analysis for debugging. Implies `--cache-pcap`. |
 | `--packet-limit INTEGER` | Stop reading after this many packets. Useful for quick checks on very large captures. |
 | `--tls-keylog-file PATH` | Pass a TLS key log file to TShark for decryption, usually an `SSLKEYLOGFILE` generated during capture. |
+| `--esp-udp-port INTEGER` | Decode this UDP port as ESP before analysis. Repeat the option for multiple Cisco SD-WAN or other UDP-encapsulated ESP ports. |
 | `--max-flows INTEGER` | Maximum top flows included in the LLM request. Defaults to `25`. |
 | `--show-flows INTEGER` | Maximum flows shown in the terminal table. Defaults to `10`. |
 
@@ -432,6 +433,26 @@ needs the TLS handshake packets. This uses TShark's `tls.keylog_file` preference
 when decryption succeeds, decrypted protocol layers such as HTTP may become
 visible to PyShark. FlowPilot still summarizes metadata and does not send raw
 payloads to the LLM.
+
+## ESP over UDP decode-as
+
+Some tunnels, including Cisco SD-WAN deployments, carry ESP-like traffic inside
+UDP ports other than NAT-T UDP/4500. If Wireshark only shows UDP until you use
+Decode As, pass the same UDP port to FlowPilot:
+
+```bash
+flowpilot analyze capture.pcap --esp-udp-port 12346 --protocol esp --no-llm
+```
+
+For multiple encapsulation ports, repeat the option:
+
+```bash
+flowpilot analyze capture.pcap --esp-udp-port 12346 --esp-udp-port 12366 --agent
+```
+
+FlowPilot passes `-d udp.port==PORT,esp` to TShark/PyShark during the initial
+read and to deep TShark rereads, so decoded packets are summarized as ESP while
+retaining the outer UDP ports for filtering and deep-tool targeting.
 
 ## Notes
 

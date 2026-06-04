@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from flowpilot.analysis import summarize_capture
 from flowpilot.capture import _tshark_custom_parameters, packet_to_observation
 from flowpilot.cli import _rtt
+from flowpilot.decode_as import set_esp_udp_ports
 from flowpilot.filters import (
     FlowFilter,
     filter_observations,
@@ -519,6 +520,43 @@ def test_tshark_custom_parameters_enable_tls_reassembly_without_keylog() -> None
     assert "tcp.desegment_tcp_streams:TRUE" in params
     assert "tls.desegment_ssl_records:TRUE" in params
     assert "tls.desegment_ssl_application_data:TRUE" in params
+
+
+def test_tshark_custom_parameters_include_esp_udp_decode_as() -> None:
+    try:
+        set_esp_udp_ports([12346])
+
+        params = _tshark_custom_parameters(None)
+
+        assert params is not None
+        assert params[:2] == ["-d", "udp.port==12346,esp"]
+    finally:
+        set_esp_udp_ports(None)
+
+
+def test_packet_to_observation_prefers_decoded_esp_layer_but_keeps_udp_ports() -> None:
+    packet = SimpleNamespace(
+        sniff_time=datetime(2026, 1, 1, 12, 0, 0),
+        length="128",
+        layers=[
+            SimpleNamespace(layer_name="ip"),
+            SimpleNamespace(layer_name="udp"),
+            SimpleNamespace(layer_name="esp"),
+        ],
+        ip=SimpleNamespace(src="10.0.0.1", dst="10.0.0.2"),
+        udp=SimpleNamespace(srcport="12346", dstport="12346"),
+        esp=SimpleNamespace(spi="0x1234", sequence="7"),
+        highest_layer="ESP",
+    )
+
+    observation = packet_to_observation(packet)
+
+    assert observation is not None
+    assert observation.protocol == "ESP"
+    assert observation.src_port == 12346
+    assert observation.dst_port == 12346
+    assert observation.esp_spi == "0x1234"
+    assert observation.esp_sequence == 7
 
 
 def test_tls_field_values_include_reassembled_field_objects() -> None:

@@ -4,6 +4,7 @@ import ipaddress
 import shutil
 from pathlib import Path
 
+from ..decode_as import tshark_decode_as_parameters
 from ..models import FlowSummary
 
 
@@ -28,6 +29,7 @@ def field_command(
 ) -> list[str]:
     command = [
         tshark,
+        *tshark_decode_as_parameters(),
         "-r",
         str(capture_path),
         "-Y",
