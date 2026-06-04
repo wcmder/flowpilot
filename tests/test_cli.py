@@ -603,6 +603,41 @@ def test_format_agent_evidence_counts_shows_tcp_window_stats() -> None:
     )
 
 
+def test_format_agent_evidence_counts_shows_esp_header_findings_without_sequences() -> None:
+    assert _format_agent_evidence_counts(
+        {
+            "esp_metadata_counts": {
+                "esp_packets": 5,
+                "nat_t_udp_4500_packets": 5,
+                "fragmented_packets": 1,
+                "dscp_values": ["46"],
+                "ip_length_min": 1200,
+                "ip_length_max": 1480,
+                "df_bit": "on",
+            },
+            "esp_direction_stats": [
+                {
+                    "direction": "10.0.0.1 -> 10.0.0.2",
+                    "packets": 5,
+                    "missing_count": 2,
+                    "largest_sequence_gap": 2,
+                    "gap_distribution": {"gap=2": 1},
+                    "out_of_order_count": 1,
+                    "duplicate_count": 1,
+                }
+            ],
+        }
+    ) == (
+        "esp_packets: 5\n"
+        "nat_t_udp_4500_packets: 5\n"
+        "fragmented_packets: 1\n"
+        "dscp_values: ['46']\n"
+        "ip_length_min: 1200\n"
+        "ip_length_max: 1480\n"
+        "df_bit: on"
+    )
+
+
 def test_tls_detail_rows_respect_top_flow_slice() -> None:
     cert_flow = FlowSummary(
         key=FlowKey(

@@ -191,9 +191,9 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         deep_tool_runner_hooks=("flowpilot.protocols.esp.deep_esp_flow",),
         deep_reason_hook="flowpilot.protocols.esp.deep_esp_reason",
         deep_tool_prompt=(
-            "Use deep_esp_flow for ESP/IPsec sequence gaps, duplicate/out-of-order "
-            "packets, NAT-T UDP/4500, fragmentation, DF, DSCP, TTL/hop-limit, and "
-            "packet size evidence."
+            "Use deep_esp_flow for ESP/IPsec NAT-T UDP/4500, fragmentation, DF, DSCP, "
+            "TTL/hop-limit, and packet size evidence. Use Top Flows ESP sequence "
+            "metadata for missing, duplicate, and out-of-order sequence findings."
         ),
         transport_prompt=(
             "ESP/IPsec: use duration, bytes, throughput, directionality, SPI, sequence "

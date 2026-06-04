@@ -185,6 +185,7 @@ def test_esp_metadata_counts_and_direction_stats_track_tunnel_signals() -> None:
             "src": "10.0.0.1",
             "dst": "10.0.0.2",
             "frame.len": "1500",
+            "ip.len": "1480",
             "ip.ttl": "63",
             "ip.dsfield.dscp": "46",
             "ip.flags.df": "1",
@@ -195,6 +196,7 @@ def test_esp_metadata_counts_and_direction_stats_track_tunnel_signals() -> None:
             "src": "10.0.0.1",
             "dst": "10.0.0.2",
             "frame.len": "1500",
+            "ip.len": "1400",
             "ip.ttl": "62",
             "ip.dsfield.dscp": "46",
             "ip.frag_offset": "1",
@@ -204,14 +206,15 @@ def test_esp_metadata_counts_and_direction_stats_track_tunnel_signals() -> None:
             "src": "10.0.0.1",
             "dst": "10.0.0.2",
             "frame.len": "1500",
+            "ip.len": "1200",
             "esp.sequence": "3",
         },
         {
             "src": "10.0.0.1",
             "dst": "10.0.0.2",
             "frame.len": "1500",
+            "ip.len": "1480",
             "esp.sequence": "4",
-            "esp.sequence-analysis.wrong-sequence-number": "1",
         },
     ]
 
@@ -220,8 +223,11 @@ def test_esp_metadata_counts_and_direction_stats_track_tunnel_signals() -> None:
         "nat_t_udp_4500_packets": 1,
         "df_set_packets": 1,
         "fragmented_packets": 1,
-        "wrong_sequence_packets": 1,
         "dscp_value_count": 1,
+        "dscp_values": ["46"],
+        "ip_length_min": 1200,
+        "ip_length_max": 1480,
+        "df_bit": "on",
     }
     assert esp_direction_stats(rows) == [
         {

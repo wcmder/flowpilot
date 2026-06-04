@@ -35,7 +35,6 @@ ESP_DEEP_FIELDS = [
     "udp.length",
     "esp.spi",
     "esp.sequence",
-    "esp.sequence-analysis.wrong-sequence-number",
 ]
 _TSHARK_FIELD_CACHE: dict[str, set[str]] = {}
 
@@ -130,8 +129,9 @@ def deep_esp_reason(flow: FlowSummary) -> str | None:
         return None
     if flow.esp_sequences:
         return (
-            "ESP/IPsec flow observed; inspect ESP sequence gaps, duplicates, "
-            "out-of-order packets, fragmentation, DSCP, TTL/hop-limit, and NAT-T headers."
+            "ESP/IPsec flow observed; inspect fragmentation, DSCP, TTL/hop-limit, "
+            "packet size, and NAT-T headers. Use the Top Flows ESP sequence summary "
+            "for missing, duplicate, and out-of-order sequence findings."
         )
     if flow.packet_count >= 100 and flow.throughput_mbps < 1:
         return (
@@ -209,7 +209,6 @@ def deep_esp_flow(
         "display_filter": display_filter,
         "packet_count": len(rows),
         "esp_metadata_counts": esp_metadata_counts(rows),
-        "esp_direction_stats": esp_direction_stats(rows),
         "esp_deep_fields": deep_fields,
         "esp_deep_samples": _sample_esp_rows(rows, sample_limit),
         "sample_limit": sample_limit,
@@ -272,22 +271,32 @@ def _parse_tshark_field_names(fields_output: str) -> set[str]:
     return field_names
 
 
-def esp_metadata_counts(rows: list[dict[str, str]]) -> dict[str, int]:
+def esp_metadata_counts(rows: list[dict[str, str]]) -> dict[str, Any]:
     counters = Counter()
     dscp_values = set()
+    ip_lengths = []
+    df_values = set()
     for row in rows:
         counters["esp_packets"] += 1
         counters["nat_t_udp_4500_packets"] += int(_has_udp_4500(row))
-        counters["df_set_packets"] += int(_truthy_row_value(row.get("ip.flags.df")))
+        df_is_set = _truthy_row_value(row.get("ip.flags.df"))
+        counters["df_set_packets"] += int(df_is_set)
+        if row.get("ip.flags.df") not in {None, ""}:
+            df_values.add("on" if df_is_set else "off")
         counters["fragmented_packets"] += int((_row_int(row.get("ip.frag_offset")) or 0) > 0)
-        counters["wrong_sequence_packets"] += int(
-            _truthy_row_value(row.get("esp.sequence-analysis.wrong-sequence-number"))
-        )
         if dscp := _row_value(row, "ip.dsfield.dscp", "ipv6.tclass.dscp"):
             dscp_values.add(dscp)
+        if ip_length := _row_int(_row_value(row, "ip.len", "ipv6.plen")):
+            ip_lengths.append(ip_length)
     result = {key: value for key, value in counters.items() if value}
     if dscp_values:
         result["dscp_value_count"] = len(dscp_values)
+        result["dscp_values"] = sorted(dscp_values)
+    if ip_lengths:
+        result["ip_length_min"] = min(ip_lengths)
+        result["ip_length_max"] = max(ip_lengths)
+    if df_values:
+        result["df_bit"] = df_values.pop() if len(df_values) == 1 else "mixed"
     return result
 
 

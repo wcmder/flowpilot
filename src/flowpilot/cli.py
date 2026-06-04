@@ -881,12 +881,14 @@ def _render_agent_evidence(agent_evidence: list[dict]) -> None:
 
 
 def _format_agent_evidence_counts(evidence: dict) -> str:
+    if evidence.get("esp_metadata_counts"):
+        return _format_esp_agent_evidence_counts(evidence.get("esp_metadata_counts") or {})
+
     counts = (
         evidence.get("tcp_analysis_counts")
         or evidence.get("udp_metadata_counts")
         or evidence.get("tls_metadata_counts")
         or evidence.get("smb2_credit_counts")
-        or evidence.get("esp_metadata_counts")
         or {}
     )
     if not counts:
@@ -914,6 +916,22 @@ def _format_agent_evidence_counts(evidence: dict) -> str:
     if tcp_window_stats := evidence.get("tcp_window_stats"):
         lines.extend(f"{key}: {value}" for key, value in tcp_window_stats.items())
     return "\n".join(lines)
+
+
+def _format_esp_agent_evidence_counts(counts: dict) -> str:
+    lines = []
+    for key in (
+        "esp_packets",
+        "nat_t_udp_4500_packets",
+        "fragmented_packets",
+        "dscp_values",
+        "ip_length_min",
+        "ip_length_max",
+        "df_bit",
+    ):
+        if key in counts:
+            lines.append(f"{key}: {counts[key]}")
+    return "\n".join(lines) or "-"
 
 
 def _run_chat(
