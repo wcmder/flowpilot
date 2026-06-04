@@ -585,6 +585,9 @@ def test_format_agent_evidence_counts_shows_tcp_window_stats() -> None:
                 "advertised_window_max": 131072,
                 "bytes_in_flight_max": 262144,
                 "window_scale_factors": [64],
+                "mss_values": [1380, 1460],
+                "mss_min": 1380,
+                "mss_max": 1460,
             },
         }
     ) == (
@@ -593,7 +596,10 @@ def test_format_agent_evidence_counts_shows_tcp_window_stats() -> None:
         "advertised_window_min: 0\n"
         "advertised_window_max: 131072\n"
         "bytes_in_flight_max: 262144\n"
-        "window_scale_factors: [64]"
+        "window_scale_factors: [64]\n"
+        "mss_values: [1380, 1460]\n"
+        "mss_min: 1380\n"
+        "mss_max: 1460"
     )
 
 

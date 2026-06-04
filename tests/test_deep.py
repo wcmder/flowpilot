@@ -12,7 +12,11 @@ from flowpilot.protocols.tcp import (
     TCP_HEADER_FIELDS,
     parse_tcp_rows,
     tcp_analysis_counts,
+    tcp_deep_fields_for_tshark,
     tcp_window_stats,
+)
+from flowpilot.protocols.tcp import (
+    _parse_tshark_field_names as parse_tcp_tshark_field_names,
 )
 from flowpilot.protocols.tls import TLS_DEEP_FIELDS, tls_flow_filter, tls_metadata_counts
 from flowpilot.protocols.udp import UDP_HEADER_FIELDS, udp_metadata_counts
@@ -34,6 +38,7 @@ def test_parse_tshark_rows_includes_tcp_headers_and_analysis_markers() -> None:
             "tcp.window_size_value": "65535",
             "tcp.window_size": "65535",
             "tcp.flags": "0x0018",
+            "tcp.options.mss_val": "1460",
             "tcp.analysis.retransmission": "1",
             "tcp.analysis.window_full": "1",
             "tcp.analysis.bytes_in_flight": "32768",
@@ -63,6 +68,7 @@ def test_tcp_analysis_counts_counts_presence_markers() -> None:
             "tcp.analysis.window_full": "1",
             "tcp.analysis.window_update": "1",
             "tcp.analysis.zero_window_probe": "1",
+            "tcp.options.mss.exceeded": "1",
         },
     ]
 
@@ -72,6 +78,7 @@ def test_tcp_analysis_counts_counts_presence_markers() -> None:
         "tcp.analysis.zero_window_probe": 1,
         "tcp.analysis.window_update": 1,
         "tcp.analysis.window_full": 1,
+        "tcp.options.mss.exceeded": 1,
     }
 
 
@@ -82,12 +89,14 @@ def test_tcp_window_stats_summarizes_window_pressure_values() -> None:
             "tcp.window_size_value": "1024",
             "tcp.window_size_scalefactor": "64",
             "tcp.analysis.bytes_in_flight": "32768",
+            "tcp.options.mss_val": "1460",
         },
         {
             "tcp.window_size": "131072",
             "tcp.window_size_value": "2048",
             "tcp.window_size_scalefactor": "64",
             "tcp.analysis.bytes_in_flight": "262144",
+            "tcp.options.mss_val": "1380",
         },
     ]
 
@@ -98,7 +107,36 @@ def test_tcp_window_stats_summarizes_window_pressure_values() -> None:
         "raw_advertised_window_max": 2048,
         "bytes_in_flight_max": 262144,
         "window_scale_factors": [64],
+        "mss_values": [1380, 1460],
+        "mss_min": 1380,
+        "mss_max": 1460,
     }
+
+
+def test_tcp_deep_fields_filter_invalid_tshark_fields(monkeypatch) -> None:
+    fields_output = "\n".join(
+        [
+            "F\tFrame Number\tframe.number\tFT_UINT32\tframe\tBASE_DEC\t0x0",
+            "F\tSource\tip.src\tFT_IPv4\tip\t\t0x0",
+            "F\tDestination\tip.dst\tFT_IPv4\tip\t\t0x0",
+            "F\tCalculated window size\ttcp.window_size\tFT_UINT32\ttcp\tBASE_DEC\t0x0",
+            "F\tMSS Value\ttcp.options.mss_val\tFT_UINT16\ttcp\tBASE_DEC\t0x0",
+            "F\tTCP window update\ttcp.analysis.window_update\tFT_NONE\ttcp\t\t0x0",
+            "F\tTCP window full\ttcp.analysis.window_full\tFT_NONE\ttcp\t\t0x0",
+        ]
+    )
+    monkeypatch.setattr(
+        "flowpilot.protocols.tcp._tshark_field_names",
+        lambda _tshark: parse_tcp_tshark_field_names(fields_output),
+    )
+
+    fields = tcp_deep_fields_for_tshark("fake-tshark")
+
+    assert "tcp.window_size" in fields
+    assert "tcp.options.mss_val" in fields
+    assert "tcp.analysis.window_update" in fields
+    assert "tcp.analysis.window_full" in fields
+    assert "tcp.analysis.window_full_segment" not in fields
 
 
 def test_parse_udp_rows_includes_dns_and_dhcp_metadata() -> None:

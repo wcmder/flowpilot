@@ -28,6 +28,10 @@ TCP_HEADER_FIELDS = [
     "tcp.flags.fin",
     "tcp.flags.reset",
     "tcp.flags.push",
+    "tcp.options.mss_val",
+    "tcp.options.mss.absent",
+    "tcp.options.mss.present",
+    "tcp.options.mss.exceeded",
     "tcp.analysis.retransmission",
     "tcp.analysis.fast_retransmission",
     "tcp.analysis.lost_segment",
@@ -53,7 +57,11 @@ TCP_ANALYSIS_FIELDS = [
     "tcp.analysis.window_update",
     "tcp.analysis.window_full",
     "tcp.analysis.window_full_segment",
+    "tcp.options.mss.absent",
+    "tcp.options.mss.present",
+    "tcp.options.mss.exceeded",
 ]
+_TSHARK_FIELD_CACHE: dict[str, set[str]] = {}
 
 
 def extract_tcp(packet, helpers) -> dict:
@@ -111,7 +119,8 @@ def deep_tcp_flow(
         }
 
     display_filter = tcp_flow_filter(flow)
-    command = field_command(tshark, capture_path, display_filter, TCP_HEADER_FIELDS)
+    deep_fields = tcp_deep_fields_for_tshark(tshark)
+    command = field_command(tshark, capture_path, display_filter, deep_fields)
     try:
         result = subprocess.run(
             command,
@@ -140,7 +149,7 @@ def deep_tcp_flow(
             "message": result.stderr.strip() or f"tshark exited with {result.returncode}",
         }
 
-    rows = parse_tcp_rows(result.stdout)
+    rows = parse_tcp_rows(result.stdout, fields=deep_fields)
     return {
         "tool": "deep_tcp_flow",
         "flow_id": flow_id,
@@ -150,15 +159,57 @@ def deep_tcp_flow(
         "packet_count": len(rows),
         "tcp_analysis_counts": tcp_analysis_counts(rows),
         "tcp_window_stats": tcp_window_stats(rows),
-        "tcp_header_fields": TCP_HEADER_FIELDS,
+        "tcp_header_fields": deep_fields,
         "tcp_header_samples": rows[:sample_limit],
         "sample_limit": sample_limit,
         "truncated": len(rows) > sample_limit,
     }
 
 
-def parse_tcp_rows(output: str) -> list[dict[str, str]]:
-    return parse_field_rows(output, TCP_HEADER_FIELDS)
+def parse_tcp_rows(
+    output: str,
+    *,
+    fields: list[str] | None = None,
+) -> list[dict[str, str]]:
+    return parse_field_rows(output, fields or TCP_HEADER_FIELDS)
+
+
+def tcp_deep_fields_for_tshark(tshark: str) -> list[str]:
+    available_fields = _tshark_field_names(tshark)
+    if not available_fields:
+        return list(TCP_HEADER_FIELDS)
+    return [field for field in TCP_HEADER_FIELDS if field in available_fields]
+
+
+def _tshark_field_names(tshark: str) -> set[str]:
+    if tshark in _TSHARK_FIELD_CACHE:
+        return _TSHARK_FIELD_CACHE[tshark]
+    try:
+        result = subprocess.run(
+            [tshark, "-G", "fields"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        _TSHARK_FIELD_CACHE[tshark] = set()
+        return set()
+    if result.returncode != 0:
+        _TSHARK_FIELD_CACHE[tshark] = set()
+        return set()
+    field_names = _parse_tshark_field_names(result.stdout)
+    _TSHARK_FIELD_CACHE[tshark] = field_names
+    return field_names
+
+
+def _parse_tshark_field_names(fields_output: str) -> set[str]:
+    field_names = set()
+    for line in fields_output.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 3 and parts[0] == "F":
+            field_names.add(parts[2])
+    return field_names
 
 
 def tcp_analysis_counts(rows: list[dict[str, str]]) -> dict[str, int]:
@@ -194,6 +245,13 @@ def tcp_window_stats(rows: list[dict[str, str]]) -> dict[str, int | list[int]]:
             if (value := _row_int(row.get("tcp.window_size_scalefactor"))) is not None
         }
     )
+    mss_values = sorted(
+        {
+            value
+            for row in rows
+            if (value := _row_int(row.get("tcp.options.mss_val"))) is not None
+        }
+    )
     stats: dict[str, int | list[int]] = {}
     if advertised_windows:
         stats["advertised_window_min"] = min(advertised_windows)
@@ -205,6 +263,10 @@ def tcp_window_stats(rows: list[dict[str, str]]) -> dict[str, int | list[int]]:
         stats["bytes_in_flight_max"] = max(bytes_in_flight)
     if scale_factors:
         stats["window_scale_factors"] = scale_factors
+    if mss_values:
+        stats["mss_values"] = mss_values
+        stats["mss_min"] = min(mss_values)
+        stats["mss_max"] = max(mss_values)
     return stats
 
 
