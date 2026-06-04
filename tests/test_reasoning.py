@@ -607,6 +607,65 @@ def test_agent_chat_completions_falls_back_to_plain_chat_on_empty_content(
     assert "Provide the final answer now" not in fallback_messages[-1]["content"]
 
 
+def test_agent_chat_completions_falls_back_when_provider_returns_role_label(
+    monkeypatch,
+) -> None:
+    class _Message:
+        def __init__(self, content):
+            self.content = content
+
+    class _Choice:
+        def __init__(self, content):
+            self.message = _Message(content)
+            self.finish_reason = "stop"
+
+    class _Response:
+        def __init__(self, content):
+            self.choices = [_Choice(content)]
+
+    class _Completions:
+        calls = []
+
+        @classmethod
+        def create(cls, **kwargs):
+            cls.calls.append(kwargs)
+            if len(cls.calls) == 1:
+                return _Response("assistant")
+            return _Response("The SMB deep evidence shows normal credit grants.")
+
+    class _Chat:
+        completions = _Completions()
+
+    class _Client:
+        chat = _Chat()
+
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+    monkeypatch.setattr(reasoning, "LLM_REQUESTS_PER_MINUTE", 0)
+
+    response = reasoning._agent_chat_with_chat_completions(
+        _Client(),
+        summary,
+        "run deep smb tool for flow 2",
+        model="test-model",
+        max_flows=25,
+        report=None,
+        history=None,
+        additional_evidence=[{"tool": "deep_smb2_flow", "flow_id": 2}],
+    )
+
+    assert response.answer == "The SMB deep evidence shows normal credit grants."
+    assert len(_Completions.calls) == 2
+
+
 def test_agent_chat_completions_reports_when_structured_and_plain_are_empty(
     monkeypatch,
 ) -> None:

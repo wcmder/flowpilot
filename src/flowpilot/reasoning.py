@@ -622,6 +622,21 @@ def _agent_chat_with_chat_completions(
                 structured_finish_reason=_choice_finish_reason(response.choices[0]),
             )
         )
+    if _is_role_label_answer(content):
+        return AgentChatResponse(
+            answer=_agent_chat_plain_fallback(
+                client,
+                summary,
+                question,
+                model=model,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+                additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
+                structured_finish_reason=_choice_finish_reason(response.choices[0]),
+            )
+        )
     try:
         parsed = _json_object(content)
     except (json.JSONDecodeError, ValueError):
@@ -629,9 +644,26 @@ def _agent_chat_with_chat_completions(
     if "answer" not in parsed:
         parsed["answer"] = ""
     try:
-        return AgentChatResponse.model_validate(parsed)
+        chat_response = AgentChatResponse.model_validate(parsed)
     except ValidationError:
         return AgentChatResponse(answer=content)
+    if _is_role_label_answer(chat_response.answer):
+        return AgentChatResponse(
+            answer=_agent_chat_plain_fallback(
+                client,
+                summary,
+                question,
+                model=model,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+                additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
+                structured_finish_reason=_choice_finish_reason(response.choices[0]),
+            ),
+            evidence_requests=chat_response.evidence_requests,
+        )
+    return chat_response
 
 
 def _agent_chat_plain_fallback(
@@ -987,6 +1019,10 @@ def _json_object(content: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("Expected model response to be a JSON object.")
     return parsed
+
+
+def _is_role_label_answer(answer: str) -> bool:
+    return answer.strip().lower().strip(' "\'`') in {"assistant", "user", "system", "model"}
 
 
 def _message_content_text(content: Any) -> str:
