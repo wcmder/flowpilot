@@ -1,3 +1,5 @@
+import time
+
 import httpx
 
 import flowpilot.reasoning as reasoning
@@ -882,6 +884,37 @@ def test_reasoning_returns_fallback_on_llm_timeout(monkeypatch) -> None:
     assert "timed out after 5 seconds" in report.executive_summary
 
 
+def test_reasoning_returns_fallback_on_flowpilot_wall_clock_timeout(monkeypatch) -> None:
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+
+    def slow_reasoning(*_args, **_kwargs):
+        time.sleep(0.2)
+        return ReasoningReport(executive_summary="too late", risk_level="low")
+
+    monkeypatch.setattr(reasoning, "openai_client", lambda: object())
+    monkeypatch.setattr(reasoning, "LLM_API", "responses")
+    monkeypatch.setattr(reasoning, "LLM_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(reasoning, "_reason_with_responses", slow_reasoning)
+
+    started_at = time.monotonic()
+    report = reasoning.reason_about_capture(summary)
+
+    assert time.monotonic() - started_at < 0.15
+    assert report.risk_level == "unknown"
+    assert "FlowPilot stopped waiting for LLM reasoning after 0.01 seconds" in (
+        report.executive_summary
+    )
+
+
 def test_chat_returns_message_on_llm_timeout(monkeypatch) -> None:
     summary = CaptureSummary(
         packet_count=0,
@@ -905,3 +938,29 @@ def test_chat_returns_message_on_llm_timeout(monkeypatch) -> None:
     answer = reasoning.chat_about_capture(summary, "what happened?")
 
     assert "timed out after 5 seconds" in answer
+
+
+def test_agent_chat_returns_message_on_flowpilot_wall_clock_timeout(monkeypatch) -> None:
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+
+    def slow_agent_chat(*_args, **_kwargs):
+        time.sleep(0.2)
+        return AgentChatResponse(answer="too late")
+
+    monkeypatch.setattr(reasoning, "openai_client", lambda: object())
+    monkeypatch.setattr(reasoning, "LLM_API", "responses")
+    monkeypatch.setattr(reasoning, "LLM_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(reasoning, "_agent_chat_with_responses", slow_agent_chat)
+
+    response = reasoning.agent_chat_about_capture(summary, "what happened?")
+
+    assert "FlowPilot stopped waiting for LLM agent chat after 0.01 seconds" in response.answer
