@@ -8,16 +8,38 @@ from flowpilot.protocols.smb import (
     smb2_credit_counts,
     smb2_deep_fields_for_tshark,
 )
-from flowpilot.protocols.tcp import parse_tcp_rows, tcp_analysis_counts
+from flowpilot.protocols.tcp import (
+    TCP_HEADER_FIELDS,
+    parse_tcp_rows,
+    tcp_analysis_counts,
+    tcp_window_stats,
+)
 from flowpilot.protocols.tls import TLS_DEEP_FIELDS, tls_flow_filter, tls_metadata_counts
 from flowpilot.protocols.udp import UDP_HEADER_FIELDS, udp_metadata_counts
 
 
 def test_parse_tshark_rows_includes_tcp_headers_and_analysis_markers() -> None:
-    output = (
-        "10\t1.0\t10.0.0.1\t\t10.0.0.2\t\t12345\t443\t100\t200\t1460\t65535\t"
-        "65535\t0x0018\t\t1\t\t\t1\t1\t\t\t\t\t\t\t\n"
+    values = {field: "" for field in TCP_HEADER_FIELDS}
+    values.update(
+        {
+            "frame.number": "10",
+            "frame.time_relative": "1.0",
+            "ip.src": "10.0.0.1",
+            "ip.dst": "10.0.0.2",
+            "tcp.srcport": "12345",
+            "tcp.dstport": "443",
+            "tcp.seq": "100",
+            "tcp.ack": "200",
+            "tcp.len": "1460",
+            "tcp.window_size_value": "65535",
+            "tcp.window_size": "65535",
+            "tcp.flags": "0x0018",
+            "tcp.analysis.retransmission": "1",
+            "tcp.analysis.window_full": "1",
+            "tcp.analysis.bytes_in_flight": "32768",
+        }
     )
+    output = "\t".join(values[field] for field in TCP_HEADER_FIELDS)
 
     rows = parse_tcp_rows(output)
 
@@ -37,11 +59,45 @@ def test_tcp_analysis_counts_counts_presence_markers() -> None:
         {"tcp.analysis.lost_segment": "1"},
         {"tcp.analysis.lost_segment": "", "tcp.analysis.retransmission": "1"},
         {"tcp.analysis.lost_segment": "0"},
+        {
+            "tcp.analysis.window_full": "1",
+            "tcp.analysis.window_update": "1",
+            "tcp.analysis.zero_window_probe": "1",
+        },
     ]
 
     assert tcp_analysis_counts(rows) == {
         "tcp.analysis.lost_segment": 1,
         "tcp.analysis.retransmission": 1,
+        "tcp.analysis.zero_window_probe": 1,
+        "tcp.analysis.window_update": 1,
+        "tcp.analysis.window_full": 1,
+    }
+
+
+def test_tcp_window_stats_summarizes_window_pressure_values() -> None:
+    rows = [
+        {
+            "tcp.window_size": "65536",
+            "tcp.window_size_value": "1024",
+            "tcp.window_size_scalefactor": "64",
+            "tcp.analysis.bytes_in_flight": "32768",
+        },
+        {
+            "tcp.window_size": "131072",
+            "tcp.window_size_value": "2048",
+            "tcp.window_size_scalefactor": "64",
+            "tcp.analysis.bytes_in_flight": "262144",
+        },
+    ]
+
+    assert tcp_window_stats(rows) == {
+        "advertised_window_min": 65536,
+        "advertised_window_max": 131072,
+        "raw_advertised_window_min": 1024,
+        "raw_advertised_window_max": 2048,
+        "bytes_in_flight_max": 262144,
+        "window_scale_factors": [64],
     }
 
 

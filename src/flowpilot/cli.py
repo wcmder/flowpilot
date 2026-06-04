@@ -909,7 +909,10 @@ def _format_agent_evidence_counts(evidence: dict) -> str:
             "tcp_zero_window_packets",
         ]
         return "\n".join(f"{key}: {counts[key]}" for key in keys if key in counts)
-    return "\n".join(f"{key}: {value}" for key, value in counts.items())
+    lines = [f"{key}: {value}" for key, value in counts.items()]
+    if tcp_window_stats := evidence.get("tcp_window_stats"):
+        lines.extend(f"{key}: {value}" for key, value in tcp_window_stats.items())
+    return "\n".join(lines)
 
 
 def _run_chat(

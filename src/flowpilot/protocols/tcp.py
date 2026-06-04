@@ -21,6 +21,7 @@ TCP_HEADER_FIELDS = [
     "tcp.len",
     "tcp.window_size_value",
     "tcp.window_size",
+    "tcp.window_size_scalefactor",
     "tcp.flags",
     "tcp.flags.syn",
     "tcp.flags.ack",
@@ -33,7 +34,10 @@ TCP_HEADER_FIELDS = [
     "tcp.analysis.out_of_order",
     "tcp.analysis.duplicate_ack",
     "tcp.analysis.zero_window",
+    "tcp.analysis.zero_window_probe",
+    "tcp.analysis.window_update",
     "tcp.analysis.window_full",
+    "tcp.analysis.window_full_segment",
     "tcp.analysis.bytes_in_flight",
     "tcp.analysis.initial_rtt",
 ]
@@ -45,7 +49,10 @@ TCP_ANALYSIS_FIELDS = [
     "tcp.analysis.out_of_order",
     "tcp.analysis.duplicate_ack",
     "tcp.analysis.zero_window",
+    "tcp.analysis.zero_window_probe",
+    "tcp.analysis.window_update",
     "tcp.analysis.window_full",
+    "tcp.analysis.window_full_segment",
 ]
 
 
@@ -142,6 +149,7 @@ def deep_tcp_flow(
         "display_filter": display_filter,
         "packet_count": len(rows),
         "tcp_analysis_counts": tcp_analysis_counts(rows),
+        "tcp_window_stats": tcp_window_stats(rows),
         "tcp_header_fields": TCP_HEADER_FIELDS,
         "tcp_header_samples": rows[:sample_limit],
         "sample_limit": sample_limit,
@@ -161,6 +169,52 @@ def tcp_analysis_counts(rows: list[dict[str, str]]) -> dict[str, int]:
             if value is not None and value not in {"", "0", "False", "false"}:
                 counts[field] = counts.get(field, 0) + 1
     return counts
+
+
+def tcp_window_stats(rows: list[dict[str, str]]) -> dict[str, int | list[int]]:
+    advertised_windows = [
+        value
+        for row in rows
+        if (value := _row_int(row.get("tcp.window_size"))) is not None
+    ]
+    raw_advertised_windows = [
+        value
+        for row in rows
+        if (value := _row_int(row.get("tcp.window_size_value"))) is not None
+    ]
+    bytes_in_flight = [
+        value
+        for row in rows
+        if (value := _row_int(row.get("tcp.analysis.bytes_in_flight"))) is not None
+    ]
+    scale_factors = sorted(
+        {
+            value
+            for row in rows
+            if (value := _row_int(row.get("tcp.window_size_scalefactor"))) is not None
+        }
+    )
+    stats: dict[str, int | list[int]] = {}
+    if advertised_windows:
+        stats["advertised_window_min"] = min(advertised_windows)
+        stats["advertised_window_max"] = max(advertised_windows)
+    if raw_advertised_windows:
+        stats["raw_advertised_window_min"] = min(raw_advertised_windows)
+        stats["raw_advertised_window_max"] = max(raw_advertised_windows)
+    if bytes_in_flight:
+        stats["bytes_in_flight_max"] = max(bytes_in_flight)
+    if scale_factors:
+        stats["window_scale_factors"] = scale_factors
+    return stats
+
+
+def _row_int(value: str | None) -> int | None:
+    if value in {None, "", "False", "false"}:
+        return None
+    try:
+        return int(str(value), 0)
+    except ValueError:
+        return None
 
 
 def _issue_tags(packet, helpers, protocol: str) -> list[str]:

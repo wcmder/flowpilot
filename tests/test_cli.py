@@ -573,6 +573,30 @@ def test_format_agent_evidence_counts_shows_smb_credit_counts() -> None:
     )
 
 
+def test_format_agent_evidence_counts_shows_tcp_window_stats() -> None:
+    assert _format_agent_evidence_counts(
+        {
+            "tcp_analysis_counts": {
+                "tcp.analysis.window_full": 3,
+                "tcp.analysis.zero_window": 1,
+            },
+            "tcp_window_stats": {
+                "advertised_window_min": 0,
+                "advertised_window_max": 131072,
+                "bytes_in_flight_max": 262144,
+                "window_scale_factors": [64],
+            },
+        }
+    ) == (
+        "tcp.analysis.window_full: 3\n"
+        "tcp.analysis.zero_window: 1\n"
+        "advertised_window_min: 0\n"
+        "advertised_window_max: 131072\n"
+        "bytes_in_flight_max: 262144\n"
+        "window_scale_factors: [64]"
+    )
+
+
 def test_tls_detail_rows_respect_top_flow_slice() -> None:
     cert_flow = FlowSummary(
         key=FlowKey(
