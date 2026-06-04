@@ -5,19 +5,25 @@ from pathlib import Path
 
 import flowpilot.cli as cli
 from flowpilot.cli import (
+    _apply_summary_filters,
     _CachedCaptureSession,
     _count_packets_in_capture,
     _direction,
     _format_agent_evidence_counts,
     _format_flow_issues,
+    _load_summary,
+    _load_summary_with_metadata,
     _local_analysis_start_message,
+    _normalize_optional_json_arg,
     _packet_read_complete_message,
     _parse_capinfos_packet_count,
     _percent,
     _ProgressReporter,
     _RefreshingInfo,
+    _summary_json_output_path,
     _traffic,
 )
+from flowpilot.filters import FlowFilter
 from flowpilot.models import CaptureSummary, FlowKey, FlowSummary, TlsCertificateObservation
 from flowpilot.protocols.dns import dns_issue_summary
 from flowpilot.protocols.esp import format_esp_gap_distribution
@@ -128,6 +134,187 @@ def test_progress_reporter_refreshes_after_five_seconds(monkeypatch) -> None:
     assert "1% (1/100 raw packets)" in text
     assert "2% (2/100 raw packets)" not in text
     assert "3% (3/100 raw packets)" in text
+
+
+def test_analyze_json_option_without_filename_defaults_to_summary_file() -> None:
+    assert _normalize_optional_json_arg(["analyze", "capture.pcap", "--json"]) == [
+        "analyze",
+        "capture.pcap",
+        "--json",
+        "flow-summary.json",
+    ]
+    assert _normalize_optional_json_arg(["analyze", "capture.pcap", "--json", "--no-llm"]) == [
+        "analyze",
+        "capture.pcap",
+        "--json",
+        "flow-summary.json",
+        "--no-llm",
+    ]
+
+
+def test_analyze_load_summary_without_filename_defaults_to_summary_file() -> None:
+    assert _normalize_optional_json_arg(["analyze", "capture.pcap", "--load-summary"]) == [
+        "analyze",
+        "capture.pcap",
+        "--load-summary",
+        "flow-summary.json",
+    ]
+    assert _normalize_optional_json_arg(
+        ["analyze", "capture.pcap", "--load-summary", "--agent"]
+    ) == [
+        "analyze",
+        "capture.pcap",
+        "--load-summary",
+        "flow-summary.json",
+        "--agent",
+    ]
+
+
+def test_json_option_normalizer_preserves_explicit_filename_and_models_json() -> None:
+    assert _normalize_optional_json_arg(["analyze", "capture.pcap", "--json", "mine.json"]) == [
+        "analyze",
+        "capture.pcap",
+        "--json",
+        "mine.json",
+    ]
+    assert _normalize_optional_json_arg(["models", "--json"]) == ["models", "--json"]
+
+
+def test_json_output_path_uses_private_folder() -> None:
+    assert _summary_json_output_path(Path("mine.json")) == Path("private/mine.json")
+    assert _summary_json_output_path(Path("reports/mine.json")) == Path("private/mine.json")
+    assert _summary_json_output_path(Path("flow-summary.json")) == Path(
+        "private/flow-summary.json"
+    )
+
+
+def test_load_summary_accepts_json_report_envelope(tmp_path) -> None:
+    summary = CaptureSummary(
+        packet_count=1,
+        total_bytes=100,
+        flow_count=1,
+        protocols={"TCP": 1},
+        top_ports={"443": 1},
+        issue_counts={},
+        names=[],
+        flows=[
+            FlowSummary(
+                key=FlowKey(
+                    endpoint_a="10.0.0.1",
+                    endpoint_b="10.0.0.2",
+                    port_a=50000,
+                    port_b=443,
+                    protocol="TCP",
+                ),
+                packet_count=1,
+                byte_count=100,
+            )
+        ],
+    )
+    report_path = tmp_path / "report.json"
+    report_path.write_text(
+        '{"summary": ' + summary.model_dump_json() + "}",
+        encoding="utf-8",
+    )
+
+    loaded = _load_summary(report_path)
+
+    assert loaded.flow_count == 1
+    assert loaded.flows[0].key.port_b == 443
+
+
+def test_load_summary_reads_source_capture_path_metadata(tmp_path) -> None:
+    source_capture = tmp_path / "capture.pcap"
+    summary = CaptureSummary(
+        packet_count=1,
+        total_bytes=100,
+        flow_count=1,
+        protocols={"TCP": 1},
+        top_ports={"443": 1},
+        issue_counts={},
+        names=[],
+        flows=[
+            FlowSummary(
+                key=FlowKey(
+                    endpoint_a="10.0.0.1",
+                    endpoint_b="10.0.0.2",
+                    port_a=50000,
+                    port_b=443,
+                    protocol="TCP",
+                ),
+                packet_count=1,
+                byte_count=100,
+            )
+        ],
+    )
+    report_path = tmp_path / "report.json"
+    report_path.write_text(
+        '{"source_capture_path": "'
+        + str(source_capture)
+        + '", "summary": '
+        + summary.model_dump_json()
+        + "}",
+        encoding="utf-8",
+    )
+
+    loaded, loaded_source_capture = _load_summary_with_metadata(report_path)
+
+    assert loaded.flow_count == 1
+    assert loaded_source_capture == source_capture
+
+
+def test_apply_summary_filters_filters_loaded_flows_by_port() -> None:
+    summary = CaptureSummary(
+        packet_count=2,
+        total_bytes=300,
+        flow_count=2,
+        protocols={"TCP": 2},
+        top_ports={"443": 1, "445": 1},
+        issue_counts={"tcp_lost_segment": 1},
+        names=["api.example.com", "fileserver"],
+        flows=[
+            FlowSummary(
+                key=FlowKey(
+                    endpoint_a="10.0.0.1",
+                    endpoint_b="10.0.0.2",
+                    port_a=50000,
+                    port_b=443,
+                    protocol="TCP",
+                ),
+                packet_count=1,
+                byte_count=100,
+                names=["api.example.com"],
+            ),
+            FlowSummary(
+                key=FlowKey(
+                    endpoint_a="10.0.0.3",
+                    endpoint_b="10.0.0.4",
+                    port_a=50001,
+                    port_b=445,
+                    protocol="TCP",
+                ),
+                packet_count=1,
+                byte_count=200,
+                issue_counts={"tcp_lost_segment": 1},
+                names=["fileserver"],
+            ),
+        ],
+    )
+
+    filtered = _apply_summary_filters(
+        summary,
+        flow_filter=FlowFilter(port=445),
+        sip_phone=None,
+        include_redirects=False,
+    )
+
+    assert filtered.flow_count == 1
+    assert filtered.packet_count == 1
+    assert filtered.total_bytes == 200
+    assert filtered.top_ports == {"50001": 1, "445": 1}
+    assert filtered.issue_counts == {"tcp_lost_segment": 1}
+    assert filtered.names == ["fileserver"]
+    assert filtered.flows[0].key.port_b == 445
 
 
 def test_refreshing_info_refreshes_wait_messages_and_prints_normal_info(monkeypatch) -> None:

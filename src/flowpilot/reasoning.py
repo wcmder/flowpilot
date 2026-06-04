@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
@@ -20,6 +21,7 @@ from .protocols.registry import (
 
 AnalysisFocus = Literal["transport", "security"]
 
+load_dotenv(Path("private") / ".env")
 load_dotenv()
 
 DEFAULT_MODEL = os.getenv("FLOWPILOT_MODEL", "gpt-5-mini")

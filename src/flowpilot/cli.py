@@ -6,6 +6,7 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -25,6 +26,7 @@ from .filters import (
     filter_sip_calls_by_phone,
     include_redirect_related_flows,
 )
+from .models import CaptureSummary, FlowSummary
 from .protocols.dhcp import render_dhcp_details
 from .protocols.dns import render_dns_details
 from .protocols.esp import format_esp_sequences
@@ -44,6 +46,27 @@ from .workflow import run_agent_chat, run_agent_reasoning_state
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
 LOCAL_PROGRESS_REFRESH_SECONDS = 5
+FLOWPILOT_PRIVATE_DIR = Path("private")
+DEFAULT_JSON_FILENAME = "flow-summary.json"
+
+
+def _normalize_optional_json_arg(argv: list[str]) -> list[str]:
+    if not argv or argv[0] != "analyze":
+        return argv
+    normalized = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        normalized.append(arg)
+        if arg in {"--json", "--load-summary"}:
+            next_arg = argv[index + 1] if index + 1 < len(argv) else None
+            if next_arg is None or next_arg.startswith("-"):
+                normalized.append(DEFAULT_JSON_FILENAME)
+        index += 1
+    return normalized
+
+
+sys.argv[:] = [sys.argv[0], *_normalize_optional_json_arg(sys.argv[1:])]
 
 
 @app.callback()
@@ -140,7 +163,25 @@ def analyze(
         ),
     ] = False,
     json_path: Annotated[
-        Path | None, typer.Option("--json", help="Write a JSON report to this path.")
+        Path | None,
+        typer.Option(
+            "--json",
+            help=(
+                "Write a JSON report under private/. If no filename follows --json, "
+                "defaults to flow-summary.json."
+            ),
+        ),
+    ] = None,
+    load_summary: Annotated[
+        Path | None,
+        typer.Option(
+            "--load-summary",
+            help=(
+                "Load a previously written --json summary and skip the initial pcap read. "
+                "Flow filters are applied to summarized flows. If no filename follows "
+                "--load-summary, defaults to flow-summary.json."
+            ),
+        ),
     ] = None,
     cache_pcap: Annotated[
         bool,
@@ -161,6 +202,8 @@ def analyze(
     ] = False,
 ) -> None:
     """Analyze a packet capture."""
+    original_capture_path = capture_path
+    source_capture_path_for_json = original_capture_path
     if chat and no_llm:
         raise typer.BadParameter(
             "--chat requires LLM reasoning, so it cannot be used with --no-llm."
@@ -180,28 +223,6 @@ def analyze(
         )
         capture_path = session.capture_path
     try:
-        total_packets = _capture_packet_count(capture_path)
-        if packet_limit is not None and total_packets is not None:
-            total_packets = min(total_packets, packet_limit)
-        _info(_local_analysis_start_message(capture_path, total_packets))
-        progress = _progress_reporter(total_packets)
-        observations = read_capture(
-            capture_path,
-            packet_limit=packet_limit,
-            tls_keylog_file=tls_keylog_file,
-            progress_callback=progress,
-        )
-        try:
-            observations = _materialize_observations(observations)
-        finally:
-            progress.finish()
-        _info(
-            _packet_read_complete_message(
-                pyshark_packets=progress.packet_count,
-                analyzable_packets=len(observations),
-                total_packets=total_packets,
-            )
-        )
         flow_filter = FlowFilter(
             host=host,
             peer=peer,
@@ -212,24 +233,69 @@ def analyze(
             src_port=src_port,
             dst_port=dst_port,
         )
-        if flow_filter.is_active and include_redirects:
-            _info("Applying flow filters and redirect expansion.")
-            seed_observations = list(filter_observations(observations, flow_filter))
-            observations = include_redirect_related_flows(observations, seed_observations)
-        elif flow_filter.is_active:
-            _info("Applying flow filters.")
-            observations = list(filter_observations(observations, flow_filter))
-        if sip_phone:
-            _info("Applying SIP phone filter.")
-            observations = filter_sip_calls_by_phone(observations, sip_phone)
+        if load_summary:
+            _info(f"Loading local summary from {load_summary}. Skipping initial pcap read.")
+            summary, summary_source_capture_path = _load_summary_with_metadata(load_summary)
+            if summary_source_capture_path:
+                source_capture_path_for_json = summary_source_capture_path
+            if summary_source_capture_path and not capture_path.exists():
+                _info(
+                    "Using source capture path from loaded summary for agent deep tools: "
+                    f"{summary_source_capture_path}"
+                )
+                capture_path = summary_source_capture_path
+            summary = _apply_summary_filters(
+                summary,
+                flow_filter=flow_filter,
+                sip_phone=sip_phone,
+                include_redirects=include_redirects,
+            )
+            _info(
+                "Local summary loaded: "
+                f"{summary.packet_count} analyzable packets, "
+                f"{summary.flow_count} flows, {summary.total_bytes} bytes."
+            )
+        else:
+            total_packets = _capture_packet_count(capture_path)
+            if packet_limit is not None and total_packets is not None:
+                total_packets = min(total_packets, packet_limit)
+            _info(_local_analysis_start_message(capture_path, total_packets))
+            progress = _progress_reporter(total_packets)
+            observations = read_capture(
+                capture_path,
+                packet_limit=packet_limit,
+                tls_keylog_file=tls_keylog_file,
+                progress_callback=progress,
+            )
+            try:
+                observations = _materialize_observations(observations)
+            finally:
+                progress.finish()
+            _info(
+                _packet_read_complete_message(
+                    pyshark_packets=progress.packet_count,
+                    analyzable_packets=len(observations),
+                    total_packets=total_packets,
+                )
+            )
+            if flow_filter.is_active and include_redirects:
+                _info("Applying flow filters and redirect expansion.")
+                seed_observations = list(filter_observations(observations, flow_filter))
+                observations = include_redirect_related_flows(observations, seed_observations)
+            elif flow_filter.is_active:
+                _info("Applying flow filters.")
+                observations = list(filter_observations(observations, flow_filter))
+            if sip_phone:
+                _info("Applying SIP phone filter.")
+                observations = filter_sip_calls_by_phone(observations, sip_phone)
 
-        _info(f"Summarizing local metadata from {len(observations)} analyzable packets.")
-        summary = summarize_capture(observations)
-        _info(
-            "Local analysis finished: "
-            f"{summary.packet_count} analyzable packets, "
-            f"{summary.flow_count} flows, {summary.total_bytes} bytes."
-        )
+            _info(f"Summarizing local metadata from {len(observations)} analyzable packets.")
+            summary = summarize_capture(observations)
+            _info(
+                "Local analysis finished: "
+                f"{summary.packet_count} analyzable packets, "
+                f"{summary.flow_count} flows, {summary.total_bytes} bytes."
+            )
         _info("Rendering local analysis tables.")
         _render_summary(summary, show_flows=show_flows)
         if no_llm:
@@ -286,11 +352,18 @@ def analyze(
             _render_reasoning(report)
 
         if json_path:
-            payload = {"summary": summary.model_dump(mode="json")}
+            json_output_path = _summary_json_output_path(json_path)
+            payload = {
+                "source_capture_path": str(
+                    source_capture_path_for_json.expanduser().resolve(strict=False)
+                ),
+                "summary": summary.model_dump(mode="json"),
+            }
             if report:
                 payload["reasoning"] = report.model_dump(mode="json")
-            json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            console.print(f"[green]Wrote JSON report:[/green] {json_path}")
+            json_output_path.parent.mkdir(parents=True, exist_ok=True)
+            json_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            console.print(f"[green]Wrote JSON report:[/green] {json_output_path}")
 
         if chat and report:
             _run_chat(
@@ -417,6 +490,128 @@ class _RefreshingInfo:
 
 def _materialize_observations(observations) -> list:
     return list(observations)
+
+
+def _load_summary(summary_path: Path) -> CaptureSummary:
+    summary, _source_capture_path = _load_summary_with_metadata(summary_path)
+    return summary
+
+
+def _load_summary_with_metadata(summary_path: Path) -> tuple[CaptureSummary, Path | None]:
+    summary_path = _summary_json_input_path(summary_path)
+    data = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary_data = data.get("summary", data) if isinstance(data, dict) else data
+    source_capture_path = None
+    if isinstance(data, dict) and data.get("source_capture_path"):
+        source_capture_path = Path(str(data["source_capture_path"])).expanduser()
+    return CaptureSummary.model_validate(summary_data), source_capture_path
+
+
+def _summary_json_output_path(json_path: Path) -> Path:
+    return FLOWPILOT_PRIVATE_DIR / json_path.name
+
+
+def _summary_json_input_path(summary_path: Path) -> Path:
+    if summary_path.exists():
+        return summary_path
+    private_path = FLOWPILOT_PRIVATE_DIR / summary_path.name
+    return private_path if private_path.exists() else summary_path
+
+
+def _apply_summary_filters(
+    summary: CaptureSummary,
+    *,
+    flow_filter: FlowFilter,
+    sip_phone: str | None,
+    include_redirects: bool,
+) -> CaptureSummary:
+    flows = summary.flows
+    if flow_filter.is_active:
+        _info("Applying flow filters to loaded summary.")
+        flows = [flow for flow in flows if _flow_matches_filter(flow, flow_filter)]
+        if include_redirects:
+            _info(
+                "Redirect expansion is skipped for --load-summary because it requires "
+                "packet-level observations."
+            )
+    if sip_phone:
+        _info("Applying SIP phone filter to loaded summary.")
+        flows = [flow for flow in flows if _flow_matches_sip_phone(flow, sip_phone)]
+    if flows == summary.flows:
+        return summary
+    return _summary_from_flows(flows)
+
+
+def _flow_matches_filter(flow: FlowSummary, flow_filter: FlowFilter) -> bool:
+    endpoints = {flow.key.endpoint_a, flow.key.endpoint_b}
+    ports = {port for port in (flow.key.port_a, flow.key.port_b) if port is not None}
+    if flow_filter.protocol and flow.key.protocol.upper() != flow_filter.protocol.upper():
+        return False
+    if flow_filter.host and flow_filter.host not in endpoints:
+        return False
+    if flow_filter.peer and flow_filter.peer not in endpoints:
+        return False
+    if flow_filter.host and flow_filter.peer and endpoints != {flow_filter.host, flow_filter.peer}:
+        return False
+    if flow_filter.src and flow_filter.src not in endpoints:
+        return False
+    if flow_filter.dst and flow_filter.dst not in endpoints:
+        return False
+    if flow_filter.port and flow_filter.port not in ports:
+        return False
+    if flow_filter.src_port and flow_filter.src_port not in ports:
+        return False
+    if flow_filter.dst_port and flow_filter.dst_port not in ports:
+        return False
+    return True
+
+
+def _flow_matches_sip_phone(flow: FlowSummary, phone_number: str) -> bool:
+    wanted = _digits(phone_number)
+    if not wanted:
+        return True
+    for call in flow.sip_calls.values():
+        if wanted in _digits(call.caller or "") or wanted in _digits(call.callee or ""):
+            return True
+    for participant in flow.sip_participants:
+        if wanted in _digits(participant):
+            return True
+    return False
+
+
+def _summary_from_flows(flows: list[FlowSummary]) -> CaptureSummary:
+    protocols: dict[str, int] = {}
+    top_ports: dict[str, int] = {}
+    issue_counts: dict[str, int] = {}
+    names: list[str] = []
+    for flow in flows:
+        protocols[flow.key.protocol] = protocols.get(flow.key.protocol, 0) + flow.packet_count
+        for port in (flow.key.port_a, flow.key.port_b):
+            if port is not None:
+                port_text = str(port)
+                top_ports[port_text] = top_ports.get(port_text, 0) + flow.packet_count
+        for issue, count in flow.issue_counts.items():
+            issue_counts[issue] = issue_counts.get(issue, 0) + count
+        for name in flow.names:
+            if name not in names:
+                names.append(name)
+    sorted_flows = sorted(flows, key=lambda flow: flow.byte_count, reverse=True)
+    return CaptureSummary(
+        packet_count=sum(flow.packet_count for flow in sorted_flows),
+        total_bytes=sum(flow.byte_count for flow in sorted_flows),
+        flow_count=len(sorted_flows),
+        protocols=dict(sorted(protocols.items(), key=lambda item: item[1], reverse=True)[:20]),
+        top_ports=dict(sorted(top_ports.items(), key=lambda item: item[1], reverse=True)[:20]),
+        issue_counts=dict(
+            sorted(issue_counts.items(), key=lambda item: item[1], reverse=True)[:30]
+        ),
+        names=names[:50],
+        flows=sorted_flows,
+    )
+
+
+def _digits(value: str) -> str:
+    return "".join(re.findall(r"\d+", value))
 
 
 class _CachedCaptureSession:
