@@ -545,6 +545,34 @@ def test_format_agent_evidence_counts_prefers_protocol_counts() -> None:
     ) == "dns_packets: 2\ndns_error_responses: 1"
 
 
+def test_format_agent_evidence_counts_shows_smb_credit_counts() -> None:
+    assert _format_agent_evidence_counts(
+        {
+            "smb2_credit_counts": {
+                "smb2_packets": 10,
+                "credit_charge_total": 20,
+                "credit_charge_max": 4,
+                "credit_request_total": 128,
+                "credit_request_max": 64,
+                "credit_grant_total": 96,
+                "credit_grant_max": 32,
+                "credit_grant_zero_packets": 1,
+                "write_packets": 3,
+            }
+        }
+    ) == (
+        "smb2_packets: 10\n"
+        "credit_charge_total: 20\n"
+        "credit_charge_max: 4\n"
+        "credit_request_total: 128\n"
+        "credit_request_max: 64\n"
+        "credit_grant_total: 96\n"
+        "credit_grant_max: 32\n"
+        "credit_grant_zero_packets: 1\n"
+        "write_packets: 3"
+    )
+
+
 def test_tls_detail_rows_respect_top_flow_slice() -> None:
     cert_flow = FlowSummary(
         key=FlowKey(

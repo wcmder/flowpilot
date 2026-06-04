@@ -885,10 +885,30 @@ def _format_agent_evidence_counts(evidence: dict) -> str:
         evidence.get("tcp_analysis_counts")
         or evidence.get("udp_metadata_counts")
         or evidence.get("tls_metadata_counts")
+        or evidence.get("smb2_credit_counts")
         or {}
     )
     if not counts:
         return "-"
+    if evidence.get("smb2_credit_counts"):
+        keys = [
+            "smb2_packets",
+            "smb2_requests",
+            "smb2_responses",
+            "credit_charge_total",
+            "credit_charge_max",
+            "credit_request_total",
+            "credit_request_max",
+            "credit_grant_total",
+            "credit_grant_max",
+            "credit_grant_zero_packets",
+            "read_packets",
+            "write_packets",
+            "status_error_packets",
+            "tcp_loss_or_retransmission_packets",
+            "tcp_zero_window_packets",
+        ]
+        return "\n".join(f"{key}: {counts[key]}" for key in keys if key in counts)
     return "\n".join(f"{key}: {value}" for key, value in counts.items())
 
 
