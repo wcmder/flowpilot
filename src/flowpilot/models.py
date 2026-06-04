@@ -128,8 +128,8 @@ class SmbFlowMetadata(BaseModel):
     write_offset_inferred_ops: int = 0
     error_count: int = 0
     encrypted_packets: int = 0
-    read_bytes_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
-    write_bytes_by_file: dict[str, int] = Field(default_factory=dict, exclude=True)
+    read_bytes_by_file: dict[str, int] = Field(default_factory=dict)
+    write_bytes_by_file: dict[str, int] = Field(default_factory=dict)
     file_id_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     pending_create_names: dict[str, str] = Field(default_factory=dict, exclude=True)
     file_id_read_names: dict[str, str] = Field(default_factory=dict, exclude=True)

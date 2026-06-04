@@ -1,5 +1,5 @@
 from flowpilot.models import CaptureSummary, FlowKey, FlowSummary
-from flowpilot.protocols.smb import smb_details_table
+from flowpilot.protocols.smb import format_smb_transfer, smb_details_table
 
 
 def test_smb_details_table_returns_none_without_smb_metadata() -> None:
@@ -54,3 +54,17 @@ def test_smb_details_table_renders_commands_statuses_and_transfer() -> None:
     assert "read 2 ops / 2097152 bytes" in cells[4]
     assert "download \\\\share\\download.iso (2.0 MiB)" in cells[4]
     assert cells[5] == "smb errors observed"
+
+
+def test_smb_transfer_filenames_survive_json_round_trip() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        smb_read_ops=2,
+        smb_read_bytes=2_097_152,
+        smb_read_bytes_by_file={"\\\\share\\download.iso": 2_097_152},
+    )
+
+    loaded = FlowSummary.model_validate_json(flow.model_dump_json())
+
+    assert loaded.smb_read_bytes_by_file == {"\\\\share\\download.iso": 2_097_152}
+    assert "download \\\\share\\download.iso (2.0 MiB)" in format_smb_transfer(loaded)

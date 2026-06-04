@@ -262,14 +262,14 @@ use deep_tls_flow for flow id 2
 run deep tls flow for flow 2
 run deep_tcp_flow for flow 5
 for flow id 7 use deep_udp_flow
-run deep_smb2_flow for flow 8
+run deep smb tool for flow 8
 ```
 
 The supported deep tools are `deep_tcp_flow`, `deep_udp_flow`, `deep_tls_flow`,
 and `deep_smb2_flow`. Spaced or hyphenated forms such as `deep tls flow`,
-`deep-smb2-flow`, and `deep smb2 tool` are also accepted. When one of those tool
-names appears with a Flow ID, LangGraph runs the tool first and sends the result
-back to the LLM as `additional_tool_evidence`.
+`deep-smb2-flow`, `deep smb2 tool`, and `deep smb tool` are also accepted.
+When one of those tool names appears with a Flow ID, LangGraph runs the tool
+first and sends the result back to the LLM as `additional_tool_evidence`.
 
 To also run the deterministic pre-router before the first LLM request, add:
 

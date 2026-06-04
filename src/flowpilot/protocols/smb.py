@@ -31,14 +31,22 @@ SMB2_DEEP_FIELDS = [
     "smb2.cmd",
     "smb2.flags.response",
     "smb2.msg_id",
+    "smb2.sesid",
     "smb2.session_id",
     "smb2.tid",
     "smb2.nt_status",
     "smb2.credit.charge",
     "smb2.credit.request_response",
+    "smb2.credits.requested",
+    "smb2.credits.granted",
+    "smb2.read_length",
     "smb2.read.length",
+    "smb2.write_length",
+    "smb2.write.count",
     "smb2.write.length",
     "smb2.data_length",
+    "smb2.data_offset",
+    "smb2.file_offset",
     "smb2.offset",
     "smb2.file_id",
     "smb2.filename",
@@ -46,6 +54,9 @@ SMB2_DEEP_FIELDS = [
 
 SMB2_CREDIT_CHARGE_FIELD = "smb2.credit.charge"
 SMB2_CREDIT_REQUEST_RESPONSE_FIELD = "smb2.credit.request_response"
+SMB2_CREDIT_REQUEST_FIELDS = ("smb2.credits.requested", SMB2_CREDIT_REQUEST_RESPONSE_FIELD)
+SMB2_CREDIT_GRANT_FIELDS = ("smb2.credits.granted", SMB2_CREDIT_REQUEST_RESPONSE_FIELD)
+_TSHARK_FIELD_CACHE: dict[str, set[str]] = {}
 
 SMB1_COMMAND_NAMES = {
     "0": "SMBmkdir",
@@ -356,7 +367,8 @@ def deep_smb2_flow(
         }
 
     display_filter = f"{tcp_flow_filter(flow)} && smb2"
-    command = field_command(tshark, capture_path, display_filter, SMB2_DEEP_FIELDS)
+    deep_fields = smb2_deep_fields_for_tshark(tshark)
+    command = field_command(tshark, capture_path, display_filter, deep_fields)
     try:
         result = subprocess.run(
             command,
@@ -385,7 +397,7 @@ def deep_smb2_flow(
             "message": result.stderr.strip() or f"tshark exited with {result.returncode}",
         }
 
-    rows = parse_field_rows(result.stdout, SMB2_DEEP_FIELDS)
+    rows = parse_field_rows(result.stdout, deep_fields)
     return {
         "tool": "deep_smb2_flow",
         "flow_id": flow_id,
@@ -394,11 +406,49 @@ def deep_smb2_flow(
         "display_filter": display_filter,
         "packet_count": len(rows),
         "smb2_credit_counts": smb2_credit_counts(rows),
-        "smb2_deep_fields": SMB2_DEEP_FIELDS,
+        "smb2_deep_fields": deep_fields,
         "smb2_deep_samples": rows[:sample_limit],
         "sample_limit": sample_limit,
         "truncated": len(rows) > sample_limit,
     }
+
+
+def smb2_deep_fields_for_tshark(tshark: str) -> list[str]:
+    available_fields = _tshark_field_names(tshark)
+    if not available_fields:
+        return list(SMB2_DEEP_FIELDS)
+    return [field for field in SMB2_DEEP_FIELDS if field in available_fields]
+
+
+def _tshark_field_names(tshark: str) -> set[str]:
+    if tshark in _TSHARK_FIELD_CACHE:
+        return _TSHARK_FIELD_CACHE[tshark]
+    try:
+        result = subprocess.run(
+            [tshark, "-G", "fields"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        _TSHARK_FIELD_CACHE[tshark] = set()
+        return set()
+    if result.returncode != 0:
+        _TSHARK_FIELD_CACHE[tshark] = set()
+        return set()
+    field_names = _parse_tshark_field_names(result.stdout)
+    _TSHARK_FIELD_CACHE[tshark] = field_names
+    return field_names
+
+
+def _parse_tshark_field_names(fields_output: str) -> set[str]:
+    field_names = set()
+    for line in fields_output.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 3 and parts[0] == "F":
+            field_names.add(parts[2])
+    return field_names
 
 
 def smb2_credit_counts(rows: list[dict[str, str]]) -> dict[str, int]:
@@ -420,7 +470,12 @@ def smb2_credit_counts(rows: list[dict[str, str]]) -> dict[str, int]:
         "tcp_zero_window_packets": 0,
     }
     for row in rows:
-        if row.get("smb2.cmd") or row.get(SMB2_CREDIT_REQUEST_RESPONSE_FIELD):
+        if (
+            row.get("smb2.cmd")
+            or row.get(SMB2_CREDIT_CHARGE_FIELD)
+            or _first_row_value(row, SMB2_CREDIT_REQUEST_FIELDS)
+            or _first_row_value(row, SMB2_CREDIT_GRANT_FIELDS)
+        ):
             counters["smb2_packets"] += 1
 
         is_response = _truthy_row_value(row.get("smb2.flags.response"))
@@ -434,7 +489,12 @@ def smb2_credit_counts(rows: list[dict[str, str]]) -> dict[str, int]:
             counters["credit_charge_total"] += credit_charge
             counters["credit_charge_max"] = max(counters["credit_charge_max"], credit_charge)
 
-        request_response_credit = _row_int(row.get(SMB2_CREDIT_REQUEST_RESPONSE_FIELD))
+        request_response_credit = _row_int(
+            _first_row_value(
+                row,
+                SMB2_CREDIT_GRANT_FIELDS if is_response else SMB2_CREDIT_REQUEST_FIELDS,
+            )
+        )
         if request_response_credit is not None:
             if is_response:
                 counters["credit_grant_total"] += request_response_credit
@@ -466,6 +526,13 @@ def smb2_credit_counts(rows: list[dict[str, str]]) -> dict[str, int]:
             counters["tcp_zero_window_packets"] += 1
 
     return {key: value for key, value in counters.items() if value}
+
+
+def _first_row_value(row: dict[str, str], fields: tuple[str, ...]) -> str | None:
+    for field in fields:
+        if value := row.get(field):
+            return value
+    return None
 
 
 def smb_command_label(command: str) -> str:

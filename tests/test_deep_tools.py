@@ -28,6 +28,9 @@ def test_deep_tool_name_pattern_accepts_aliases() -> None:
 
     smb2_pattern = deep_tool_name_pattern("deep_smb2_flow")
     assert re.search(smb2_pattern, "run deep smb2 tool for flow 3", flags=re.IGNORECASE)
+    assert re.search(smb2_pattern, "run deep smb tool for flow 3", flags=re.IGNORECASE)
+    assert re.search(smb2_pattern, "run deep_smb_tool for flow 3", flags=re.IGNORECASE)
+    assert re.search(smb2_pattern, "run deep-smb-flow for flow 3", flags=re.IGNORECASE)
 
 
 def test_deep_tool_requests_prefers_tls_before_tcp_for_tls_port() -> None:

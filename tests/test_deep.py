@@ -4,7 +4,9 @@ from flowpilot.protocols.smb import (
     SMB2_CREDIT_CHARGE_FIELD,
     SMB2_CREDIT_REQUEST_RESPONSE_FIELD,
     SMB2_DEEP_FIELDS,
+    _parse_tshark_field_names,
     smb2_credit_counts,
+    smb2_deep_fields_for_tshark,
 )
 from flowpilot.protocols.tcp import parse_tcp_rows, tcp_analysis_counts
 from flowpilot.protocols.tls import TLS_DEEP_FIELDS, tls_flow_filter, tls_metadata_counts
@@ -166,6 +168,63 @@ def test_smb2_credit_counts_splits_request_grant_and_charge() -> None:
         "tcp_loss_or_retransmission_packets": 1,
         "tcp_zero_window_packets": 1,
     }
+
+
+def test_smb2_credit_counts_accepts_split_request_and_grant_fields() -> None:
+    rows = [
+        {
+            "smb2.cmd": "8",
+            "smb2.flags.response": "0",
+            SMB2_CREDIT_CHARGE_FIELD: "2",
+            "smb2.credits.requested": "128",
+        },
+        {
+            "smb2.cmd": "8",
+            "smb2.flags.response": "1",
+            SMB2_CREDIT_CHARGE_FIELD: "2",
+            "smb2.credits.granted": "64",
+            "smb2.nt_status": "0x00000000",
+        },
+    ]
+
+    assert smb2_credit_counts(rows) == {
+        "smb2_packets": 2,
+        "smb2_requests": 1,
+        "smb2_responses": 1,
+        "credit_charge_total": 4,
+        "credit_charge_max": 2,
+        "credit_request_total": 128,
+        "credit_request_max": 128,
+        "credit_grant_total": 64,
+        "credit_grant_max": 64,
+        "read_packets": 2,
+    }
+
+
+def test_smb2_deep_fields_filter_invalid_tshark_fields(monkeypatch) -> None:
+    fields_output = "\n".join(
+        [
+            "F\tFrame Number\tframe.number\tFT_UINT32\tframe\tBASE_DEC\t0x0",
+            "F\tSource\tip.src\tFT_IPv4\tip\t\t0x0",
+            "F\tDestination\tip.dst\tFT_IPv4\tip\t\t0x0",
+            "F\tCommand\tsmb2.cmd\tFT_UINT16\tsmb2\tBASE_DEC\t0x0",
+            "F\tWrite Length\tsmb2.write_length\tFT_UINT32\tsmb2\tBASE_DEC\t0x0",
+            "F\tFile Offset\tsmb2.file_offset\tFT_UINT64\tsmb2\tBASE_DEC\t0x0",
+            "F\tCredits requested\tsmb2.credits.requested\tFT_UINT16\tsmb2\tBASE_DEC\t0x0",
+        ]
+    )
+    monkeypatch.setattr(
+        "flowpilot.protocols.smb._tshark_field_names",
+        lambda _tshark: _parse_tshark_field_names(fields_output),
+    )
+
+    fields = smb2_deep_fields_for_tshark("fake-tshark")
+
+    assert "smb2.write_length" in fields
+    assert "smb2.file_offset" in fields
+    assert "smb2.credits.requested" in fields
+    assert "smb2.write.length" not in fields
+    assert "smb2.offset" not in fields
 
 
 def test_parse_tls_rows_includes_transport_and_tls_metadata() -> None:

@@ -90,6 +90,17 @@ def _deep_tool_aliases(tool_name: str) -> tuple[str, ...]:
                 f"deep_{protocol}_tool",
             )
         )
+        if protocol == "smb2":
+            aliases.extend(
+                (
+                    "deep smb flow",
+                    "deep-smb-flow",
+                    "deep_smb_flow",
+                    "deep smb tool",
+                    "deep-smb-tool",
+                    "deep_smb_tool",
+                )
+            )
     return tuple(aliases)
 
 
