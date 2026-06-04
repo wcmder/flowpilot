@@ -647,6 +647,21 @@ def _agent_chat_with_chat_completions(
         chat_response = AgentChatResponse.model_validate(parsed)
     except ValidationError:
         return AgentChatResponse(answer=content)
+    if not chat_response.answer.strip() and not chat_response.evidence_requests:
+        return AgentChatResponse(
+            answer=_agent_chat_plain_fallback(
+                client,
+                summary,
+                question,
+                model=model,
+                max_flows=max_flows,
+                report=report,
+                history=history,
+                additional_evidence=additional_evidence,
+                analysis_focus=analysis_focus,
+                structured_finish_reason=_choice_finish_reason(response.choices[0]),
+            )
+        )
     if _is_role_label_answer(chat_response.answer):
         return AgentChatResponse(
             answer=_agent_chat_plain_fallback(
