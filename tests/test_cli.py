@@ -1,4 +1,5 @@
 import io
+import json
 import shutil
 import struct
 from pathlib import Path
@@ -332,6 +333,43 @@ def test_refreshing_info_refreshes_wait_messages_and_prints_normal_info(monkeypa
     assert "\r\x1b[2K[info] LLM reasoning waiting: 3s" in text
     assert "\r\x1b[2K[info] LLM reasoning waiting: 6s" in text
     assert printed == ["LangGraph gathered 1 deep evidence result(s)."]
+
+
+def test_models_command_prints_models_endpoint(monkeypatch) -> None:
+    output = io.StringIO()
+    monkeypatch.setattr(cli.console, "file", output)
+    monkeypatch.setattr(cli, "openai_models_url", lambda: "https://llm.example/v1/models")
+    monkeypatch.setattr(
+        cli,
+        "list_openai_models",
+        lambda: [{"id": "model-a", "owned_by": "owner", "created": 123}],
+    )
+
+    cli.models_command()
+
+    text = output.getvalue()
+    assert "Models endpoint:" in text
+    assert "https://llm.example/v1/models" in text
+    assert "model-a" in text
+
+
+def test_models_command_json_includes_models_endpoint(monkeypatch) -> None:
+    output = io.StringIO()
+    monkeypatch.setattr(cli.console, "file", output)
+    monkeypatch.setattr(cli, "openai_models_url", lambda: "https://llm.example/v1/models")
+    monkeypatch.setattr(
+        cli,
+        "list_openai_models",
+        lambda: [{"id": "model-a", "owned_by": "owner", "created": 123}],
+    )
+
+    cli.models_command(json_output=True)
+
+    payload = json.loads(output.getvalue())
+    assert payload == {
+        "url": "https://llm.example/v1/models",
+        "models": [{"id": "model-a", "owned_by": "owner", "created": 123}],
+    }
 
 
 def test_parse_capinfos_packet_count_reads_named_count_only() -> None:

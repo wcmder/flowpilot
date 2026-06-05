@@ -40,6 +40,7 @@ from .reasoning import (
     LLM_TIMEOUT_SECONDS,
     chat_about_capture,
     list_openai_models,
+    openai_models_url,
     reason_about_capture,
 )
 from .workflow import run_agent_chat, run_agent_reasoning_state
@@ -401,11 +402,13 @@ def models_command(
     ] = False,
 ) -> None:
     """List models from the configured OpenAI-compatible /v1/models endpoint."""
+    url = openai_models_url()
     models = list_openai_models()
     if json_output:
-        console.print(json.dumps(models, indent=2))
+        console.print(json.dumps({"url": url, "models": models}, indent=2))
         return
 
+    console.print(f"[bold]Models endpoint:[/bold] {url}")
     table = Table(title="Configured LLM Models")
     table.add_column("Model ID", overflow="fold")
     table.add_column("Owner", overflow="fold")

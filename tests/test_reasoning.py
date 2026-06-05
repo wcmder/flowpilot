@@ -23,6 +23,18 @@ def test_rate_limit_can_be_disabled(monkeypatch) -> None:
     reasoning._respect_llm_rate_limit()
 
 
+def test_openai_models_url_defaults_to_openai_models_endpoint(monkeypatch) -> None:
+    monkeypatch.setattr(reasoning, "OPENAI_BASE_URL", None)
+
+    assert reasoning.openai_models_url() == "https://api.openai.com/v1/models"
+
+
+def test_openai_models_url_uses_configured_base_url(monkeypatch) -> None:
+    monkeypatch.setattr(reasoning, "OPENAI_BASE_URL", "https://llm.example/v1/")
+
+    assert reasoning.openai_models_url() == "https://llm.example/v1/models"
+
+
 def test_system_prompt_delegates_tool_access_through_evidence_requests() -> None:
     assert "deep_tls_flow" in reasoning.SYSTEM_PROMPT
     assert "deep_smb2_flow" in reasoning.SYSTEM_PROMPT

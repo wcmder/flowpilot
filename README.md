@@ -297,6 +297,9 @@ flowpilot models
 flowpilot models --json
 ```
 
+`flowpilot models` prints the `/models` URL it called before listing models.
+With `--json`, the output includes both `url` and `models`.
+
 Write machine-readable output:
 
 ```bash

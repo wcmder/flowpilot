@@ -106,6 +106,11 @@ def openai_client() -> OpenAI:
     return OpenAI(timeout=LLM_TIMEOUT_SECONDS)
 
 
+def openai_models_url() -> str:
+    base_url = OPENAI_BASE_URL or "https://api.openai.com/v1"
+    return f"{base_url.rstrip('/')}/models"
+
+
 def list_openai_models() -> list[dict[str, object]]:
     _respect_llm_rate_limit()
     models = openai_client().models.list()
