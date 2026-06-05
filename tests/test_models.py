@@ -1,4 +1,4 @@
-from flowpilot.models import FlowKey, FlowSummary
+from flowpilot.models import EspSequenceSummary, FlowKey, FlowSummary
 
 
 def test_flow_summary_moves_legacy_protocol_fields_into_nested_metadata() -> None:
@@ -33,3 +33,25 @@ def test_flow_summary_legacy_protocol_assignment_updates_nested_metadata() -> No
     assert flow.sip.call_ids == ["call-1"]
     assert flow.esp.spis == ["0x1234"]
     assert flow.smb.read_ops == 3
+
+
+def test_esp_packet_loss_rate_uses_persisted_sequence_summary_without_seen_set() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="ESP"),
+        packet_count=4,
+        esp_sequences=[
+            EspSequenceSummary(
+                spi="0x1234",
+                direction="10.0.0.1 -> 10.0.0.2",
+                packet_count=4,
+                first_sequence=1,
+                last_sequence=4,
+                highest_sequence=4,
+                duplicate_count=1,
+            )
+        ],
+    )
+
+    assert flow.esp_sequences[0].observed_unique_sequence_count == 3
+    assert flow.esp_sequences[0].missing_count == 1
+    assert flow.packet_loss_rate == 0.25

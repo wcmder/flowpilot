@@ -85,6 +85,8 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
         "packet_rate_per_second": 2.0,
         "retransmission_rate": 0.5,
         "packet_loss_rate": 0.0,
+        "out_of_order_rate": 0.0,
+        "out_of_order_count": 0,
         "tcp_issue_counts": {"tcp_retransmission": 1},
         "rtt": {
             "initial_ms": 20.0,
@@ -174,6 +176,36 @@ def test_summarize_capture_tracks_tcp_lost_segment_rate() -> None:
 
     assert summary.flows[0].packet_loss_rate == 0.5
     assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.5
+
+
+def test_summarize_capture_tracks_tcp_out_of_order_rate() -> None:
+    packets = [
+        PacketObservation(
+            src_ip="10.0.0.5",
+            dst_ip="93.184.216.34",
+            src_port=54000,
+            dst_port=443,
+            protocol="TCP",
+            issue_tags=["tcp_out_of_order"],
+        ),
+        PacketObservation(
+            src_ip="93.184.216.34",
+            dst_ip="10.0.0.5",
+            src_port=443,
+            dst_port=54000,
+            protocol="TCP",
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+    compact_flow = summary.compact()["top_flows"][0]
+
+    assert summary.flows[0].out_of_order_count == 1
+    assert summary.flows[0].out_of_order_rate == 0.5
+    assert compact_flow["out_of_order_count"] == 1
+    assert compact_flow["out_of_order_rate"] == 0.5
+    assert compact_flow["transport"]["out_of_order_count"] == 1
+    assert compact_flow["transport"]["out_of_order_rate"] == 0.5
 
 
 def test_packet_to_observation_counts_presence_only_tcp_lost_segment() -> None:
@@ -390,6 +422,8 @@ def test_summarize_capture_tracks_esp_sequence_anomalies() -> None:
     ]
     assert sequence.out_of_order_count == 1
     assert sequence.duplicate_count == 1
+    assert summary.flows[0].out_of_order_count == 1
+    assert summary.flows[0].out_of_order_rate == 0.25
     assert "esp sequence anomaly observed" in summary.flows[0].diagnostic_hints
     assert compact_sequence["largest_sequence_gap"] == 1
     assert compact_sequence["gap_occurrences"] == [
@@ -397,6 +431,57 @@ def test_summarize_capture_tracks_esp_sequence_anomalies() -> None:
     ]
     assert compact_sequence["out_of_order_count"] == 1
     assert compact_sequence["duplicate_count"] == 1
+    assert summary.compact()["top_flows"][0]["out_of_order_count"] == 1
+    assert summary.compact()["top_flows"][0]["out_of_order_rate"] == 0.25
+
+
+def test_summarize_capture_uses_esp_missing_sequences_for_loss_rate() -> None:
+    start = datetime(2026, 1, 1, 12, 0, 0)
+    packets = [
+        PacketObservation(
+            timestamp=start,
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+            esp_sequence=1,
+        ),
+        PacketObservation(
+            timestamp=start + timedelta(seconds=1),
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+            esp_sequence=2,
+        ),
+        PacketObservation(
+            timestamp=start + timedelta(seconds=2),
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+            esp_sequence=4,
+        ),
+        PacketObservation(
+            timestamp=start + timedelta(seconds=3),
+            src_ip="192.0.2.10",
+            dst_ip="198.51.100.20",
+            protocol="ESP",
+            length=900,
+            esp_spi="0x0000abcd",
+            esp_sequence=4,
+        ),
+    ]
+
+    summary = summarize_capture(packets)
+
+    assert summary.flows[0].esp_sequences[0].missing_count == 1
+    assert summary.flows[0].packet_loss_rate == 0.25
+    assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.25
+    assert summary.compact()["top_flows"][0]["transport"]["packet_loss_rate"] == 0.25
 
 
 def test_filter_observations_isolates_host_peer_protocol_and_port() -> None:

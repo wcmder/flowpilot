@@ -10,6 +10,7 @@ from flowpilot.cli import (
     _CachedCaptureSession,
     _count_packets_in_capture,
     _direction,
+    _flow_metrics,
     _format_agent_evidence_counts,
     _format_flow_issues,
     _load_summary,
@@ -575,6 +576,16 @@ def test_format_flow_issues_shows_counts_and_diagnostics() -> None:
         "one-way traffic observed\n"
         "tcp retransmission rate above 1 percent"
     )
+
+
+def test_flow_metrics_includes_out_of_order_rate() -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
+        packet_count=4,
+        issue_counts={"tcp_out_of_order": 1},
+    )
+
+    assert "ooo 25.0%" in _flow_metrics(flow)
 
 
 def test_format_agent_evidence_counts_prefers_protocol_counts() -> None:

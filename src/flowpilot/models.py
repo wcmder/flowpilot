@@ -58,11 +58,20 @@ class EspSequenceSummary(BaseModel):
     seen_sequences: set[int] = Field(default_factory=set, exclude=True)
 
     @property
-    def missing_count(self) -> int:
+    def observed_unique_sequence_count(self) -> int:
+        if self.seen_sequences:
+            return len(self.seen_sequences)
+        return max(self.packet_count - self.duplicate_count, 0)
+
+    @property
+    def expected_sequence_count(self) -> int:
         if self.first_sequence is None or self.highest_sequence is None:
             return 0
-        expected = self.highest_sequence - self.first_sequence + 1
-        return max(expected - len(self.seen_sequences), 0)
+        return max(self.highest_sequence - self.first_sequence + 1, 0)
+
+    @property
+    def missing_count(self) -> int:
+        return max(self.expected_sequence_count - self.observed_unique_sequence_count, 0)
 
     @property
     def has_anomalies(self) -> bool:
@@ -426,8 +435,28 @@ class FlowSummary(BaseModel):
     def packet_loss_rate(self) -> float:
         if self.packet_count == 0:
             return 0.0
+        if self.key.protocol == "ESP" and self.esp_sequences:
+            missing_sequences = sum(sequence.missing_count for sequence in self.esp_sequences)
+            expected_sequences = sum(
+                sequence.observed_unique_sequence_count + sequence.missing_count
+                for sequence in self.esp_sequences
+            )
+            if expected_sequences > 0:
+                return missing_sequences / expected_sequences
         lost_segments = self.issue_counts.get("tcp_lost_segment", 0)
         return lost_segments / self.packet_count
+
+    @property
+    def out_of_order_count(self) -> int:
+        if self.key.protocol == "ESP" and self.esp_sequences:
+            return sum(sequence.out_of_order_count for sequence in self.esp_sequences)
+        return self.issue_counts.get("tcp_out_of_order", 0)
+
+    @property
+    def out_of_order_rate(self) -> float:
+        if self.packet_count == 0:
+            return 0.0
+        return self.out_of_order_count / self.packet_count
 
     @property
     def avg_rtt_ms(self) -> float | None:
@@ -534,7 +563,14 @@ class CaptureSummary(BaseModel):
         return {
             "analysis_focus": "network transport troubleshooting",
             "transport_metric_notes": {
-                "loss": "tcp.analysis.lost_segment rate over observed flow packets",
+                "loss": (
+                    "TCP uses tcp.analysis.lost_segment rate over observed flow packets; "
+                    "ESP uses missing sequence numbers over expected ESP sequence span"
+                ),
+                "out_of_order": (
+                    "TCP uses tcp.analysis.out_of_order rate over observed flow packets; "
+                    "ESP uses captured-late ESP sequence numbers over observed flow packets"
+                ),
                 "rtt": (
                     "only tcp.analysis.initial_rtt is sent to LLM; tcp.analysis.ack_rtt "
                     "is capture-position dependent and excluded"
@@ -570,6 +606,8 @@ class CaptureSummary(BaseModel):
                     "throughput_mbps": round(flow.throughput_mbps, 3),
                     "retransmission_rate": round(flow.retransmission_rate, 4),
                     "packet_loss_rate": round(flow.packet_loss_rate, 4),
+                    "out_of_order_rate": round(flow.out_of_order_rate, 4),
+                    "out_of_order_count": flow.out_of_order_count,
                     "initial_rtt_ms": _round_optional(flow.initial_rtt_ms, 3),
                     "one_way": flow.is_one_way,
                     "diagnostic_hints": flow.diagnostic_hints,
@@ -580,6 +618,8 @@ class CaptureSummary(BaseModel):
                         "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
                         "retransmission_rate": round(flow.retransmission_rate, 4),
                         "packet_loss_rate": round(flow.packet_loss_rate, 4),
+                        "out_of_order_rate": round(flow.out_of_order_rate, 4),
+                        "out_of_order_count": flow.out_of_order_count,
                         "tcp_issue_counts": _tcp_issue_counts(flow.issue_counts),
                         "rtt": {
                             "initial_ms": _round_optional(flow.initial_rtt_ms, 3),

@@ -14,6 +14,7 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
             "issue_counts",
             "retransmission_rate",
             "packet_loss_rate",
+            "out_of_order_rate",
             "rtt_initial_ms",
         ),
         extract_hook="flowpilot.protocols.tcp.extract_tcp",

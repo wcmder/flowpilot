@@ -452,15 +452,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
             ),
             _traffic(flow),
             _direction(flow),
-            "\n".join(
-                [
-                    f"rtx {_percent(flow.retransmission_rate)}",
-                    f"loss {_percent(flow.packet_loss_rate)}",
-                    f"rtt {_rtt(flow)}",
-                    f"rate {flow.packet_rate_per_second:.1f} pps",
-                    f"thr {flow.throughput_mbps:.3f} Mbps",
-                ]
-            ),
+            _flow_metrics(flow),
             _protocol_marker(flow),
             _format_flow_issues(flow),
         )
@@ -1039,6 +1031,19 @@ def _direction(flow) -> str:
 
 def _traffic(flow) -> str:
     return f"pkts {flow.packet_count}\nbytes {flow.byte_count}"
+
+
+def _flow_metrics(flow) -> str:
+    return "\n".join(
+        [
+            f"rtx {_percent(flow.retransmission_rate)}",
+            f"loss {_percent(flow.packet_loss_rate)}",
+            f"ooo {_percent(flow.out_of_order_rate)}",
+            f"rtt {_rtt(flow)}",
+            f"rate {flow.packet_rate_per_second:.1f} pps",
+            f"thr {flow.throughput_mbps:.3f} Mbps",
+        ]
+    )
 
 
 def _percent(value: float) -> str:
