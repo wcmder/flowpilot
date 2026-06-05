@@ -72,7 +72,11 @@ def _default_summary_filename(argv: list[str]) -> str:
     capture_path = _capture_path_arg(argv)
     if capture_path is None:
         return "flow-summary.json"
-    return f"{Path(capture_path).stem}.json"
+    return _default_summary_path_for_capture(Path(capture_path)).name
+
+
+def _default_summary_path_for_capture(capture_path: Path) -> Path:
+    return Path(f"{capture_path.stem}.json")
 
 
 def _capture_path_arg(argv: list[str]) -> str | None:
@@ -227,8 +231,8 @@ def analyze(
         typer.Option(
             "--json",
             help=(
-                "Write a JSON report under private/. If no filename follows --json, "
-                "defaults to the capture filename with .json."
+                "Override the automatic JSON report filename under private/. Without "
+                "this option, FlowPilot writes the capture filename with .json."
             ),
         ),
     ] = None,
@@ -264,6 +268,7 @@ def analyze(
     """Analyze a packet capture."""
     original_capture_path = capture_path
     source_capture_path_for_json = original_capture_path
+    effective_json_path = json_path or _default_summary_path_for_capture(original_capture_path)
     if chat and no_llm:
         raise typer.BadParameter(
             "--chat requires LLM reasoning, so it cannot be used with --no-llm."
@@ -412,19 +417,18 @@ def analyze(
                 _render_agent_evidence(agent_evidence)
             _render_reasoning(report)
 
-        if json_path:
-            json_output_path = _summary_json_output_path(json_path)
-            payload = {
-                "source_capture_path": str(
-                    source_capture_path_for_json.expanduser().resolve(strict=False)
-                ),
-                "summary": summary.model_dump(mode="json"),
-            }
-            if report:
-                payload["reasoning"] = report.model_dump(mode="json")
-            json_output_path.parent.mkdir(parents=True, exist_ok=True)
-            json_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            console.print(f"[green]Wrote JSON report:[/green] {json_output_path}")
+        json_output_path = _summary_json_output_path(effective_json_path)
+        payload = {
+            "source_capture_path": str(
+                source_capture_path_for_json.expanduser().resolve(strict=False)
+            ),
+            "summary": summary.model_dump(mode="json"),
+        }
+        if report:
+            payload["reasoning"] = report.model_dump(mode="json")
+        json_output_path.parent.mkdir(parents=True, exist_ok=True)
+        json_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        console.print(f"[green]Wrote JSON report:[/green] {json_output_path}")
 
         if chat and report:
             _run_chat(

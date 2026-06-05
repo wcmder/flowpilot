@@ -300,27 +300,27 @@ flowpilot models --json
 `flowpilot models` prints the `/models` URL it called before listing models.
 With `--json`, the output includes both `url` and `models`.
 
-Write machine-readable output:
+FlowPilot always writes machine-readable output:
 
 ```bash
-flowpilot analyze capture.pcap --json
+flowpilot analyze capture.pcap --no-llm
 flowpilot analyze capture.pcap --json report.json
 ```
 
-JSON reports are written under the local `private/` folder. If you omit the
-filename, FlowPilot uses the capture filename with `.json`, so
-`capture.pcap --json` writes `private/capture.json`; if you pass
-`report.json`, FlowPilot writes `private/report.json`. The JSON also records
-the source capture path so loaded summaries can still point agent deep tools
-back to the original pcap. The JSON summary stores all summarized flows; the
-`--show-flows` setting only limits terminal display, and `--max-flows` only
-limits how many top flows are sent to the LLM.
+JSON reports are written under the local `private/` folder on every `analyze`
+run. By default, FlowPilot uses the capture filename with `.json`, so
+`capture.pcap --no-llm` writes `private/capture.json`. Use `--json report.json`
+only when you want a different output filename, such as `private/report.json`.
+The JSON also records the source capture path so loaded summaries can still
+point agent deep tools back to the original pcap. The JSON summary stores all
+summarized flows; the `--show-flows` setting only limits terminal display, and
+`--max-flows` only limits how many top flows are sent to the LLM.
 
 For large captures, you can do the expensive local pass once, review the local
 tables, then reuse that saved summary for a later LLM/agent run:
 
 ```bash
-flowpilot analyze capture.pcap --no-llm --json
+flowpilot analyze capture.pcap --no-llm
 flowpilot analyze capture.pcap --load-summary --agent --chat --port 443
 ```
 
@@ -349,7 +349,7 @@ Core options:
 | `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2 rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
-| `--json [PATH]` | Write the full summary, all summarized flows, and optional LLM report under `private/`. Defaults to the capture filename with `.json`, such as `private/capture.json`. |
+| `--json [PATH]` | Override the automatic JSON output filename under `private/`. Without this option, every `analyze` run writes the capture filename with `.json`, such as `private/capture.json`. |
 | `--load-summary [PATH]` | Load a previous `--json` summary and skip the initial pcap read. Defaults to the capture filename with `.json`, such as `private/capture.json`. Flow filters such as `--port`, `--host`, `--peer`, and `--protocol` are applied to summarized flows. |
 | `--cache-pcap` | Copy the capture into a temporary FlowPilot session workspace before analysis. This preserves full captured packet bytes and headers for future agentic rereads during the run. |
 | `--keep-cache` | Keep the temporary session workspace after analysis for debugging. Implies `--cache-pcap`. |

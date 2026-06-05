@@ -9,6 +9,7 @@ from flowpilot.cli import (
     _apply_summary_filters,
     _CachedCaptureSession,
     _count_packets_in_capture,
+    _default_summary_path_for_capture,
     _direction,
     _flow_metrics,
     _format_agent_evidence_counts,
@@ -194,6 +195,41 @@ def test_json_output_path_uses_private_folder() -> None:
     assert _summary_json_output_path(Path("flow-summary.json")) == Path(
         "private/flow-summary.json"
     )
+
+
+def test_default_summary_path_uses_capture_stem() -> None:
+    assert _default_summary_path_for_capture(Path("~/Downloads/dlts.pcap")) == Path("dlts.json")
+    assert _default_summary_path_for_capture(Path("capture.pcapng")) == Path("capture.json")
+
+
+def test_analyze_writes_default_json_without_json_option(tmp_path, monkeypatch) -> None:
+    capture_path = tmp_path / "dlts.pcap"
+    capture_path.write_bytes(b"pcap")
+    private_dir = tmp_path / "private"
+    summary = CaptureSummary(
+        packet_count=0,
+        total_bytes=0,
+        flow_count=0,
+        protocols={},
+        top_ports={},
+        issue_counts={},
+        names=[],
+        flows=[],
+    )
+    monkeypatch.setattr(cli, "FLOWPILOT_PRIVATE_DIR", private_dir)
+    monkeypatch.setattr(cli, "_capture_packet_count", lambda _path: 0)
+    monkeypatch.setattr(cli, "read_capture", lambda *args, **kwargs: iter(()))
+    monkeypatch.setattr(cli, "summarize_capture", lambda _observations: summary)
+    monkeypatch.setattr(cli, "_render_summary", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "_info", lambda _message: None)
+
+    cli.analyze(capture_path, no_llm=True)
+
+    output_path = private_dir / "dlts.json"
+    assert output_path.exists()
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["summary"]["flow_count"] == 0
+    assert payload["source_capture_path"] == str(capture_path)
 
 
 def test_load_summary_accepts_json_report_envelope(tmp_path) -> None:
