@@ -582,10 +582,12 @@ def test_flow_metrics_includes_out_of_order_rate() -> None:
     flow = FlowSummary(
         key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.30", protocol="TCP"),
         packet_count=4,
+        src_to_dst_packets=4,
+        src_to_dst_issue_counts={"tcp_out_of_order": 1},
         issue_counts={"tcp_out_of_order": 1},
     )
 
-    assert "ooo 25.0%" in _flow_metrics(flow)
+    assert "ooo 25.0%/0%" in _flow_metrics(flow)
 
 
 def test_format_agent_evidence_counts_prefers_protocol_counts() -> None:

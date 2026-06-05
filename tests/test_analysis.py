@@ -54,6 +54,8 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
     assert summary.names == ["example.com"]
     assert summary.flows[0].packet_count == 2
     assert summary.flows[0].issue_counts == {"tcp_retransmission": 1}
+    assert summary.flows[0].src_to_dst_issue_counts == {"tcp_retransmission": 1}
+    assert summary.flows[0].dst_to_src_issue_counts == {}
     assert summary.flows[0].tls_snis == ["example.com"]
     assert summary.flows[0].tls_sni_endpoints == {"10.0.0.5:54000": ["example.com"]}
     assert summary.flows[0].duration_seconds == 1.0
@@ -84,8 +86,11 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
         "throughput_mbps": 0.003,
         "packet_rate_per_second": 2.0,
         "retransmission_rate": 0.5,
+        "retransmission_rates_by_direction": [1.0, 0.0],
         "packet_loss_rate": 0.0,
+        "packet_loss_rates_by_direction": [0.0, 0.0],
         "out_of_order_rate": 0.0,
+        "out_of_order_rates_by_direction": [0.0, 0.0],
         "out_of_order_count": 0,
         "tcp_issue_counts": {"tcp_retransmission": 1},
         "rtt": {
@@ -202,10 +207,12 @@ def test_summarize_capture_tracks_tcp_out_of_order_rate() -> None:
 
     assert summary.flows[0].out_of_order_count == 1
     assert summary.flows[0].out_of_order_rate == 0.5
+    assert summary.flows[0].out_of_order_rates_by_direction == (1.0, 0.0)
     assert compact_flow["out_of_order_count"] == 1
     assert compact_flow["out_of_order_rate"] == 0.5
     assert compact_flow["transport"]["out_of_order_count"] == 1
     assert compact_flow["transport"]["out_of_order_rate"] == 0.5
+    assert compact_flow["transport"]["out_of_order_rates_by_direction"] == [1.0, 0.0]
 
 
 def test_packet_to_observation_counts_presence_only_tcp_lost_segment() -> None:
@@ -424,6 +431,7 @@ def test_summarize_capture_tracks_esp_sequence_anomalies() -> None:
     assert sequence.duplicate_count == 1
     assert summary.flows[0].out_of_order_count == 1
     assert summary.flows[0].out_of_order_rate == 0.25
+    assert summary.flows[0].out_of_order_rates_by_direction == (0.25, 0.0)
     assert "esp sequence anomaly observed" in summary.flows[0].diagnostic_hints
     assert compact_sequence["largest_sequence_gap"] == 1
     assert compact_sequence["gap_occurrences"] == [
@@ -433,6 +441,9 @@ def test_summarize_capture_tracks_esp_sequence_anomalies() -> None:
     assert compact_sequence["duplicate_count"] == 1
     assert summary.compact()["top_flows"][0]["out_of_order_count"] == 1
     assert summary.compact()["top_flows"][0]["out_of_order_rate"] == 0.25
+    assert summary.compact()["top_flows"][0]["transport"][
+        "out_of_order_rates_by_direction"
+    ] == [0.25, 0.0]
 
 
 def test_summarize_capture_uses_esp_missing_sequences_for_loss_rate() -> None:
@@ -480,8 +491,12 @@ def test_summarize_capture_uses_esp_missing_sequences_for_loss_rate() -> None:
 
     assert summary.flows[0].esp_sequences[0].missing_count == 1
     assert summary.flows[0].packet_loss_rate == 0.25
+    assert summary.flows[0].packet_loss_rates_by_direction == (0.25, 0.0)
     assert summary.compact()["top_flows"][0]["packet_loss_rate"] == 0.25
     assert summary.compact()["top_flows"][0]["transport"]["packet_loss_rate"] == 0.25
+    assert summary.compact()["top_flows"][0]["transport"][
+        "packet_loss_rates_by_direction"
+    ] == [0.25, 0.0]
 
 
 def test_filter_observations_isolates_host_peer_protocol_and_port() -> None:

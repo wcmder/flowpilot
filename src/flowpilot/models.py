@@ -357,6 +357,8 @@ class FlowSummary(BaseModel):
     dst_to_src_packets: int = 0
     src_to_dst_bytes: int = 0
     dst_to_src_bytes: int = 0
+    src_to_dst_issue_counts: dict[str, int] = Field(default_factory=dict)
+    dst_to_src_issue_counts: dict[str, int] = Field(default_factory=dict)
     rtt_sample_count: int = 0
     rtt_total_ms: float = 0.0
     rtt_max_ms: float | None = None
@@ -432,6 +434,19 @@ class FlowSummary(BaseModel):
         return retransmissions / self.packet_count
 
     @property
+    def retransmission_rates_by_direction(self) -> tuple[float, float]:
+        return (
+            _rate(
+                self.src_to_dst_issue_counts.get("tcp_retransmission", 0),
+                self.src_to_dst_packets,
+            ),
+            _rate(
+                self.dst_to_src_issue_counts.get("tcp_retransmission", 0),
+                self.dst_to_src_packets,
+            ),
+        )
+
+    @property
     def packet_loss_rate(self) -> float:
         if self.packet_count == 0:
             return 0.0
@@ -447,6 +462,24 @@ class FlowSummary(BaseModel):
         return lost_segments / self.packet_count
 
     @property
+    def packet_loss_rates_by_direction(self) -> tuple[float, float]:
+        if self.key.protocol == "ESP" and self.esp_sequences:
+            return (
+                self._esp_loss_rate_for_direction(forward=True),
+                self._esp_loss_rate_for_direction(forward=False),
+            )
+        return (
+            _rate(
+                self.src_to_dst_issue_counts.get("tcp_lost_segment", 0),
+                self.src_to_dst_packets,
+            ),
+            _rate(
+                self.dst_to_src_issue_counts.get("tcp_lost_segment", 0),
+                self.dst_to_src_packets,
+            ),
+        )
+
+    @property
     def out_of_order_count(self) -> int:
         if self.key.protocol == "ESP" and self.esp_sequences:
             return sum(sequence.out_of_order_count for sequence in self.esp_sequences)
@@ -457,6 +490,48 @@ class FlowSummary(BaseModel):
         if self.packet_count == 0:
             return 0.0
         return self.out_of_order_count / self.packet_count
+
+    @property
+    def out_of_order_rates_by_direction(self) -> tuple[float, float]:
+        if self.key.protocol == "ESP" and self.esp_sequences:
+            return (
+                self._esp_out_of_order_rate_for_direction(forward=True),
+                self._esp_out_of_order_rate_for_direction(forward=False),
+            )
+        return (
+            _rate(
+                self.src_to_dst_issue_counts.get("tcp_out_of_order", 0),
+                self.src_to_dst_packets,
+            ),
+            _rate(
+                self.dst_to_src_issue_counts.get("tcp_out_of_order", 0),
+                self.dst_to_src_packets,
+            ),
+        )
+
+    def _esp_loss_rate_for_direction(self, *, forward: bool) -> float:
+        sequences = self._esp_sequences_for_flow_direction(forward=forward)
+        missing_sequences = sum(sequence.missing_count for sequence in sequences)
+        expected_sequences = sum(
+            sequence.observed_unique_sequence_count + sequence.missing_count
+            for sequence in sequences
+        )
+        return _rate(missing_sequences, expected_sequences)
+
+    def _esp_out_of_order_rate_for_direction(self, *, forward: bool) -> float:
+        sequences = self._esp_sequences_for_flow_direction(forward=forward)
+        packets = sum(sequence.packet_count for sequence in sequences)
+        out_of_order = sum(sequence.out_of_order_count for sequence in sequences)
+        return _rate(out_of_order, packets)
+
+    def _esp_sequences_for_flow_direction(self, *, forward: bool) -> list[EspSequenceSummary]:
+        expected = _direction_label(
+            self.key.endpoint_a if forward else self.key.endpoint_b,
+            self.key.port_a if forward else self.key.port_b,
+            self.key.endpoint_b if forward else self.key.endpoint_a,
+            self.key.port_b if forward else self.key.port_a,
+        )
+        return [sequence for sequence in self.esp_sequences if sequence.direction == expected]
 
     @property
     def avg_rtt_ms(self) -> float | None:
@@ -571,6 +646,9 @@ class CaptureSummary(BaseModel):
                     "TCP uses tcp.analysis.out_of_order rate over observed flow packets; "
                     "ESP uses captured-late ESP sequence numbers over observed flow packets"
                 ),
+                "directional_rates": (
+                    "rate lists are [endpoint_a_to_endpoint_b, endpoint_b_to_endpoint_a]"
+                ),
                 "rtt": (
                     "only tcp.analysis.initial_rtt is sent to LLM; tcp.analysis.ack_rtt "
                     "is capture-position dependent and excluded"
@@ -600,6 +678,8 @@ class CaptureSummary(BaseModel):
                     "dst_to_src_packets": flow.dst_to_src_packets,
                     "src_to_dst_bytes": flow.src_to_dst_bytes,
                     "dst_to_src_bytes": flow.dst_to_src_bytes,
+                    "src_to_dst_issue_counts": flow.src_to_dst_issue_counts,
+                    "dst_to_src_issue_counts": flow.dst_to_src_issue_counts,
                     "duration_seconds": round(flow.duration_seconds, 3),
                     "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
                     "byte_rate_per_second": round(flow.byte_rate_per_second, 3),
@@ -617,8 +697,17 @@ class CaptureSummary(BaseModel):
                         "throughput_mbps": round(flow.throughput_mbps, 3),
                         "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
                         "retransmission_rate": round(flow.retransmission_rate, 4),
+                        "retransmission_rates_by_direction": [
+                            round(rate, 4) for rate in flow.retransmission_rates_by_direction
+                        ],
                         "packet_loss_rate": round(flow.packet_loss_rate, 4),
+                        "packet_loss_rates_by_direction": [
+                            round(rate, 4) for rate in flow.packet_loss_rates_by_direction
+                        ],
                         "out_of_order_rate": round(flow.out_of_order_rate, 4),
+                        "out_of_order_rates_by_direction": [
+                            round(rate, 4) for rate in flow.out_of_order_rates_by_direction
+                        ],
                         "out_of_order_count": flow.out_of_order_count,
                         "tcp_issue_counts": _tcp_issue_counts(flow.issue_counts),
                         "rtt": {
@@ -757,6 +846,15 @@ def _endpoint_label(endpoint: str, port: int | None) -> str:
     return endpoint if port is None else f"{endpoint}:{port}"
 
 
+def _direction_label(
+    src_endpoint: str,
+    src_port: int | None,
+    dst_endpoint: str,
+    dst_port: int | None,
+) -> str:
+    return f"{_endpoint_label(src_endpoint, src_port)} -> {_endpoint_label(dst_endpoint, dst_port)}"
+
+
 def _flow_endpoint_inventory(flows: list[FlowSummary]) -> dict[str, list[str]]:
     endpoints: set[str] = set()
     endpoint_ports: set[str] = set()
@@ -781,6 +879,12 @@ def _endpoint_sort_key(endpoint: tuple[str, int | None]) -> tuple[str, int]:
 
 def _round_optional(value: float | None, digits: int) -> float | None:
     return round(value, digits) if value is not None else None
+
+
+def _rate(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return numerator / denominator
 
 
 def _tcp_issue_counts(issue_counts: dict[str, int]) -> dict[str, int]:

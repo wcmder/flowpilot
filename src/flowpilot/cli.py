@@ -1036,9 +1036,9 @@ def _traffic(flow) -> str:
 def _flow_metrics(flow) -> str:
     return "\n".join(
         [
-            f"rtx {_percent(flow.retransmission_rate)}",
-            f"loss {_percent(flow.packet_loss_rate)}",
-            f"ooo {_percent(flow.out_of_order_rate)}",
+            f"rtx {_directional_percent(flow.retransmission_rates_by_direction)}",
+            f"loss {_directional_percent(flow.packet_loss_rates_by_direction)}",
+            f"ooo {_directional_percent(flow.out_of_order_rates_by_direction)}",
             f"rtt {_rtt(flow)}",
             f"rate {flow.packet_rate_per_second:.1f} pps",
             f"thr {flow.throughput_mbps:.3f} Mbps",
@@ -1053,6 +1053,10 @@ def _percent(value: float) -> str:
     if percent < 0.1:
         return f"{percent:.3f}%"
     return f"{percent:.1f}%"
+
+
+def _directional_percent(values: tuple[float, float]) -> str:
+    return f"{_percent(values[0])}/{_percent(values[1])}"
 
 
 def _rtt(flow) -> str:

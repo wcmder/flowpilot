@@ -70,9 +70,10 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         if packet.initial_rtt_seconds is not None:
             flow.initial_rtt_ms = packet.initial_rtt_seconds * 1000
 
-        if packet.src_ip == key.endpoint_a and (
+        is_src_to_dst = packet.src_ip == key.endpoint_a and (
             key.port_a is None or packet.src_port == key.port_a
-        ):
+        )
+        if is_src_to_dst:
             flow.src_to_dst_packets += 1
             flow.src_to_dst_bytes += packet.length
         else:
@@ -81,6 +82,10 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
 
         for issue_tag in packet.issue_tags:
             flow.issue_counts[issue_tag] = flow.issue_counts.get(issue_tag, 0) + 1
+            direction_counts = (
+                flow.src_to_dst_issue_counts if is_src_to_dst else flow.dst_to_src_issue_counts
+            )
+            direction_counts[issue_tag] = direction_counts.get(issue_tag, 0) + 1
 
         if packet.http_location and packet.http_location not in flow.redirect_locations:
             flow.redirect_locations = [*flow.redirect_locations, packet.http_location][:25]
