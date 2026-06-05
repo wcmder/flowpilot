@@ -49,12 +49,12 @@ app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenA
 console = Console()
 LOCAL_PROGRESS_REFRESH_SECONDS = 5
 FLOWPILOT_PRIVATE_DIR = Path("private")
-DEFAULT_JSON_FILENAME = "flow-summary.json"
 
 
 def _normalize_optional_json_arg(argv: list[str]) -> list[str]:
     if not argv or argv[0] != "analyze":
         return argv
+    default_json_filename = _default_summary_filename(argv)
     normalized = []
     index = 0
     while index < len(argv):
@@ -63,9 +63,57 @@ def _normalize_optional_json_arg(argv: list[str]) -> list[str]:
         if arg in {"--json", "--load-summary"}:
             next_arg = argv[index + 1] if index + 1 < len(argv) else None
             if next_arg is None or next_arg.startswith("-"):
-                normalized.append(DEFAULT_JSON_FILENAME)
+                normalized.append(default_json_filename)
         index += 1
     return normalized
+
+
+def _default_summary_filename(argv: list[str]) -> str:
+    capture_path = _capture_path_arg(argv)
+    if capture_path is None:
+        return "flow-summary.json"
+    return f"{Path(capture_path).stem}.json"
+
+
+def _capture_path_arg(argv: list[str]) -> str | None:
+    options_with_values = {
+        "--model",
+        "--packet-limit",
+        "--tls-keylog-file",
+        "--esp-udp-port",
+        "--host",
+        "--peer",
+        "--protocol",
+        "--port",
+        "--src",
+        "--dst",
+        "--src-port",
+        "--dst-port",
+        "--sip-phone",
+        "--max-flows",
+        "--show-flows",
+        "--analysis-focus",
+        "--json",
+        "--load-summary",
+    }
+    index = 1
+    while index < len(argv):
+        arg = argv[index]
+        if arg in {"--json", "--load-summary"}:
+            next_arg = argv[index + 1] if index + 1 < len(argv) else None
+            if next_arg is not None and not next_arg.startswith("-"):
+                index += 2
+                continue
+            index += 1
+            continue
+        if arg in options_with_values:
+            index += 2
+            continue
+        if arg.startswith("-"):
+            index += 1
+            continue
+        return arg
+    return None
 
 
 sys.argv[:] = [sys.argv[0], *_normalize_optional_json_arg(sys.argv[1:])]
@@ -180,7 +228,7 @@ def analyze(
             "--json",
             help=(
                 "Write a JSON report under private/. If no filename follows --json, "
-                "defaults to flow-summary.json."
+                "defaults to the capture filename with .json."
             ),
         ),
     ] = None,
@@ -191,7 +239,7 @@ def analyze(
             help=(
                 "Load a previously written --json summary and skip the initial pcap read. "
                 "Flow filters are applied to summarized flows. If no filename follows "
-                "--load-summary, defaults to flow-summary.json."
+                "--load-summary, defaults to the capture filename with .json."
             ),
         ),
     ] = None,

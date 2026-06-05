@@ -138,28 +138,34 @@ def test_progress_reporter_refreshes_after_five_seconds(monkeypatch) -> None:
     assert "3% (3/100 raw packets)" in text
 
 
-def test_analyze_json_option_without_filename_defaults_to_summary_file() -> None:
+def test_analyze_json_option_without_filename_defaults_to_capture_name() -> None:
     assert _normalize_optional_json_arg(["analyze", "capture.pcap", "--json"]) == [
         "analyze",
         "capture.pcap",
         "--json",
-        "flow-summary.json",
+        "capture.json",
     ]
     assert _normalize_optional_json_arg(["analyze", "capture.pcap", "--json", "--no-llm"]) == [
         "analyze",
         "capture.pcap",
         "--json",
-        "flow-summary.json",
+        "capture.json",
         "--no-llm",
+    ]
+    assert _normalize_optional_json_arg(["analyze", "~/Downloads/dlts.pcapng", "--json"]) == [
+        "analyze",
+        "~/Downloads/dlts.pcapng",
+        "--json",
+        "dlts.json",
     ]
 
 
-def test_analyze_load_summary_without_filename_defaults_to_summary_file() -> None:
+def test_analyze_load_summary_without_filename_defaults_to_capture_name() -> None:
     assert _normalize_optional_json_arg(["analyze", "capture.pcap", "--load-summary"]) == [
         "analyze",
         "capture.pcap",
         "--load-summary",
-        "flow-summary.json",
+        "capture.json",
     ]
     assert _normalize_optional_json_arg(
         ["analyze", "capture.pcap", "--load-summary", "--agent"]
@@ -167,7 +173,7 @@ def test_analyze_load_summary_without_filename_defaults_to_summary_file() -> Non
         "analyze",
         "capture.pcap",
         "--load-summary",
-        "flow-summary.json",
+        "capture.json",
         "--agent",
     ]
 
