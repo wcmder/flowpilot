@@ -179,6 +179,61 @@ FLOWPILOT_LLM_TIMEOUT_SECONDS="300"
 Use `flowpilot models` to confirm the API key, base URL, and model endpoint work
 inside the restricted network.
 
+## Windows exe packaging
+
+Build the Windows executable on a Windows machine with Python installed:
+
+```powershell
+git clone <your-flowpilot-repo-url>
+cd FlowPilot
+python -m venv build-flowpilot
+.\build-flowpilot\Scripts\Activate.ps1
+.\packaging\build_windows.ps1 -Clean
+```
+
+The distributable folder is:
+
+```text
+dist\FlowPilot\
+```
+
+Give users that whole folder. The expected layout is:
+
+```text
+FlowPilot\
+  flowpilot.exe
+  private\
+    .env
+```
+
+Users should only need to edit:
+
+```text
+FlowPilot\private\.env
+```
+
+Example `private\.env` values:
+
+```text
+OPENAI_API_KEY="your_api_key_here"
+FLOWPILOT_OPENAI_BASE_URL="https://your-openai-compatible-endpoint.example/v1"
+FLOWPILOT_LLM_API="chat_completions"
+FLOWPILOT_MODEL="your-model-name"
+FLOWPILOT_LLM_REQUESTS_PER_MINUTE="120"
+FLOWPILOT_LLM_TIMEOUT_SECONDS="300"
+```
+
+Run from PowerShell:
+
+```powershell
+.\flowpilot.exe models
+.\flowpilot.exe analyze C:\captures\sample.pcap --no-llm
+```
+
+TShark is still required on the Windows system. Install Wireshark/TShark and
+make sure `tshark.exe` is on `PATH`, or run FlowPilot from a shell where
+Wireshark's install directory is already in `PATH`.
+
 ## Usage
 
 Summarize a capture without calling the LLM:

@@ -8,7 +8,6 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, Literal, TypeVar
 
 from dotenv import load_dotenv
@@ -16,6 +15,7 @@ from openai import APIStatusError, APITimeoutError, OpenAI
 from pydantic import ValidationError
 
 from .models import AgentChatResponse, CaptureSummary, ReasoningReport
+from .paths import runtime_private_dir
 from .protocols.registry import (
     PROTOCOL_REGISTRY,
     deep_tool_guidance_prompt,
@@ -25,7 +25,7 @@ from .protocols.registry import (
 AnalysisFocus = Literal["transport", "security"]
 T = TypeVar("T")
 
-load_dotenv(Path("private") / ".env")
+load_dotenv(runtime_private_dir() / ".env")
 load_dotenv()
 
 DEFAULT_MODEL = os.getenv("FLOWPILOT_MODEL", "gpt-5-mini")

@@ -28,6 +28,7 @@ from .filters import (
     include_redirect_related_flows,
 )
 from .models import CaptureSummary, FlowSummary
+from .paths import runtime_private_dir
 from .protocols.dhcp import render_dhcp_details
 from .protocols.dns import render_dns_details
 from .protocols.esp import format_esp_sequences
@@ -48,7 +49,7 @@ from .workflow import run_agent_chat, run_agent_reasoning_state
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
 LOCAL_PROGRESS_REFRESH_SECONDS = 5
-FLOWPILOT_PRIVATE_DIR = Path("private")
+FLOWPILOT_PRIVATE_DIR = runtime_private_dir()
 
 
 def _normalize_optional_json_arg(argv: list[str]) -> list[str]:

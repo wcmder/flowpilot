@@ -26,6 +26,9 @@ dev = [
   "pytest>=8.2.0",
   "ruff>=0.5.0",
 ]
+package = [
+  "pyinstaller>=6.0",
+]
 
 [project.scripts]
 flowpilot = "flowpilot.cli:app"

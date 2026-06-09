@@ -190,10 +190,13 @@ def test_json_option_normalizer_preserves_explicit_filename_and_models_json() ->
 
 
 def test_json_output_path_uses_private_folder() -> None:
-    assert _summary_json_output_path(Path("mine.json")) == Path("private/mine.json")
-    assert _summary_json_output_path(Path("reports/mine.json")) == Path("private/mine.json")
+    assert _summary_json_output_path(Path("mine.json")) == cli.FLOWPILOT_PRIVATE_DIR / "mine.json"
+    assert (
+        _summary_json_output_path(Path("reports/mine.json"))
+        == cli.FLOWPILOT_PRIVATE_DIR / "mine.json"
+    )
     assert _summary_json_output_path(Path("flow-summary.json")) == Path(
-        "private/flow-summary.json"
+        cli.FLOWPILOT_PRIVATE_DIR / "flow-summary.json"
     )
 
 
