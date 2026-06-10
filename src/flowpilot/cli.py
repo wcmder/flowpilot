@@ -536,14 +536,15 @@ class _RefreshingInfo:
 
     def refresh(self, message: str) -> None:
         line = f"[info] {message}"
-        console.file.write("\r\033[2K" + line)
+        padding = max(self._last_message_length - len(line), 0)
+        console.file.write("\r" + line + (" " * padding))
         console.file.flush()
         self._last_message_length = len(line)
 
     def finish(self) -> None:
         if not self._last_message_length:
             return
-        console.file.write("\r\033[2K")
+        console.file.write("\r" + (" " * self._last_message_length) + "\r")
         console.file.flush()
         self._last_message_length = 0
 

@@ -376,8 +376,9 @@ def test_refreshing_info_refreshes_wait_messages_and_prints_normal_info(monkeypa
     progress("LangGraph gathered 1 deep evidence result(s).")
 
     text = output.getvalue()
-    assert "\r\x1b[2K[info] LLM reasoning waiting: 3s" in text
-    assert "\r\x1b[2K[info] LLM reasoning waiting: 6s" in text
+    assert "\r[info] LLM reasoning waiting: 3s" in text
+    assert "\r[info] LLM reasoning waiting: 6s" in text
+    assert "\x1b[2K" not in text
     assert printed == ["LangGraph gathered 1 deep evidence result(s)."]
 
 
