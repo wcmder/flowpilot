@@ -4,6 +4,7 @@ from flowpilot.protocols.deep_common import (
     endpoint_filter_for_flow,
     field_command,
     parse_field_rows,
+    tshark_path,
 )
 from flowpilot.protocols.esp import (
     ESP_DEEP_FIELDS,
@@ -94,6 +95,14 @@ def test_field_command_includes_configured_esp_udp_decode_as(tmp_path) -> None:
         ]
     finally:
         set_esp_udp_ports(None)
+
+
+def test_tshark_path_uses_configured_env_path(tmp_path, monkeypatch) -> None:
+    configured_tshark = tmp_path / "tshark.exe"
+    configured_tshark.write_text("", encoding="utf-8")
+    monkeypatch.setenv("FLOWPILOT_TSHARK_PATH", str(configured_tshark))
+
+    assert tshark_path() == str(configured_tshark)
 
 
 def test_tcp_analysis_counts_counts_presence_markers() -> None:

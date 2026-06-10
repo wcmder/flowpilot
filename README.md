@@ -232,7 +232,12 @@ Run from PowerShell:
 
 TShark is still required on the Windows system. Install Wireshark/TShark and
 make sure `tshark.exe` is on `PATH`, or run FlowPilot from a shell where
-Wireshark's install directory is already in `PATH`.
+Wireshark's install directory is already in `PATH`. If deep tools report that
+TShark was not found, set the full path in `private\.env`:
+
+```text
+FLOWPILOT_TSHARK_PATH=C:\Program Files\Wireshark\tshark.exe
+```
 
 ## Usage
 

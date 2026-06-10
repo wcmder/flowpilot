@@ -1,14 +1,26 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import shutil
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from ..decode_as import tshark_decode_as_parameters
 from ..models import FlowSummary
+from ..paths import runtime_private_dir
+
+load_dotenv(runtime_private_dir() / ".env")
+load_dotenv()
 
 
 def tshark_path() -> str | None:
+    configured_path = os.getenv("FLOWPILOT_TSHARK_PATH")
+    if configured_path:
+        path = Path(configured_path).expanduser()
+        if path.exists():
+            return str(path)
     path = shutil.which("tshark")
     if path:
         return path
