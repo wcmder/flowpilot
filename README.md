@@ -202,6 +202,7 @@ Give users that whole folder. The expected layout is:
 ```text
 FlowPilot\
   flowpilot.exe
+  README.md
   private\
     .env
 ```

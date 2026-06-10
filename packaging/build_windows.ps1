@@ -19,6 +19,8 @@ $AppDir = Join-Path $Root "dist\FlowPilot"
 $PrivateDir = Join-Path $AppDir "private"
 New-Item -ItemType Directory -Force -Path $PrivateDir | Out-Null
 
+Copy-Item (Join-Path $Root "README.md") (Join-Path $AppDir "README.md") -Force
+
 $EnvPath = Join-Path $PrivateDir ".env"
 if (-not (Test-Path $EnvPath)) {
     Copy-Item (Join-Path $Root ".env.example") $EnvPath
