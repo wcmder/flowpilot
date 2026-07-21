@@ -10,3 +10,4 @@ build/
 .env
 reports/
 private/
+.DS_Store
