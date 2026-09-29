@@ -50,6 +50,10 @@ directly explain a transport symptom.
 When asked for throughput in each direction (A to B and B to A), return the numeric
 throughput_mbps_by_direction values with Mbps units and the actual endpoint labels.
 These rates are already calculated locally, including when a saved summary is loaded.
+Packet rates are supplied as packet_rate_per_second_by_direction in packets/s.
+Both lists are ordered [endpoint_a_to_endpoint_b, endpoint_b_to_endpoint_a].
+Report packet rate and throughput separately for each direction; do not add the two
+directions into an aggregate rate or reuse aggregate rates from prior chat history.
 Use the same full-flow duration for both directions and state that averaging interval.
 Do not substitute calculation instructions or ask the user to calculate available metrics.
 ESP encryption does not prevent measuring observed directional throughput; it does prevent
@@ -68,7 +72,7 @@ endpoint appears only in prior chat history but not in the current FlowPilot met
 it as unverified and do not use it as a finding.
 
 For ESP/IPsec and other encrypted/datagram flows, explicitly state what cannot be proven from
-the metadata, but still reason from duration, bytes, throughput_mbps, directionality, packet
+the metadata, but still reason from duration, bytes, throughput_mbps_by_direction, packet
 sequence gaps, missing sequence numbers, duplicate sequence numbers, out-of-order sequence
 numbers, and peer behavior. Treat sequence anomalies as stronger evidence for packet loss,
 replay/duplicate delivery, capture loss, or path reordering than byte counts alone. If a flow

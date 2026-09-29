@@ -35,7 +35,9 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
     ProtocolModule(
         name="udp",
         display_name="UDP",
-        flow_attributes=("is_one_way", "packet_rate_per_second", "throughput_mbps"),
+        flow_attributes=(
+            "is_one_way", "packet_rate_per_second_by_direction", "throughput_mbps_by_direction"
+        ),
         compact_metadata_key="transport",
         deep_tools=("deep_udp_flow",),
         deep_tool_runner_hooks=("flowpilot.protocols.udp.deep_udp_flow",),
@@ -106,7 +108,7 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         transport_prompt=(
             "SMB: assess transfer efficiency from read/write operations, bytes, files, "
             "SMB2 credit request/grant/charge, statuses, errors, TCP symptoms, duration, "
-            "and transfer_mbps."
+            "and transport.throughput_mbps_by_direction."
         ),
         security_prompt=(
             "SMB: assess encryption/signing/capability clues, authentication/session failures, "

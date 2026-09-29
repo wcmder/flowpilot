@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from flowpilot.analysis import summarize_capture
 from flowpilot.capture import _tshark_custom_parameters, packet_to_observation
 from flowpilot.cli import _rtt
@@ -15,21 +17,25 @@ from flowpilot.models import PacketObservation, TlsCertificateObservation
 from flowpilot.protocols.tls import _all_field_values, tls_alert, tls_certificates
 
 
-def test_loaded_esp_summary_supplies_directional_throughput_to_chat(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "protocol",
+    ["ESP", "TCP", "UDP", "TLS", "DTLS", "SMB", "SMB2", "SIP", "DNS", "DHCP", "ICMP", "UNKNOWN"],
+)
+def test_loaded_summary_supplies_only_directional_rates_to_llm(tmp_path, protocol) -> None:
     import json
 
     from flowpilot.cli import _load_summary
-    from flowpilot.reasoning import _chat_input
+    from flowpilot.reasoning import _chat_input, _reasoning_payload
 
     start = datetime(2026, 1, 1)
     summary = summarize_capture([
         PacketObservation(
             timestamp=start, src_ip="10.0.0.1", dst_ip="10.0.0.2",
-            protocol="ESP", length=1_000_000,
+            protocol=protocol, length=1_000_000,
         ),
         PacketObservation(
             timestamp=start + timedelta(seconds=2),
-            src_ip="10.0.0.2", dst_ip="10.0.0.1", protocol="ESP", length=500_000,
+            src_ip="10.0.0.2", dst_ip="10.0.0.1", protocol=protocol, length=500_000,
         ),
     ])
     path = tmp_path / "summary.json"
@@ -40,10 +46,16 @@ def test_loaded_esp_summary_supplies_directional_throughput_to_chat(tmp_path) ->
     )
     context = json.loads(messages[0]["content"].split("\n\n", 1)[1])
     flow = context["summary"]["top_flows"][0]
+    assert json.loads(_reasoning_payload(loaded, None))["summary"] == context["summary"]
     assert flow["endpoint_a"] == "10.0.0.1"
     assert flow["throughput_mbps_by_direction"] == [4.0, 2.0]
     assert flow["transport"]["throughput_mbps_by_direction"] == [4.0, 2.0]
-    assert sum(flow["throughput_mbps_by_direction"]) == flow["throughput_mbps"]
+    assert "transfer_mbps" not in flow["smb"]
+    for metadata in (flow, flow["transport"]):
+        assert metadata["packet_rate_per_second_by_direction"] == [0.5, 0.5]
+        assert "throughput_mbps" not in metadata
+        assert "packet_rate_per_second" not in metadata
+        assert "byte_rate_per_second" not in metadata
 
 
 def test_summarize_capture_groups_bidirectional_flow() -> None:
@@ -114,9 +126,8 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
     assert summary.compact()["analysis_focus"] == "network transport troubleshooting"
     assert summary.compact()["top_flows"][0]["transport"] == {
         "duration_seconds": 1.0,
-        "throughput_mbps": 0.003,
         "throughput_mbps_by_direction": [0.00096, 0.0024],
-        "packet_rate_per_second": 2.0,
+        "packet_rate_per_second_by_direction": [1.0, 1.0],
         "retransmission_rate": 0.5,
         "retransmission_rates_by_direction": [1.0, 0.0],
         "packet_loss_rate": 0.0,

@@ -416,6 +416,14 @@ class FlowSummary(BaseModel):
         return self.packet_count / duration
 
     @property
+    def packet_rate_per_second_by_direction(self) -> tuple[float | None, float | None]:
+        """Observed A→B and B→A packets/s over the full-flow interval."""
+        duration = self.duration_seconds
+        if duration <= 0:
+            return (None, None)
+        return (self.src_to_dst_packets / duration, self.dst_to_src_packets / duration)
+
+    @property
     def byte_rate_per_second(self) -> float:
         duration = self.duration_seconds
         if duration <= 0:
@@ -658,7 +666,10 @@ class CaptureSummary(BaseModel):
                     "ESP uses captured-late ESP sequence numbers over observed flow packets"
                 ),
                 "directional_rates": (
-                    "rate lists are [endpoint_a_to_endpoint_b, endpoint_b_to_endpoint_a]"
+                    "rate lists are [endpoint_a_to_endpoint_b, endpoint_b_to_endpoint_a]. "
+                    "packet_rate_per_second_by_direction uses directional packet counts "
+                    "divided by full-flow duration_seconds (packets/s). "
+                    "Null means duration is unavailable or zero."
                 ),
                 "rtt": (
                     "only tcp.analysis.initial_rtt is sent to LLM; tcp.analysis.ack_rtt "
@@ -699,9 +710,9 @@ class CaptureSummary(BaseModel):
                     "src_to_dst_issue_counts": flow.src_to_dst_issue_counts,
                     "dst_to_src_issue_counts": flow.dst_to_src_issue_counts,
                     "duration_seconds": round(flow.duration_seconds, 3),
-                    "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
-                    "byte_rate_per_second": round(flow.byte_rate_per_second, 3),
-                    "throughput_mbps": round(flow.throughput_mbps, 3),
+                    "packet_rate_per_second_by_direction": list(
+                        flow.packet_rate_per_second_by_direction
+                    ),
                     "throughput_mbps_by_direction": list(flow.throughput_mbps_by_direction),
                     "retransmission_rate": round(flow.retransmission_rate, 4),
                     "packet_loss_rate": round(flow.packet_loss_rate, 4),
@@ -713,9 +724,10 @@ class CaptureSummary(BaseModel):
                     "issue_counts": flow.issue_counts,
                     "transport": {
                         "duration_seconds": round(flow.duration_seconds, 3),
-                        "throughput_mbps": round(flow.throughput_mbps, 3),
                         "throughput_mbps_by_direction": list(flow.throughput_mbps_by_direction),
-                        "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
+                        "packet_rate_per_second_by_direction": list(
+                            flow.packet_rate_per_second_by_direction
+                        ),
                         "retransmission_rate": round(flow.retransmission_rate, 4),
                         "retransmission_rates_by_direction": [
                             round(rate, 4) for rate in flow.retransmission_rates_by_direction
@@ -786,7 +798,6 @@ class CaptureSummary(BaseModel):
                         "read_offset_inferred_ops": flow.smb_read_offset_inferred_ops,
                         "write_offset_inferred_ops": flow.smb_write_offset_inferred_ops,
                         "transfer_bytes": flow.smb_transfer_bytes,
-                        "transfer_mbps": round(flow.smb_transfer_mbps, 3),
                         "encrypted_packets": flow.smb_encrypted_packets,
                         "error_count": flow.smb_error_count,
                         "diagnostic_hints": flow.smb_diagnostic_hints,

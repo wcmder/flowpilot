@@ -7,12 +7,16 @@ def test_directional_throughput_distinguishes_zero_traffic_from_no_interval() ->
     flow = FlowSummary(
         key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="ESP"),
         src_to_dst_bytes=100,
+        src_to_dst_packets=2,
     )
     assert flow.throughput_mbps_by_direction == (None, None)
+    assert flow.packet_rate_per_second_by_direction == (None, None)
     flow.first_seen = flow.last_seen = datetime(2026, 1, 1)
     assert flow.throughput_mbps_by_direction == (None, None)
+    assert flow.packet_rate_per_second_by_direction == (None, None)
     flow.last_seen += timedelta(seconds=10)
     assert flow.throughput_mbps_by_direction == (0.00008, 0.0)
+    assert flow.packet_rate_per_second_by_direction == (0.2, 0.0)
 
 
 def test_flow_summary_moves_legacy_protocol_fields_into_nested_metadata() -> None:
