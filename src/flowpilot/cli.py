@@ -1107,8 +1107,6 @@ def _flow_metrics(flow) -> str:
             f"loss {_directional_percent(flow.packet_loss_rates_by_direction)}",
             f"ooo {_directional_percent(flow.out_of_order_rates_by_direction)}",
             f"rtt {_rtt(flow)}",
-            f"rate {flow.packet_rate_per_second:.1f} pps",
-            f"thr {flow.throughput_mbps:.3f} Mbps",
         ]
     )
 
