@@ -15,6 +15,37 @@ from flowpilot.models import PacketObservation, TlsCertificateObservation
 from flowpilot.protocols.tls import _all_field_values, tls_alert, tls_certificates
 
 
+def test_loaded_esp_summary_supplies_directional_throughput_to_chat(tmp_path) -> None:
+    import json
+
+    from flowpilot.cli import _load_summary
+    from flowpilot.reasoning import _chat_input
+
+    start = datetime(2026, 1, 1)
+    summary = summarize_capture([
+        PacketObservation(
+            timestamp=start, src_ip="10.0.0.1", dst_ip="10.0.0.2",
+            protocol="ESP", length=1_000_000,
+        ),
+        PacketObservation(
+            timestamp=start + timedelta(seconds=2),
+            src_ip="10.0.0.2", dst_ip="10.0.0.1", protocol="ESP", length=500_000,
+        ),
+    ])
+    path = tmp_path / "summary.json"
+    path.write_text(summary.model_dump_json())
+    loaded = _load_summary(path)
+    messages = _chat_input(
+        loaded, "give me a to b and b to a throughput", report=None, history=None,
+    )
+    context = json.loads(messages[0]["content"].split("\n\n", 1)[1])
+    flow = context["summary"]["top_flows"][0]
+    assert flow["endpoint_a"] == "10.0.0.1"
+    assert flow["throughput_mbps_by_direction"] == [4.0, 2.0]
+    assert flow["transport"]["throughput_mbps_by_direction"] == [4.0, 2.0]
+    assert sum(flow["throughput_mbps_by_direction"]) == flow["throughput_mbps"]
+
+
 def test_summarize_capture_groups_bidirectional_flow() -> None:
     start = datetime(2026, 1, 1, 12, 0, 0)
     packets = [
@@ -84,6 +115,7 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
     assert summary.compact()["top_flows"][0]["transport"] == {
         "duration_seconds": 1.0,
         "throughput_mbps": 0.003,
+        "throughput_mbps_by_direction": [0.00096, 0.0024],
         "packet_rate_per_second": 2.0,
         "retransmission_rate": 0.5,
         "retransmission_rates_by_direction": [1.0, 0.0],

@@ -427,6 +427,17 @@ class FlowSummary(BaseModel):
         return (self.byte_rate_per_second * 8) / 1_000_000
 
     @property
+    def throughput_mbps_by_direction(self) -> tuple[float | None, float | None]:
+        """Observed A→B and B→A Mbps over the same full-flow interval."""
+        duration = self.duration_seconds
+        if duration <= 0:
+            return (None, None)
+        return (
+            self.src_to_dst_bytes * 8 / duration / 1_000_000,
+            self.dst_to_src_bytes * 8 / duration / 1_000_000,
+        )
+
+    @property
     def retransmission_rate(self) -> float:
         if self.packet_count == 0:
             return 0.0
@@ -654,6 +665,13 @@ class CaptureSummary(BaseModel):
                     "is capture-position dependent and excluded"
                 ),
                 "throughput": "observed bytes over first-to-last packet duration",
+                "directional_throughput": (
+                    "throughput_mbps_by_direction is [A_to_B, B_to_A], where A is "
+                    "endpoint_a and B is endpoint_b; each uses directional observed "
+                    "bytes * 8 / full-flow duration_seconds / 1,000,000 (Mbps). "
+                    "Null means duration is unavailable or zero. ESP rates measure "
+                    "observed encrypted traffic, not inner application goodput."
+                ),
                 "limitations": "absence of a metric does not prove absence of a problem",
             },
             "packet_count": self.packet_count,
@@ -684,6 +702,7 @@ class CaptureSummary(BaseModel):
                     "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
                     "byte_rate_per_second": round(flow.byte_rate_per_second, 3),
                     "throughput_mbps": round(flow.throughput_mbps, 3),
+                    "throughput_mbps_by_direction": list(flow.throughput_mbps_by_direction),
                     "retransmission_rate": round(flow.retransmission_rate, 4),
                     "packet_loss_rate": round(flow.packet_loss_rate, 4),
                     "out_of_order_rate": round(flow.out_of_order_rate, 4),
@@ -695,6 +714,7 @@ class CaptureSummary(BaseModel):
                     "transport": {
                         "duration_seconds": round(flow.duration_seconds, 3),
                         "throughput_mbps": round(flow.throughput_mbps, 3),
+                        "throughput_mbps_by_direction": list(flow.throughput_mbps_by_direction),
                         "packet_rate_per_second": round(flow.packet_rate_per_second, 3),
                         "retransmission_rate": round(flow.retransmission_rate, 4),
                         "retransmission_rates_by_direction": [

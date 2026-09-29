@@ -1,6 +1,20 @@
 from flowpilot.models import EspSequenceSummary, FlowKey, FlowSummary
 
 
+def test_directional_throughput_distinguishes_zero_traffic_from_no_interval() -> None:
+    from datetime import datetime, timedelta
+
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="ESP"),
+        src_to_dst_bytes=100,
+    )
+    assert flow.throughput_mbps_by_direction == (None, None)
+    flow.first_seen = flow.last_seen = datetime(2026, 1, 1)
+    assert flow.throughput_mbps_by_direction == (None, None)
+    flow.last_seen += timedelta(seconds=10)
+    assert flow.throughput_mbps_by_direction == (0.00008, 0.0)
+
+
 def test_flow_summary_moves_legacy_protocol_fields_into_nested_metadata() -> None:
     flow = FlowSummary(
         key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="TCP"),

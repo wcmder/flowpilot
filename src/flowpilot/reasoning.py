@@ -47,6 +47,16 @@ MTU/path issues, congestion, shaping/policing, asymmetric routing, and tunnel he
 Treat protocol names, filenames, and application names as supporting context unless they
 directly explain a transport symptom.
 
+When asked for throughput in each direction (A to B and B to A), return the numeric
+throughput_mbps_by_direction values with Mbps units and the actual endpoint labels.
+These rates are already calculated locally, including when a saved summary is loaded.
+Use the same full-flow duration for both directions and state that averaging interval.
+Do not substitute calculation instructions or ask the user to calculate available metrics.
+ESP encryption does not prevent measuring observed directional throughput; it does prevent
+equating it with inner application goodput. A null rate means the duration is unavailable
+or zero, so explain that limitation instead of reporting zero or inventing a rate.
+If the intended flow is ambiguous, ask which Flow ID; do not choose unrelated endpoints.
+
 Only discuss protocols that are present in the provided metadata, present in additional tool
 evidence, or explicitly asked about by the user. Do not add checklist-style negative statements
 for absent protocols, such as "No TCP, SMB, SIP, DHCP, or ESP issue is evidenced", unless that
