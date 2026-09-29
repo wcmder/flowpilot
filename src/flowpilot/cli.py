@@ -485,7 +485,14 @@ def _render_summary(summary, *, show_flows: int) -> None:
         )
     )
 
-    table = Table(title="Top Flows", show_lines=True)
+    table = Table(
+        title="Top Flows",
+        show_lines=True,
+        caption=(
+            "Direction x/y: first→second / second→first endpoint in Flow. "
+            "Throughput is averaged over the full flow duration."
+        ),
+    )
     table.add_column("Flow ID", justify="right")
     table.add_column("Flow", overflow="fold")
     table.add_column("Traffic", overflow="fold")
@@ -1078,9 +1085,15 @@ def _flow_ids(flows) -> dict[object, int]:
 def _direction(flow) -> str:
     packet_split = f"pkts {flow.src_to_dst_packets}/{flow.dst_to_src_packets}"
     byte_split = f"bytes {flow.src_to_dst_bytes}/{flow.dst_to_src_bytes}"
+    rates = [
+        "n/a" if rate is None else f"{rate:.3f}"
+        for rate in flow.throughput_mbps_by_direction
+    ]
+    throughput_split = f"thr {rates[0]}/{rates[1]} Mbps"
+    details = f"{packet_split}\n{byte_split}\n{throughput_split}"
     if flow.is_one_way:
-        return f"one-way\n{packet_split}\n{byte_split}"
-    return f"{packet_split}\n{byte_split}"
+        return f"one-way\n{details}"
+    return details
 
 
 def _traffic(flow) -> str:

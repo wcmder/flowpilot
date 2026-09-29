@@ -2,6 +2,7 @@ import io
 import json
 import shutil
 import struct
+from datetime import datetime
 from pathlib import Path
 
 import flowpilot.cli as cli
@@ -1063,7 +1064,10 @@ def test_direction_shows_packet_and_byte_split() -> None:
         dst_to_src_bytes=500,
     )
 
-    assert _direction(flow) == "pkts 5/2\nbytes 10000/500"
+    assert _direction(flow) == "pkts 5/2\nbytes 10000/500\nthr n/a/n/a Mbps"
+    flow.first_seen = datetime(2026, 1, 1)
+    flow.last_seen = datetime(2026, 1, 1, 0, 0, 2)
+    assert _direction(flow) == "pkts 5/2\nbytes 10000/500\nthr 0.040/0.002 Mbps"
 
 
 def test_traffic_matches_direction_label_style() -> None:
