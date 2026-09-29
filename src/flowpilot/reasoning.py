@@ -177,6 +177,8 @@ def chat_about_capture(
     additional_evidence: list[dict[str, Any]] | None = None,
     analysis_focus: AnalysisFocus = "transport",
 ) -> str:
+    if answer := _local_throughput_answer(summary, question):
+        return answer
     analysis_focus = _normalized_analysis_focus(analysis_focus)
     try:
         return _run_with_wall_timeout(
@@ -208,6 +210,8 @@ def agent_chat_about_capture(
     additional_evidence: list[dict[str, Any]] | None = None,
     analysis_focus: AnalysisFocus = "transport",
 ) -> AgentChatResponse:
+    if answer := _local_throughput_answer(summary, question):
+        return AgentChatResponse(answer=answer)
     analysis_focus = _normalized_analysis_focus(analysis_focus)
     try:
         return _run_with_wall_timeout(
@@ -978,6 +982,51 @@ def _requested_flow_context(
         "match_status": "not_found",
         "message": "Requested Flow ID is not present in the provided top_flows metadata.",
     }
+
+
+def _local_throughput_answer(summary: CaptureSummary, question: str) -> str | None:
+    """Answer simple flow throughput lookups without provider interpretation."""
+    match = re.fullmatch(
+        r"\s*(?:(?:what\s+is|give\s+me|show\s+me|show)\s+)?(?:the\s+)?"
+        r"(?:average\s+)?(?:throughput|thoughput)"
+        r"(?:\s+from\s+(?P<source>\S+)\s+to\s+(?P<destination>\S+))?"
+        r"\s+(?:(?:in|for|of)\s+)?flow\s*(?:id\s*)?[:#-]?\s*(?P<id>\d+)\s*[?.]?\s*",
+        question,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    flow_id = int(match["id"])
+    if not 1 <= flow_id <= len(summary.flows):
+        return f"Flow ID {flow_id} is not present in the current summary."
+    flow = summary.flows[flow_id - 1]
+    a, b = flow.key.endpoint_a, flow.key.endpoint_b
+    source, destination = match["source"], match["destination"]
+    indices = [0, 1]
+    if source is not None:
+        pair = (source.lower(), destination.lower())
+        if pair in {("a", "b"), (a.lower(), b.lower())}:
+            indices = [0]
+        elif pair in {("b", "a"), (b.lower(), a.lower())}:
+            indices = [1]
+        else:
+            return None
+    labels = [(a, b), (b, a)]
+    rates = flow.throughput_mbps_by_direction
+    lines = [f"Flow ID {flow_id} ({flow.key.protocol}):"]
+    for index in indices:
+        origin, target = labels[index]
+        rate = rates[index]
+        value = (
+            "unavailable (missing or zero flow duration)"
+            if rate is None else f"{rate:.6g} Mbps"
+        )
+        lines.append(f"{origin} → {target}: {value}.")
+    if flow.duration_seconds > 0:
+        lines.append(f"Average over the full flow duration of {flow.duration_seconds:g} seconds.")
+    if flow.key.protocol.upper() == "ESP":
+        lines.append("Measures observed encrypted traffic, not inner application goodput.")
+    return "\n".join(lines)
 
 
 def _requested_flow_id(question: str) -> int | None:

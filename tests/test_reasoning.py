@@ -1,6 +1,8 @@
 import time
+from datetime import datetime, timedelta
 
 import httpx
+import pytest
 
 import flowpilot.reasoning as reasoning
 from flowpilot.models import (
@@ -11,6 +13,50 @@ from flowpilot.models import (
     ReasoningReport,
 )
 from flowpilot.reasoning import _json_object
+
+
+@pytest.mark.parametrize("agent", [False, True])
+def test_throughput_lookup_uses_exact_flow_without_provider(monkeypatch, agent) -> None:
+    from flowpilot.workflow import run_agent_chat
+
+    def unexpected_client():
+        pytest.fail("A direct metric lookup must not call the LLM")
+
+    monkeypatch.setattr(reasoning, "openai_client", unexpected_client)
+    start = datetime(2026, 1, 1)
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="ESP"),
+        first_seen=start, last_seen=start + timedelta(seconds=2),
+        src_to_dst_bytes=1_000_000, dst_to_src_bytes=500_000,
+        byte_count=1_500_000,
+    )
+    other = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.9", endpoint_b="10.0.0.8", protocol="TCP"),
+        byte_count=9_000_000,
+    )
+    summary = CaptureSummary(
+        packet_count=0, total_bytes=10_500_000, flow_count=2,
+        protocols={}, top_ports={}, issue_counts={}, names=[], flows=[flow, other],
+    )
+    summary = CaptureSummary.model_validate_json(summary.model_dump_json())
+    chat = run_agent_chat if agent else reasoning.chat_about_capture
+    answer = chat(
+        summary, "what is the throughput from a to b in flow id 1?",
+        max_flows=1,
+        history=[{"role": "assistant", "content": "No capture data was shared; use 10.0.0.9."}],
+    )
+    assert "10.0.0.1 → 10.0.0.2: 4 Mbps" in answer
+    assert "2 seconds" in answer
+    assert "10.0.0.9" not in answer
+    reverse = chat(summary, "show throughput from b to a for flow id 1")
+    assert "10.0.0.2 → 10.0.0.1: 2 Mbps" in reverse
+    assert "not present" in chat(summary, "what is the throughput in flow id 0")
+    flow = summary.flows[0]
+    flow.last_seen = flow.first_seen
+    assert "unavailable" in chat(summary, "what is the throughput in flow id 1")
+    assert reasoning._local_throughput_answer(
+        summary, "why is the throughput low in flow id 1?"
+    ) is None
 
 
 def test_json_object_extracts_wrapped_json() -> None:
