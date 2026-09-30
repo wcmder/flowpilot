@@ -139,6 +139,11 @@ def test_summarize_capture_groups_bidirectional_flow() -> None:
         "rtt": {
             "initial_ms": 20.0,
             "ack_rtt_excluded": True,
+            "assessment": (
+                "Initial TCP handshake RTT is available; compare with the "
+                "expected path baseline before calling it excessive. It does "
+                "not measure ongoing or application latency."
+            ),
         },
         "directionality": {
             "src_to_dst_packets": 1,

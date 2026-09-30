@@ -745,6 +745,15 @@ class CaptureSummary(BaseModel):
                         "rtt": {
                             "initial_ms": _round_optional(flow.initial_rtt_ms, 3),
                             "ack_rtt_excluded": True,
+                            "assessment": (
+                                "Initial TCP handshake RTT is available; compare with the "
+                                "expected path baseline before calling it excessive. It does "
+                                "not measure ongoing or application latency."
+                                if flow.initial_rtt_ms is not None else
+                                "No direct RTT measurement in this summary. Latency cannot "
+                                "be established from throughput, duration, sequence gaps, "
+                                "or packet spacing alone."
+                            ),
                         },
                         "directionality": {
                             "src_to_dst_packets": flow.src_to_dst_packets,

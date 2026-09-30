@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import datetime, timedelta
 
@@ -13,6 +14,34 @@ from flowpilot.models import (
     ReasoningReport,
 )
 from flowpilot.reasoning import _json_object
+
+
+@pytest.mark.parametrize("protocol,rtt", [("ESP", None), ("UDP", None), ("TCP", 125.0)])
+def test_latency_question_receives_exact_flow_measurement_and_limits(protocol, rtt) -> None:
+    flow = FlowSummary(
+        key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol=protocol),
+        initial_rtt_ms=rtt,
+    )
+    summary = CaptureSummary(
+        packet_count=0, total_bytes=0, flow_count=1, protocols={protocol: 0},
+        top_ports={}, issue_counts={}, names=[], flows=[flow],
+    )
+    messages = reasoning._chat_input(
+        summary, "any latency issue at flow id 1", report=None, history=None,
+    )
+    context = json.loads(messages[0]["content"].split("\n\n", 1)[1])
+    requested = context["requested_flow"]
+    assert requested["match_status"] == "found"
+    assert requested["flow"]["endpoint_a"] == "10.0.0.1"
+    evidence = requested["flow"]["transport"]["rtt"]
+    assert evidence["initial_ms"] == rtt
+    if rtt is None:
+        assert "No direct RTT measurement" in evidence["assessment"]
+    else:
+        assert "expected path baseline" in evidence["assessment"]
+    for prompt in (reasoning._chat_system_prompt(), reasoning._agent_chat_system_prompt()):
+        assert "analyze the supplied flow data first" in prompt
+        assert "Missing RTT is unknown, not zero" in prompt
 
 
 @pytest.mark.parametrize("agent", [False, True])
