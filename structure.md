@@ -274,6 +274,8 @@ not verified by that review.
 
 - The Deep Evidence table’s Packets column must show `batch.returned`, the packet
   rows included in that evidence batch for the LLM, not full-flow `packet_count`.
+  Include `batch.offset` alongside the count, e.g. `1000 (offset 2000)`.
+  Offsets are zero-based matching packet indices, not capture frame numbers.
   Zero must display as `0`; missing batch metadata must display as unknown (`-`).
 
 - `--max-request N` must bound LLM-requested tool rounds per analysis/chat turn
