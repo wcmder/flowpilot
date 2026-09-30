@@ -710,6 +710,12 @@ class CaptureSummary(BaseModel):
                     "flow_label": _flow_label(flow),
                     "saved_packet_details": {
                         "observation_count": len(flow.packet_details),
+                        "coverage": (
+                            "See per-tool status for saved deep details."
+                            if flow.deep_details else
+                            "Packet observations only; no saved deep-tool details."
+                            if flow.packet_details else "No detailed packet data saved."
+                        ),
                         "deep_tools": {
                             tool: {"status": details.get("status"),
                                    "packet_count": details.get("packet_count"),

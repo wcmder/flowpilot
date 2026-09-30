@@ -112,10 +112,16 @@ def collect_flow_details(capture_path: Path, flow: FlowSummary, flow_id: int) ->
         "ESP": ("deep_esp_flow",),
     }.get(flow.key.protocol, ())
     for tool in tools:
-        flow.deep_details[tool] = DEEP_TOOL_REGISTRY[tool].runner(
-            capture_path, flow_id=flow_id, flow=flow, reason="Build detailed summary",
-            sample_limit=None,
-        )
+        try:
+            flow.deep_details[tool] = DEEP_TOOL_REGISTRY[tool].runner(
+                capture_path, flow_id=flow_id, flow=flow, reason="Build detailed summary",
+                sample_limit=None,
+            )
+        except Exception as exc:  # Preserve observations and other tools at this boundary.
+            flow.deep_details[tool] = {
+                "tool": tool, "flow_id": flow_id, "status": "error",
+                "message": f"{type(exc).__name__}: {exc}",
+            }
         flow.deep_details[tool]["detail_scope"] = (
             "All matching packets in the original PCAP for this tool's flow/protocol filter. "
             "Initial packet observations may be a subset if packet-level filters/limits were used."

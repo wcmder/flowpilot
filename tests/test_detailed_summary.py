@@ -1,11 +1,82 @@
 import json
 from types import SimpleNamespace
 
+import pytest
 from typer.testing import CliRunner
 
 import flowpilot.cli as cli
 import flowpilot.reasoning as reasoning
+from flowpilot.deep_tools import DEEP_TOOL_REGISTRY
 from flowpilot.models import CaptureSummary, PacketObservation
+
+
+@pytest.mark.parametrize("protocol,fields", [
+    ("TCP", {}), ("TCP", {"tls_sni": "example.test"}),
+    ("TCP", {"smb_command": "READ"}), ("TCP", {"sip_method": "INVITE"}),
+    ("UDP", {}), ("UDP", {"tls_sni": "dtls.example.test"}),
+    ("UDP", {"dns_query": "example.test"}), ("UDP", {"dhcp_message_type": "DISCOVER"}),
+    ("UDP", {"sip_method": "INVITE"}), ("ESP", {"esp_spi": "0x1234", "esp_sequence": 7}),
+    ("ICMP", {}), ("ICMPV6", {}), ("AH", {}), ("GRE", {}), ("UNKNOWN", {}),
+])
+def test_detailed_summary_preserves_every_analyzed_flow_type(
+    tmp_path, monkeypatch, protocol, fields,
+):
+    monkeypatch.setattr(cli, "FLOWPILOT_PRIVATE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "_capture_packet_count", lambda _: None)
+    observation = PacketObservation(
+        src_ip="10.0.0.1", dst_ip="10.0.0.2", protocol=protocol, length=100, **fields,
+    )
+    monkeypatch.setattr(cli, "read_capture", lambda *args, **kwargs: iter([observation]))
+    calls = []
+
+    def runner(path, *, flow_id, flow, reason, sample_limit):
+        assert sample_limit is None
+        calls.append(flow.key.protocol)
+        return {"status": "ok", "packet_count": 1}
+
+    for tool in DEEP_TOOL_REGISTRY:
+        monkeypatch.setitem(DEEP_TOOL_REGISTRY, tool, SimpleNamespace(runner=runner))
+    result = CliRunner().invoke(cli.app, [
+        "analyze", "capture.pcap", "--detailed-summary", "--no-llm",
+    ])
+    assert result.exit_code == 0, result.output
+    loaded = cli._load_summary(tmp_path / "capture.json")
+    assert loaded.flows[0].packet_details == [observation]
+    expected = {
+        "TCP": {"deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow"},
+        "UDP": {"deep_udp_flow", "deep_tls_flow"}, "ESP": {"deep_esp_flow"},
+    }.get(protocol, set())
+    assert set(loaded.flows[0].deep_details) == expected
+    assert len(calls) == len(expected)
+    if not expected:
+        coverage = loaded.compact()["top_flows"][0]["saved_packet_details"]["coverage"]
+        assert "observations only" in coverage
+
+
+def test_deep_extraction_failure_keeps_observations_and_other_tools(tmp_path, monkeypatch):
+    from flowpilot.deep_tools import collect_flow_details
+    from flowpilot.models import FlowKey, FlowSummary
+
+    observation = PacketObservation(src_ip="10.0.0.1", dst_ip="10.0.0.2", protocol="TCP")
+    flow = FlowSummary(key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="TCP"),
+                       packet_details=[observation])
+
+    def failed(*args, **kwargs):
+        raise RuntimeError("TShark extraction failed")
+
+    def success(*args, **kwargs):
+        return {"status": "ok", "packet_count": 0}
+
+    monkeypatch.setitem(DEEP_TOOL_REGISTRY, "deep_tcp_flow", SimpleNamespace(runner=failed))
+    for tool in ("deep_tls_flow", "deep_smb2_flow"):
+        monkeypatch.setitem(DEEP_TOOL_REGISTRY, tool, SimpleNamespace(runner=success))
+    collect_flow_details(tmp_path / "capture.pcap", flow, 1)
+    loaded = FlowSummary.model_validate_json(flow.model_dump_json())
+    assert loaded.packet_details == [observation]
+    assert loaded.deep_details["deep_tcp_flow"]["status"] == "error"
+    assert "extraction failed" in loaded.deep_details["deep_tcp_flow"]["message"]
+    assert loaded.deep_details["deep_tls_flow"]["status"] == "ok"
+    assert loaded.deep_details["deep_smb2_flow"]["status"] == "ok"
 
 
 def test_cli_saves_selected_packet_details_and_loads_without_capture(tmp_path, monkeypatch):

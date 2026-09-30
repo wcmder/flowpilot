@@ -106,6 +106,12 @@ previews and retrieve subsequent saved batches through existing deep tools.
   rows, record extraction failures, and label their scope. Deep-tool results cover
   the full matching flow; observations may reflect packet-level filters/limits.
   Saving details must not silently place the entire dataset into the LLM context.
+- Observation retention applies to every analyzed flow, including ICMP/ICMPv6,
+  AH, GRE, and unknown protocols. Application metadata (TLS/DTLS, SMB, SIP, DNS,
+  DHCP) is retained on the underlying TCP/UDP observations. Do not claim dedicated
+  deep support for protocols without a registered tool. Mark observation-only
+  coverage explicitly; failure of one tool must not discard observations or
+  prevent collecting the remaining tools.
 - Inspecting or filtering a loaded summary must not silently overwrite the
   source summary. Save derived subsets separately unless replacement is explicit.
 - `--load-summary` must not write JSON unless `--json` is explicitly supplied,
