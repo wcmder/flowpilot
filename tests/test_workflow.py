@@ -817,11 +817,11 @@ def test_agent_chat_explicit_tool_evidence_is_prompt_visible(monkeypatch, tmp_pa
         assert additional_evidence[0]["target_flow"]["flow_label"] == (
             "TCP 10.0.0.10:53150 <-> 10.0.0.20:443"
         )
-        assert "IMPORTANT: additional_tool_evidence is present below" in messages[1]["content"]
-        assert "target_flow as the authoritative identity" in messages[1]["content"]
-        assert "absent from summary.flow_endpoint_inventory" in messages[1]["content"]
-        assert '"tls_alert_packets": 1' in messages[1]["content"]
-        assert '"target_flow"' in messages[1]["content"]
+        assert "IMPORTANT: additional_tool_evidence is present below" in messages[-1]["content"]
+        assert "target_flow as the authoritative identity" in messages[-1]["content"]
+        assert "absent from summary.flow_endpoint_inventory" in messages[-1]["content"]
+        assert '"tls_alert_packets": 1' in messages[-1]["content"]
+        assert '"target_flow"' in messages[-1]["content"]
         return AgentChatResponse(answer="I can see the deep TLS evidence.")
 
     monkeypatch.setattr(workflow, "run_deep_tool", fake_run_deep_tool)

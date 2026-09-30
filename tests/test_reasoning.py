@@ -1,6 +1,7 @@
 import json
 import time
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -14,6 +15,49 @@ from flowpilot.models import (
     ReasoningReport,
 )
 from flowpilot.reasoning import _json_object
+
+
+@pytest.mark.parametrize("api", ["responses", "chat_completions"])
+@pytest.mark.parametrize("agent", [False, True])
+def test_chat_provider_receives_current_flow_with_question_after_history(monkeypatch, api, agent):
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            output_parsed=AgentChatResponse(answer="Flow endpoints are attached."),
+            output_text="Flow endpoints are attached.",
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content='{"answer": "Flow endpoints are attached.", "evidence_requests": []}'
+            ))],
+        )
+
+    client = SimpleNamespace(
+        responses=SimpleNamespace(create=create, parse=create),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+    )
+    monkeypatch.setattr(reasoning, "LLM_REQUESTS_PER_MINUTE", 0)
+    flow = FlowSummary(key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2"))
+    summary = CaptureSummary(
+        packet_count=0, total_bytes=0, flow_count=1, protocols={}, top_ports={},
+        issue_counts={}, names=[], flows=[flow],
+    )
+    history = [{"role": "assistant", "content": "Context not found in this session."}]
+    question = "what are the IPs in flow id 1?"
+    function = getattr(reasoning, f"_{'agent_' if agent else ''}chat_with_{api}")
+    function(
+        client, summary, question, model="test-model", max_flows=25, report=None,
+        history=history, additional_evidence=None,
+    )
+    messages = calls[0].get("input", calls[0].get("messages"))
+    assert messages[-2] == history[0]
+    current = messages[-1]
+    assert current["role"] == "user"
+    context = json.loads(current["content"].split("\n\n", 1)[1])
+    assert context["current_question"] == question
+    assert context["requested_flow"]["match_status"] == "found"
+    assert context["requested_flow"]["flow"]["endpoint_a"] == "10.0.0.1"
+    assert context["requested_flow"]["flow"]["endpoint_b"] == "10.0.0.2"
 
 
 @pytest.mark.parametrize("protocol,rtt", [("ESP", None), ("UDP", None), ("TCP", 125.0)])
@@ -183,10 +227,11 @@ def test_chat_input_includes_metadata_report_and_recent_history() -> None:
         history=history,
     )
 
-    assert "initial_reasoning" in messages[0]["content"]
-    assert "ESP flow looks slow." in messages[0]["content"]
-    assert messages[1]["content"] == "question 2"
-    assert messages[-1] == {"role": "user", "content": "what should I check?"}
+    assert "initial_reasoning" in messages[-1]["content"]
+    assert "ESP flow looks slow." in messages[-1]["content"]
+    assert messages[0]["content"] == "question 2"
+    assert '"current_question": "what should I check?"' in messages[-1]["content"]
+    assert len(messages) == 13
 
 
 def test_chat_input_includes_exact_requested_flow_context() -> None:
@@ -241,7 +286,7 @@ def test_chat_input_includes_exact_requested_flow_context() -> None:
     assert "10.0.0.3:50001" not in requested_flow_section
 
 
-def test_chat_input_promotes_additional_tool_evidence_to_own_message() -> None:
+def test_chat_input_attaches_deep_evidence_to_current_question() -> None:
     summary = CaptureSummary(
         packet_count=0,
         total_bytes=0,
@@ -263,14 +308,15 @@ def test_chat_input_promotes_additional_tool_evidence_to_own_message() -> None:
     )
 
     assert '"additional_tool_evidence_count": 1' in messages[0]["content"]
-    assert "IMPORTANT: additional_tool_evidence is present below" in messages[1]["content"]
-    assert "requested_analysis_focus is transport" in messages[1]["content"]
-    assert "do not present the answer as security analysis" in messages[1]["content"]
-    assert "Markdown fenced JSON block" in messages[1]["content"]
-    assert "```json" in messages[1]["content"]
-    assert '"tool": "deep_tls_flow"' in messages[1]["content"]
-    assert messages[1]["content"].rstrip().endswith("```")
-    assert messages[-1] == {"role": "user", "content": "what did the deep evidence show?"}
+    assert "IMPORTANT: additional_tool_evidence is present below" in messages[-1]["content"]
+    assert "requested_analysis_focus is transport" in messages[-1]["content"]
+    assert "do not present the answer as security analysis" in messages[-1]["content"]
+    assert "Markdown fenced JSON block" in messages[-1]["content"]
+    assert "```json" in messages[-1]["content"]
+    assert '"tool": "deep_tls_flow"' in messages[-1]["content"]
+    assert messages[-1]["content"].rstrip().endswith("```")
+    assert '"current_question": "what did the deep evidence show?"' in messages[-1]["content"]
+    assert len(messages) == 1
 
 
 def test_answer_ip_guard_allows_ips_from_current_metadata() -> None:
@@ -733,7 +779,7 @@ def test_agent_chat_completions_falls_back_to_plain_chat_on_empty_content(
     assert "response_format" in _Completions.calls[0]
     assert "response_format" not in _Completions.calls[1]
     fallback_messages = _Completions.calls[1]["messages"]
-    assert fallback_messages[-1]["content"] == "use deep_tls_flow for flow 2"
+    assert '"current_question": "use deep_tls_flow for flow 2"' in fallback_messages[-1]["content"]
     assert "Provide the final answer now" not in fallback_messages[-1]["content"]
 
 

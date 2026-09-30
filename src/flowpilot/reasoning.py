@@ -911,6 +911,7 @@ def _chat_input(
     if isinstance(compact_summary, CaptureSummary):
         compact_summary = compact_summary.compact()
     context = {
+        "current_question": question,
         "requested_analysis_focus": analysis_focus,
         "analysis_focus_instruction": _analysis_focus_instruction(analysis_focus),
         "summary": compact_summary,
@@ -924,6 +925,7 @@ def _chat_input(
             "role": "user",
             "content": (
                 "Use this derived FlowPilot metadata as the fixed analysis context. "
+                "Answer current_question below using this attached evidence. "
                 "Do not assume access to raw packet payloads beyond this metadata. "
                 "Current FlowPilot metadata supersedes prior chat history for IPs, "
                 "endpoints, ports, hostnames, URLs, and flow identities.\n\n"
@@ -958,9 +960,13 @@ def _chat_input(
                 ),
             }
         )
-    messages.extend((history or [])[-12:])
-    messages.append({"role": "user", "content": question})
-    return messages
+    # Keep the current task and its evidence in one self-contained message,
+    # like initial analysis. Prior assistant replies must not separate them.
+    current_content = "\n\n".join(message["content"] for message in messages)
+    return [
+        *(history or [])[-12:],
+        {"role": "user", "content": current_content},
+    ]
 
 
 def _reasoning_payload(
