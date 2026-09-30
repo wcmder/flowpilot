@@ -279,3 +279,7 @@ not verified by that review.
 - `--max-request N` must bound LLM-requested tool rounds per analysis/chat turn
   (default 2, nonnegative), independently of automatic initial tools. Graph
   recursion limits must accommodate the configured number of rounds.
+
+- LLM requests must serialize packet evidence without pretty-print indentation.
+  Chat must attach each evidence payload once, with the current question and
+  flow identity context; do not duplicate it in a second fenced JSON block.

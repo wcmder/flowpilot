@@ -987,39 +987,16 @@ def _chat_input(
                 "Use this derived FlowPilot metadata as the fixed analysis context. "
                 "Answer current_question below using this attached evidence. "
                 "Do not assume access to raw packet payloads beyond this metadata. "
+                "Treat additional_tool_evidence as the newest deep evidence. Use "
+                "target_flow as the authoritative identity. Use only evidence matching "
+                "the requested Flow ID. Do not cite endpoints absent from "
+                "summary.flow_endpoint_inventory unless present in additional_tool_evidence. "
                 "Current FlowPilot metadata supersedes prior chat history for IPs, "
                 "endpoints, ports, hostnames, URLs, and flow identities.\n\n"
-                f"{json.dumps(context, indent=2, default=str)}"
+                f"{json.dumps(context, default=str)}"
             ),
         }
     ]
-    if evidence:
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    "IMPORTANT: additional_tool_evidence is present below. Treat this "
-                    "as the newest and most specific FlowPilot/LangGraph deep evidence. "
-                    "Each evidence item may include target_flow; use that target_flow as "
-                    "the authoritative identity for that tool result. If the user asked "
-                    "for a specific Flow ID, use only evidence whose flow_id and "
-                    "target_flow.flow_id match that number, and do not cite endpoints "
-                    "from another flow or another evidence item. Do not mention any "
-                    "IP or endpoint that is absent from summary.flow_endpoint_inventory "
-                    "unless it appears in this additional_tool_evidence payload. "
-                    f"The requested_analysis_focus is {analysis_focus}. "
-                    "If requested_analysis_focus is transport, use TLS certificate/cipher/hash "
-                    "fields only for transport/session troubleshooting and do not present the "
-                    "answer as security analysis. "
-                    "Do not say the deep evidence payload was not passed into this "
-                    "session context. The additional_tool_evidence payload is provided "
-                    "as a Markdown fenced JSON block below; parse and use that JSON "
-                    "block as the authoritative deep evidence.\n\n"
-                    "additional_tool_evidence:\n"
-                    f"```json\n{json.dumps(evidence, indent=2, default=str)}\n```"
-                ),
-            }
-        )
     # Keep the current task and its evidence in one self-contained message,
     # like initial analysis. Prior assistant replies must not separate them.
     current_content = "\n\n".join(message["content"] for message in messages)
@@ -1044,7 +1021,7 @@ def _reasoning_payload(
         "additional_tool_evidence_count": len(evidence),
         "additional_tool_evidence": evidence,
     }
-    return json.dumps(payload, indent=2, default=str)
+    return json.dumps(payload, default=str)
 
 
 def _requested_flow_context(

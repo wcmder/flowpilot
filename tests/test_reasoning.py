@@ -361,14 +361,10 @@ def test_chat_input_attaches_deep_evidence_to_current_question() -> None:
     )
 
     assert '"additional_tool_evidence_count": 1' in messages[0]["content"]
-    assert "IMPORTANT: additional_tool_evidence is present below" in messages[-1]["content"]
-    assert "requested_analysis_focus is transport" in messages[-1]["content"]
-    assert "do not present the answer as security analysis" in messages[-1]["content"]
-    assert "Markdown fenced JSON block" in messages[-1]["content"]
-    assert "```json" in messages[-1]["content"]
-    assert '"tool": "deep_tls_flow"' in messages[-1]["content"]
-    assert messages[-1]["content"].rstrip().endswith("```")
-    assert '"current_question": "what did the deep evidence show?"' in messages[-1]["content"]
+    context = json.loads(messages[-1]["content"].split("\n\n", 1)[1])
+    assert context["additional_tool_evidence"] == evidence
+    assert context["current_question"] == "what did the deep evidence show?"
+    assert messages[-1]["content"].count('"tool": "deep_tls_flow"') == 1
     assert len(messages) == 1
 
 
@@ -1150,3 +1146,16 @@ def test_agent_chat_returns_message_on_flowpilot_wall_clock_timeout(monkeypatch)
     response = reasoning.agent_chat_about_capture(summary, "what happened?")
 
     assert "FlowPilot stopped waiting for LLM agent chat after 0.01 seconds" in response.answer
+
+
+def test_batched_reasoning_payload_preserves_rows_without_indentation():
+    evidence = [{"tool": "deep_esp_flow", "flow_id": 1,
+                 "batch": {"offset": offset, "returned": 1000},
+                 "esp_deep_samples": [{"frame.number": str(i), "esp.sequence": str(i)}
+                                      for i in range(offset, offset + 1000)]}
+                for offset in (0, 1000, 2000)]
+    payload = reasoning._reasoning_payload({}, evidence)
+    decoded = json.loads(payload)
+    assert decoded["additional_tool_evidence"] == evidence
+    assert "\n" not in payload
+    assert len(payload) < len(json.dumps(decoded, indent=2))
