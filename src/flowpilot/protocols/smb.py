@@ -8,7 +8,14 @@ from rich.console import Console
 from rich.table import Table
 
 from ..models import CaptureSummary, FlowSummary, PacketObservation
-from .deep_common import field_command, parse_field_rows, tcp_flow_filter, tshark_path
+from .deep_common import (
+    DEFAULT_EVIDENCE_BATCH_SIZE,
+    evidence_batch,
+    field_command,
+    parse_field_rows,
+    tcp_flow_filter,
+    tshark_path,
+)
 
 SMB_TRANSFER_FILE_MIN_BYTES = 1_048_576
 
@@ -344,7 +351,8 @@ def deep_smb2_flow(
     flow_id: int,
     flow: FlowSummary,
     reason: str,
-    sample_limit: int = 200,
+    sample_limit: int | None = DEFAULT_EVIDENCE_BATCH_SIZE,
+    sample_offset: int = 0,
     timeout: int = 120,
 ) -> dict[str, Any]:
     if flow.key.protocol != "TCP":
@@ -407,9 +415,12 @@ def deep_smb2_flow(
         "packet_count": len(rows),
         "smb2_credit_counts": smb2_credit_counts(rows),
         "smb2_deep_fields": deep_fields,
-        "smb2_deep_samples": rows[:sample_limit],
+        "smb2_deep_samples": rows[
+            sample_offset:sample_offset + sample_limit if sample_limit is not None else None
+        ],
         "sample_limit": sample_limit,
-        "truncated": len(rows) > sample_limit,
+        "truncated": sample_offset > 0 or (sample_limit is not None and len(rows) > sample_limit),
+        "batch": evidence_batch(len(rows), sample_offset, sample_limit),
     }
 
 

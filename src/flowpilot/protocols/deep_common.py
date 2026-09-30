@@ -15,6 +15,9 @@ load_dotenv(runtime_private_dir() / ".env")
 load_dotenv()
 
 
+DEFAULT_EVIDENCE_BATCH_SIZE = 1000
+
+
 def tshark_path() -> str | None:
     configured_path = os.getenv("FLOWPILOT_TSHARK_PATH")
     if configured_path:
@@ -72,6 +75,34 @@ def parse_field_rows(output: str, fields: list[str]) -> list[dict[str, str]]:
         row["dst"] = row["ip.dst"] or row["ipv6.dst"]
         rows.append({key: value for key, value in row.items() if value != ""})
     return rows
+
+
+def evidence_batch(total: int, offset: int, limit: int | None) -> dict:
+    """Describe a page of matching packets, not a complete packet history."""
+    if limit is None:
+        limit = max(total, 1)
+    if offset < 0 or limit <= 0:
+        raise ValueError("Evidence offset must be nonnegative and batch size must be positive.")
+    returned = max(0, min(limit, total - offset))
+    next_offset = offset + returned if offset + returned < total else None
+    return {
+        "offset": offset,
+        "offset_unit": "matching packets in capture order (zero-based), not frame number",
+        "limit": limit,
+        "returned": returned,
+        "total_matching_packets": total,
+        "has_more": next_offset is not None,
+        "next_offset": next_offset,
+        "scope": "Packet samples are one batch; aggregate counters cover all matching packets.",
+        "hint": (
+            "More packet details are available. Request the same tool and flow_id with "
+            "sample_offset=next_offset in evidence_requests. Do not infer that later "
+            "packets are healthy from this batch alone."
+            if next_offset is not None else
+            "No packets remain after this batch. Earlier batches may still be needed "
+            "if this offset was requested directly."
+        ),
+    }
 
 
 def tcp_flow_filter(flow: FlowSummary) -> str:

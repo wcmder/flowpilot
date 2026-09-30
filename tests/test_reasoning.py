@@ -19,6 +19,59 @@ from flowpilot.reasoning import _json_object
 
 @pytest.mark.parametrize("api", ["responses", "chat_completions"])
 @pytest.mark.parametrize("agent", [False, True])
+def test_requested_flow_outside_limit_reaches_provider_and_passes_guard(monkeypatch, api, agent):
+    calls = []
+    answer = "Endpoints: 10.0.0.5 and 10.0.0.6."
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            output_parsed=AgentChatResponse(answer=answer), output_text=answer,
+            choices=[SimpleNamespace(message=SimpleNamespace(content=(
+                json.dumps({"answer": answer, "evidence_requests": []}) if agent else answer
+            )))],
+        )
+
+    client = SimpleNamespace(
+        responses=SimpleNamespace(create=create, parse=create),
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+    )
+    monkeypatch.setattr(reasoning, "openai_client", lambda: client)
+    monkeypatch.setattr(reasoning, "LLM_API", api)
+    monkeypatch.setattr(reasoning, "LLM_REQUESTS_PER_MINUTE", 0)
+    flows = [FlowSummary(
+        key=FlowKey(endpoint_a=f"10.0.0.{i}", endpoint_b=f"10.0.0.{i + 1}"),
+        byte_count=i * 100,
+    ) for i in (1, 3, 5)]
+    summary = CaptureSummary(
+        packet_count=0, total_bytes=900, flow_count=3, protocols={}, top_ports={},
+        issue_counts={}, names=[], flows=flows,
+    )
+    summary = CaptureSummary.model_validate_json(summary.model_dump_json())
+    from flowpilot.cli import _flow_ids
+    from flowpilot.workflow import _flow_by_id
+
+    cli_ids = _flow_ids(summary.flows)
+    for metadata, flow in zip(summary.compact()["top_flows"], summary.flows, strict=True):
+        assert metadata["flow_id"] == cli_ids[id(flow)]
+        assert metadata["endpoint_a"] == flow.key.endpoint_a
+        assert _flow_by_id(summary.flows, metadata["flow_id"]) is flow
+    function = reasoning.agent_chat_about_capture if agent else reasoning.chat_about_capture
+    result = function(summary, "what are the IPs in flow id 3?", max_flows=1)
+    assert (result.answer if agent else result) == answer
+    messages = calls[0].get("input", calls[0].get("messages"))
+    context = json.loads(messages[-1]["content"].split("\n\n", 1)[1])
+    assert [(f["flow_id"], f["endpoint_a"]) for f in context["summary"]["top_flows"]] == [
+        (1, "10.0.0.1"), (3, "10.0.0.5"),
+    ]
+    assert context["requested_flow"]["flow"]["flow_id"] == 3
+    assert context["requested_flow"]["match_status"] == "found"
+    assert [f["flow_id"] for f in summary.compact(max_flows=1)["top_flows"]] == [1]
+    assert [f["flow_id"] for f in summary.compact(1, include_flow_id=99)["top_flows"]] == [1]
+
+
+@pytest.mark.parametrize("api", ["responses", "chat_completions"])
+@pytest.mark.parametrize("agent", [False, True])
 def test_chat_provider_receives_current_flow_with_question_after_history(monkeypatch, api, agent):
     calls = []
 

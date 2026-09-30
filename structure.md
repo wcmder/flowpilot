@@ -41,6 +41,11 @@ PCAP → packet observations → bidirectional CaptureSummary
 Saved summaries and LLM metadata are different representations. Derived rates are
 calculated from the stored counters and timestamps when compact metadata is built.
 
+Optional `--detailed-summary` adds all selected packet observations and complete
+supported deep-tool results to each flow. Compact metadata includes an availability
+manifest, not the entire stored dataset. Provider requests attach first-batch
+previews and retrieve subsequent saved batches through existing deep tools.
+
 ## Must: flow identity and direction
 
 - Flow IDs must refer to the same flow in the CLI, LLM metadata, local answers,
@@ -55,6 +60,10 @@ calculated from the stored counters and timestamps when compact metadata is buil
   must be clarified rather than silently mapped to another flow.
 - An explicitly requested flow that exists locally must be included in chat
   context even when it falls outside the initial `max_flows` selection.
+- The current summary's list order defines its IDs. Compact metadata must not
+  independently sort or renumber flows. Add an out-of-limit requested flow with
+  its existing ID, and include its endpoints in response validation. This applies
+  to both provider APIs and chat fallback requests.
 
 ## Must: directional metrics for every protocol
 
@@ -90,13 +99,31 @@ calculated from the stored counters and timestamps when compact metadata is buil
   that already contains the necessary counters and timestamps.
 - Missing source measurements must be treated as unavailable; never invent them.
 - Deep tools still require access to the capture file for packet rereads. A saved
-  summary is not a substitute for raw packet evidence.
+  ordinary summary is not a substitute for raw packet evidence. Detailed summaries
+  can serve successful saved tool results without a PCAP or TShark; absent details
+  still require rereads. Preserve full rows locally and mark the evidence source.
+- Detailed summaries must retain selected observations and all supported tool
+  rows, record extraction failures, and label their scope. Deep-tool results cover
+  the full matching flow; observations may reflect packet-level filters/limits.
+  Saving details must not silently place the entire dataset into the LLM context.
 - Inspecting or filtering a loaded summary must not silently overwrite the
   source summary. Save derived subsets separately unless replacement is explicit.
+- `--load-summary` must not write JSON unless `--json` is explicitly supplied,
+  whether or not filters are active. Fresh PCAP analysis still saves automatically.
+- An explicit `--json` targeting the loaded source redirects to
+  `private/<summary>.filtered.json` with filters or `<summary>.reanalyzed.json`
+  otherwise. Number existing derived names from `.2.json` onward; distinct explicit
+  output filenames remain supported.
 - Loaded-summary filters must preserve endpoint/port pairing and document any
   packet-level filtering semantics they cannot reproduce from aggregated data.
-- Persist decode settings, including specific or all-port ESP-over-UDP mode,
-  with summaries and restore them for deep rereads, subject to explicit CLI overrides.
+- Directional saved-summary filters select whole flows only when one observed
+  direction satisfies all source/destination criteria together. Preserve both
+  directions' metrics and explain this scope in the CLI. Directions with no saved
+  packet count cannot match. Packet-level subsets require a fresh capture read.
+- ESP decode settings are explicit per invocation and must not be automatically
+  restored from a saved summary. With `--load-summary`, users must repeat
+  `--esp-udp-port PORT` (or the bare flag for all ports) when deep rereads require
+  UDPENCAP decoding. Reading saved metrics alone does not require this flag.
 
 ## Must: follow-up context reaches the provider
 
@@ -164,9 +191,19 @@ calculated from the stored counters and timestamps when compact metadata is buil
   for its matching flow and distinguish successful results from errors.
 - Preserve `frame.time_relative` in packet samples where available. It represents
   seconds since capture start, not an absolute date/time.
-- Current TCP, UDP, ESP, TLS, and SMB tools return up to the first 200 matching
-  packet samples by default. Preserve `sample_limit` and `truncated` indicators;
-  do not imply those samples contain the entire flow or its worst event.
+- TCP, UDP, ESP, TLS, and SMB tools return packet details in batches of 1,000 by
+  default. Each result must include `batch.offset`, `returned`,
+  `total_matching_packets`, `has_more`, `next_offset`, and a continuation hint.
+  Offset counts matching packets in capture order, not global frame numbers.
+- The LLM can request the same tool/Flow ID with `sample_offset=next_offset`.
+  Deduplication keys must include the offset so later batches are not suppressed.
+  Batch evidence and completed offsets persist across chat turns. Keep existing
+  per-turn reread budgets and explain when requested batches remain unexamined.
+- Each batch's aggregate counters cover all matching packets. Do not sum these
+  repeated counters across batches or claim a single batch represents the whole
+  flow. Every extracted packet row must remain retrievable from the unchanged
+  PCAP or successful saved deep details. Prefer saved rows when available and
+  preserve the current Flow ID when a saved result's historical ID differs.
 - Request an appropriate available tool when more evidence is needed, rather
   than merely telling the user to run it. Do not claim a tool can recover
   measurements that the capture cannot expose.
@@ -174,11 +211,17 @@ calculated from the stored counters and timestamps when compact metadata is buil
 
 ## Must: large-capture resource use
 
-- Aggregate observations incrementally where packet retention is unnecessary.
-- Bound retained deep samples while computing full-flow counters incrementally;
-  a 200-sample output limit must not imply retaining all TShark output in memory.
-- Avoid copying a growing RTT list for every packet. Define and test the memory
-  budget and precision tradeoff if RTT samples are bounded or approximated.
+- Accuracy and preservation of all available data and details take precedence
+  over CPU and memory savings. High resource use alone is not a defect for this
+  project's intended use.
+- Do not discard observations, cap retained RTT data, approximate statistics, or
+  reduce evidence merely to save resources. Any performance optimization must
+  preserve the same data, detail, and exact results.
+- Removing redundant copying (such as copying a growing RTT list on every append)
+  is acceptable only when behavior and retained data remain unchanged.
+- The 1,000-packet batch size is an LLM delivery size, not a total evidence cap.
+  Additional details are retrieved on request. Pagination does not guarantee the
+  model has inspected all packets; state remaining coverage honestly.
 
 ## Review findings and implementation status
 
@@ -189,11 +232,11 @@ target contract; an open row must not be interpreted as already implemented.
 | --- | --- | --- |
 | 1. Deep filters mix distinct conversations | Fixed in this change | Real TShark tests accept both intended directions and reject swapped port/address pairings, wrong peers, and wrong ports on IPv4/IPv6. |
 | 2. New deep evidence is lost between chat turns | Fixed | Interactive regression checks retain evidence and completed requests, suppress repeated explicit/provider requests, reuse initial evidence, and isolate new sessions. |
-| 3. Loaded-summary filtering can overwrite its source | Open | Source summary remains unchanged during filtered inspection. |
-| 4. Flow ID sorting and context limits disagree | Open | Unsorted summaries retain consistent IDs; explicitly requested flows outside the initial limit are attached. |
-| 5. Loaded-summary filters differ from packet filters | Open | Address/port pairs remain bound; unsupported packet-level semantics are explicit. |
-| 6. ESP decode settings are not persisted | Open | Reloaded summaries reproduce decoding without repeating the original flags. |
-| 7. Large captures incur excessive retention and copying | Open | Large-capture measurements demonstrate bounded sampling and incremental aggregation. |
+| 3. Loaded-summary filtering can overwrite its source | Fixed | CLI regressions preserve source bytes, repeated derived reports, and source aliases even with explicit JSON output. |
+| 4. Flow ID sorting and context limits disagree | Fixed | Unsorted saved summaries retain CLI/tool IDs; an explicitly requested out-of-limit flow and its endpoints reach plain/agent provider requests and pass response validation. |
+| 5. Loaded-summary filters differ from packet filters | Fixed | Shared predicates bind addresses to ports, require an observed matching direction, handle port zero, and explain whole-flow retention for saved summaries. |
+| 6. ESP decode settings are not persisted | Accepted by design | Decode settings remain explicit per invocation; users repeat `--esp-udp-port` with `--load-summary` when deep rereads require it. No automatic restoration. |
+| 7. Large captures incur excessive retention and copying | Accepted resource cost | Prioritize complete data and exact results over resource savings. Only lossless optimizations are appropriate; reduced retention or approximate statistics are not required. |
 
 The review also found an import-formatting lint issue in
 `packaging/flowpilot_entry.py`; Windows packaging and live provider behavior were

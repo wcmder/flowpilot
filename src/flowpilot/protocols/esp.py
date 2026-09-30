@@ -7,7 +7,9 @@ from typing import Any
 
 from ..models import EspSequenceSummary, FlowSummary, PacketObservation
 from .deep_common import (
+    DEFAULT_EVIDENCE_BATCH_SIZE,
     endpoint_filter_for_flow,
+    evidence_batch,
     field_command,
     parse_field_rows,
     tshark_path,
@@ -148,7 +150,8 @@ def deep_esp_flow(
     flow_id: int,
     flow: FlowSummary,
     reason: str,
-    sample_limit: int = 200,
+    sample_limit: int | None = DEFAULT_EVIDENCE_BATCH_SIZE,
+    sample_offset: int = 0,
     timeout: int = 120,
 ) -> dict[str, Any]:
     if flow.key.protocol != "ESP":
@@ -211,9 +214,12 @@ def deep_esp_flow(
         "packet_count": len(rows),
         "esp_metadata_counts": esp_metadata_counts(rows),
         "esp_deep_fields": deep_fields,
-        "esp_deep_samples": _sample_esp_rows(rows, sample_limit),
+        "esp_deep_samples": rows[
+            sample_offset:sample_offset + sample_limit if sample_limit is not None else None
+        ],
         "sample_limit": sample_limit,
-        "truncated": len(rows) > sample_limit,
+        "truncated": sample_offset > 0 or (sample_limit is not None and len(rows) > sample_limit),
+        "batch": evidence_batch(len(rows), sample_offset, sample_limit),
     }
 
 
@@ -390,33 +396,6 @@ def _compact_esp_direction_stats(stats: dict[str, Any]) -> dict[str, Any]:
         "nat_t_udp_4500_packets": stats["nat_t_udp_4500_packets"],
     }
     return {key: value for key, value in compact.items() if value not in (None, {}, [])}
-
-
-def _sample_esp_rows(rows: list[dict[str, str]], sample_limit: int) -> list[dict[str, str]]:
-    sample_fields = {
-        "frame.number",
-        "frame.time_relative",
-        "src",
-        "dst",
-        "frame.len",
-        "ip.len",
-        "ipv6.plen",
-        "ip.ttl",
-        "ipv6.hlim",
-        "ip.dsfield.dscp",
-        "ipv6.tclass.dscp",
-        "ip.flags.df",
-        "ip.frag_offset",
-        "udp.srcport",
-        "udp.dstport",
-        "udp.length",
-        "esp.spi",
-        "esp.sequence",
-    }
-    return [
-        {key: value for key, value in row.items() if key in sample_fields}
-        for row in rows[:sample_limit]
-    ]
 
 
 def _row_value(row: dict[str, str], *fields: str) -> str | None:

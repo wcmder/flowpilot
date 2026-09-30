@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from ipaddress import ip_address
 from urllib.parse import urlparse
 
-from .models import PacketObservation
+from .models import FlowSummary, PacketObservation
 
 
 @dataclass(frozen=True)
@@ -37,23 +37,49 @@ class FlowFilter:
         )
 
     def matches(self, packet: PacketObservation) -> bool:
-        if self.protocol and packet.protocol.upper() != self.protocol.upper():
+        return self._matches_endpoints(
+            packet.protocol, packet.src_ip, packet.dst_ip, packet.src_port, packet.dst_port
+        )
+
+    @property
+    def is_directional(self) -> bool:
+        return any(
+            value is not None for value in (self.src, self.dst, self.src_port, self.dst_port)
+        )
+
+    def matches_flow(self, flow: FlowSummary) -> bool:
+        """Select whole saved flows with an observed direction matching all criteria."""
+        key = flow.key
+        directions = (
+            (key.endpoint_a, key.endpoint_b, key.port_a, key.port_b, flow.src_to_dst_packets),
+            (key.endpoint_b, key.endpoint_a, key.port_b, key.port_a, flow.dst_to_src_packets),
+        )
+        return any(
+            (not self.is_directional or packets > 0)
+            and self._matches_endpoints(key.protocol, src, dst, src_port, dst_port)
+            for src, dst, src_port, dst_port, packets in directions
+        )
+
+    def _matches_endpoints(
+        self, protocol: str, src: str, dst: str, src_port: int | None, dst_port: int | None
+    ) -> bool:
+        if self.protocol and protocol.upper() != self.protocol.upper():
             return False
-        if self.host and self.host not in (packet.src_ip, packet.dst_ip):
+        if self.host and self.host not in (src, dst):
             return False
-        if self.peer and self.peer not in (packet.src_ip, packet.dst_ip):
+        if self.peer and self.peer not in (src, dst):
             return False
-        if self.host and self.peer and {packet.src_ip, packet.dst_ip} != {self.host, self.peer}:
+        if self.host and self.peer and {src, dst} != {self.host, self.peer}:
             return False
-        if self.src and packet.src_ip != self.src:
+        if self.src and src != self.src:
             return False
-        if self.dst and packet.dst_ip != self.dst:
+        if self.dst and dst != self.dst:
             return False
-        if self.port and self.port not in (packet.src_port, packet.dst_port):
+        if self.port is not None and self.port not in (src_port, dst_port):
             return False
-        if self.src_port and packet.src_port != self.src_port:
+        if self.src_port is not None and src_port != self.src_port:
             return False
-        if self.dst_port and packet.dst_port != self.dst_port:
+        if self.dst_port is not None and dst_port != self.dst_port:
             return False
         return True
 

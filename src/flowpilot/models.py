@@ -349,6 +349,8 @@ _FLOW_PROTOCOL_ALIASES = {
 
 class FlowSummary(BaseModel):
     key: FlowKey
+    packet_details: list[PacketObservation] = Field(default_factory=list)
+    deep_details: dict[str, dict[str, Any]] = Field(default_factory=dict)
     packet_count: int = 0
     byte_count: int = 0
     first_seen: datetime | None = None
@@ -652,8 +654,18 @@ class CaptureSummary(BaseModel):
     names: list[str]
     flows: list[FlowSummary]
 
-    def compact(self, max_flows: int = 25) -> dict[str, Any]:
-        flows = sorted(self.flows, key=lambda flow: flow.byte_count, reverse=True)[:max_flows]
+    def compact(
+        self, max_flows: int = 25, *, include_flow_id: int | None = None
+    ) -> dict[str, Any]:
+        # The summary's order defines the CLI/tool IDs, including loaded summaries.
+        selected = list(enumerate(self.flows[:max(0, max_flows)], start=1))
+        if (
+            include_flow_id is not None
+            and 1 <= include_flow_id <= len(self.flows)
+            and include_flow_id not in {flow_id for flow_id, _ in selected}
+        ):
+            selected.append((include_flow_id, self.flows[include_flow_id - 1]))
+        flows = [flow for _, flow in selected]
         return {
             "analysis_focus": "network transport troubleshooting",
             "transport_metric_notes": {
@@ -696,6 +708,16 @@ class CaptureSummary(BaseModel):
                 {
                     "flow_id": flow_id,
                     "flow_label": _flow_label(flow),
+                    "saved_packet_details": {
+                        "observation_count": len(flow.packet_details),
+                        "deep_tools": {
+                            tool: {"status": details.get("status"),
+                                   "packet_count": details.get("packet_count"),
+                                   "message": details.get("message")}
+                            for tool, details in flow.deep_details.items()
+                        },
+                        "retrieval": "Use evidence_requests to read saved deep-tool batches.",
+                    },
                     "protocol": flow.key.protocol,
                     "endpoint_a": flow.key.endpoint_a,
                     "port_a": flow.key.port_a,
@@ -830,7 +852,7 @@ class CaptureSummary(BaseModel):
                     },
                     "names": flow.names,
                 }
-                for flow_id, flow in enumerate(flows, start=1)
+                for flow_id, flow in selected
             ],
             "issue_counts": self.issue_counts,
         }
@@ -855,6 +877,13 @@ class EvidenceRequest(BaseModel):
         description="Flow ID from the Top Flows table. Flow IDs start at 1.",
     )
     reason: str
+    sample_offset: int = Field(
+        default=0, ge=0,
+        description=(
+            "Zero-based offset into matching packets. Use batch.next_offset from a "
+            "previous result to request more packet details for the same tool and Flow ID."
+        ),
+    )
 
 
 class ReasoningReport(BaseModel):

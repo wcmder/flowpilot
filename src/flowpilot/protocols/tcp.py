@@ -5,7 +5,14 @@ from pathlib import Path
 from typing import Any
 
 from ..models import FlowSummary
-from .deep_common import field_command, parse_field_rows, tcp_flow_filter, tshark_path
+from .deep_common import (
+    DEFAULT_EVIDENCE_BATCH_SIZE,
+    evidence_batch,
+    field_command,
+    parse_field_rows,
+    tcp_flow_filter,
+    tshark_path,
+)
 
 TCP_HEADER_FIELDS = [
     "frame.number",
@@ -96,7 +103,8 @@ def deep_tcp_flow(
     flow_id: int,
     flow: FlowSummary,
     reason: str,
-    sample_limit: int = 200,
+    sample_limit: int | None = DEFAULT_EVIDENCE_BATCH_SIZE,
+    sample_offset: int = 0,
     timeout: int = 120,
 ) -> dict[str, Any]:
     if flow.key.protocol != "TCP":
@@ -160,9 +168,12 @@ def deep_tcp_flow(
         "tcp_analysis_counts": tcp_analysis_counts(rows),
         "tcp_window_stats": tcp_window_stats(rows),
         "tcp_header_fields": deep_fields,
-        "tcp_header_samples": rows[:sample_limit],
+        "tcp_header_samples": rows[
+            sample_offset:sample_offset + sample_limit if sample_limit is not None else None
+        ],
         "sample_limit": sample_limit,
-        "truncated": len(rows) > sample_limit,
+        "truncated": sample_offset > 0 or (sample_limit is not None and len(rows) > sample_limit),
+        "batch": evidence_batch(len(rows), sample_offset, sample_limit),
     }
 
 

@@ -21,13 +21,14 @@ from rich.table import Table
 from .analysis import summarize_capture
 from .capture import read_capture
 from .decode_as import ALL_ESP_UDP_PORTS, set_esp_udp_ports
+from .deep_tools import collect_flow_details
 from .filters import (
     FlowFilter,
     filter_observations,
     filter_sip_calls_by_phone,
     include_redirect_related_flows,
 )
-from .models import CaptureSummary, FlowSummary
+from .models import CaptureSummary, FlowKey, FlowSummary
 from .paths import runtime_private_dir
 from .protocols.dhcp import render_dhcp_details
 from .protocols.dns import render_dns_details
@@ -247,10 +248,17 @@ def analyze(
             "--json",
             help=(
                 "Override the automatic JSON report filename under private/. Without "
-                "this option, FlowPilot writes the capture filename with .json."
+                "this option, fresh analysis saves automatically; --load-summary does not save. "
+                "Outputs targeting the loaded source are saved separately."
             ),
         ),
     ] = None,
+    detailed_summary: Annotated[
+        bool, typer.Option(
+            "--detailed-summary",
+            help="Save all selected packet observations and supported deep-tool rows in the JSON.",
+        ),
+    ] = False,
     load_summary: Annotated[
         Path | None,
         typer.Option(
@@ -282,6 +290,11 @@ def analyze(
 ) -> None:
     """Analyze a packet capture."""
     original_capture_path = capture_path
+    if detailed_summary and load_summary:
+        raise typer.BadParameter(
+            "--detailed-summary builds details from a PCAP; omit --load-summary. "
+            "Existing detailed summaries load automatically."
+        )
     source_capture_path_for_json = original_capture_path
     effective_json_path = json_path or _default_summary_path_for_capture(original_capture_path)
     if chat and no_llm:
@@ -372,6 +385,17 @@ def analyze(
 
             _info(f"Summarizing local metadata from {len(observations)} analyzable packets.")
             summary = summarize_capture(observations)
+            if detailed_summary:
+                by_key = {flow.key: flow for flow in summary.flows}
+                for observation in observations:
+                    by_key[FlowKey.from_packet(observation)].packet_details.append(observation)
+                for flow_id, flow in enumerate(summary.flows, 1):
+                    _info(f"Saving all supported deep details for Flow ID {flow_id}.")
+                    collect_flow_details(capture_path, flow, flow_id)
+                    for tool, details in flow.deep_details.items():
+                        if details.get("status") != "ok":
+                            message = details.get("message", "unknown")
+                            _info(f"{tool} details unavailable: {message}")
             _info(
                 "Local analysis finished: "
                 f"{summary.packet_count} analyzable packets, "
@@ -432,18 +456,27 @@ def analyze(
                 _render_agent_evidence(agent_evidence)
             _render_reasoning(report)
 
-        json_output_path = _summary_json_output_path(effective_json_path)
-        payload = {
-            "source_capture_path": str(
-                source_capture_path_for_json.expanduser().resolve(strict=False)
-            ),
-            "summary": summary.model_dump(mode="json"),
-        }
-        if report:
-            payload["reasoning"] = report.model_dump(mode="json")
-        json_output_path.parent.mkdir(parents=True, exist_ok=True)
-        json_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        console.print(f"[green]Wrote JSON report:[/green] {json_output_path}")
+        if not load_summary or json_path is not None:
+            json_output_path = _summary_json_output_path(effective_json_path)
+            if load_summary:
+                source_summary = _summary_json_input_path(load_summary)
+                same_source = json_output_path.resolve() == source_summary.resolve()
+                if json_output_path.exists() and source_summary.exists():
+                    same_source = same_source or json_output_path.samefile(source_summary)
+                if same_source:
+                    suffix = "filtered" if flow_filter.is_active or sip_phone else "reanalyzed"
+                    json_output_path = _unused_summary_output_path(source_summary.stem, suffix)
+            payload = {
+                "source_capture_path": str(
+                    source_capture_path_for_json.expanduser().resolve(strict=False)
+                ),
+                "summary": summary.model_dump(mode="json"),
+            }
+            if report:
+                payload["reasoning"] = report.model_dump(mode="json")
+            json_output_path.parent.mkdir(parents=True, exist_ok=True)
+            json_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            console.print(f"[green]Wrote JSON report:[/green] {json_output_path}")
 
         if chat and report:
             _run_chat(
@@ -593,6 +626,16 @@ def _summary_json_output_path(json_path: Path) -> Path:
     return FLOWPILOT_PRIVATE_DIR / json_path.name
 
 
+def _unused_summary_output_path(stem: str, suffix: str) -> Path:
+    """Keep loaded summaries and previous derived reports intact."""
+    candidate = FLOWPILOT_PRIVATE_DIR / f"{stem}.{suffix}.json"
+    index = 2
+    while candidate.exists() or candidate.is_symlink():
+        candidate = FLOWPILOT_PRIVATE_DIR / f"{stem}.{suffix}.{index}.json"
+        index += 1
+    return candidate
+
+
 def _summary_json_input_path(summary_path: Path) -> Path:
     if summary_path.exists():
         return summary_path
@@ -610,6 +653,13 @@ def _apply_summary_filters(
     flows = summary.flows
     if flow_filter.is_active:
         _info("Applying flow filters to loaded summary.")
+        if flow_filter.is_directional:
+            _info(
+                "Directional filters select whole saved flows with matching observed "
+                "directional packet counts. Both directions' totals, durations, and metrics "
+                "are retained. Rerun without --load-summary for packet-level filtering. "
+                "Directions without saved packet counts cannot be matched."
+            )
         flows = [flow for flow in flows if _flow_matches_filter(flow, flow_filter)]
         if include_redirects:
             _info(
@@ -625,27 +675,7 @@ def _apply_summary_filters(
 
 
 def _flow_matches_filter(flow: FlowSummary, flow_filter: FlowFilter) -> bool:
-    endpoints = {flow.key.endpoint_a, flow.key.endpoint_b}
-    ports = {port for port in (flow.key.port_a, flow.key.port_b) if port is not None}
-    if flow_filter.protocol and flow.key.protocol.upper() != flow_filter.protocol.upper():
-        return False
-    if flow_filter.host and flow_filter.host not in endpoints:
-        return False
-    if flow_filter.peer and flow_filter.peer not in endpoints:
-        return False
-    if flow_filter.host and flow_filter.peer and endpoints != {flow_filter.host, flow_filter.peer}:
-        return False
-    if flow_filter.src and flow_filter.src not in endpoints:
-        return False
-    if flow_filter.dst and flow_filter.dst not in endpoints:
-        return False
-    if flow_filter.port and flow_filter.port not in ports:
-        return False
-    if flow_filter.src_port and flow_filter.src_port not in ports:
-        return False
-    if flow_filter.dst_port and flow_filter.dst_port not in ports:
-        return False
-    return True
+    return flow_filter.matches_flow(flow)
 
 
 def _flow_matches_sip_phone(flow: FlowSummary, phone_number: str) -> bool:

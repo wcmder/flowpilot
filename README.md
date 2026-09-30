@@ -378,7 +378,9 @@ only when you want a different output filename, such as `private/report.json`.
 The JSON also records the source capture path so loaded summaries can still
 point agent deep tools back to the original pcap. The JSON summary stores all
 summarized flows; the `--show-flows` setting only limits terminal display, and
-`--max-flows` only limits how many top flows are sent to the LLM.
+`--max-flows` limits the initial flow selection sent to the LLM. A follow-up
+explicitly naming a Flow ID also includes that flow when it is outside the limit,
+preserving the same ID shown in the CLI.
 
 For large captures, you can do the expensive local pass once, review the local
 tables, then reuse that saved summary for a later LLM/agent run:
@@ -387,6 +389,12 @@ tables, then reuse that saved summary for a later LLM/agent run:
 flowpilot analyze capture.pcap --no-llm
 flowpilot analyze capture.pcap --load-summary --agent --chat --port 443
 ```
+
+With `--load-summary`, directional options (`--src`, `--dst`, `--src-port`,
+`--dst-port`) select whole flows with an observed direction matching all criteria.
+Addresses and ports stay paired; both directions' counters, duration, and metrics
+are retained. Directions without saved packet counts cannot match. Omit
+`--load-summary` when you need a packet-level directional subset.
 
 `--load-summary` skips the initial PyShark packet walk and applies flow filters
 to the saved flow metadata. If you omit the filename, it loads the same
@@ -413,14 +421,15 @@ Core options:
 | `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2 rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
-| `--json [PATH]` | Override the automatic JSON output filename under `private/`. Without this option, every `analyze` run writes the capture filename with `.json`, such as `private/capture.json`. |
+| `--json [PATH]` | Set the JSON output filename under `private/`. Fresh analysis saves automatically to `<capture>.json`. With `--load-summary`, nothing is saved unless `--json` is supplied. An output targeting the loaded source is redirected to a separate `.filtered.json` or `.reanalyzed.json` report, numbered if necessary, to preserve the source. |
+| `--detailed-summary` | On a fresh analysis, retain every selected packet observation and all extracted rows from supported deep tools in the saved JSON. Filter to the flow(s) you need first. |
 | `--load-summary [PATH]` | Load a previous `--json` summary and skip the initial pcap read. Defaults to the capture filename with `.json`, such as `private/capture.json`. Flow filters such as `--port`, `--host`, `--peer`, and `--protocol` are applied to summarized flows. |
 | `--cache-pcap` | Copy the capture into a temporary FlowPilot session workspace before analysis. This preserves full captured packet bytes and headers for future agentic rereads during the run. |
 | `--keep-cache` | Keep the temporary session workspace after analysis for debugging. Implies `--cache-pcap`. |
 | `--packet-limit INTEGER` | Stop reading after this many packets. Useful for quick checks on very large captures. |
 | `--tls-keylog-file PATH` | Pass a TLS key log file to TShark for decryption, usually an `SSLKEYLOGFILE` generated during capture. |
 | `--esp-udp-port [INTEGER]` | Decode UDP as UDPENCAP/ESP. Omit the integer for all UDP ports, or repeat with specific ports. |
-| `--max-flows INTEGER` | Maximum top flows included in the LLM request. Does not limit `--json` output. Defaults to `25`. |
+| `--max-flows INTEGER` | Initial flow selection limit for LLM requests; chat additionally includes an explicitly requested Flow ID outside this limit. Does not limit `--json` output. Defaults to `25`. |
 | `--show-flows INTEGER` | Maximum flows shown in the terminal table. Does not limit `--json` output. Defaults to `10`. |
 
 Model discovery:
@@ -537,7 +546,62 @@ The UDP decode target is `udpencap`, not `esp`; using `esp` directly causes
 TShark to reject the command before reading packets.
 The bare flag uses `-d udp.port==0-65535,udpencap` for both initial and deep reads.
 
+Decode settings are explicit for each run and are not restored from saved
+summaries. Repeat the option with `--load-summary` when using deep tools on
+UDP-encapsulated ESP:
+
+```bash
+flowpilot analyze capture.pcap --load-summary --esp-udp-port 12366 --agent --chat
+```
+
+Repeat the bare flag instead if all-port decoding is intended. The flag is not
+needed just to inspect saved ESP metrics; deep rereads also require the PCAP.
+
 ## Notes
+
+### Detailed summaries for selected flows
+
+Use normal flow filters with `--detailed-summary` to build a reusable analysis
+package. For example, for one ESP-over-UDP conversation:
+
+```bash
+flowpilot analyze capture.pcap --host 10.0.0.1 --peer 10.0.0.2 --port 12366 --protocol ESP --esp-udp-port 12366 --detailed-summary --no-llm
+flowpilot analyze capture.pcap --load-summary --agent --chat
+```
+
+Each saved flow contains `packet_details` (all selected extracted observations)
+and `deep_details` (complete supported tool results, without the 1,000-row storage
+limit). TCP captures include TCP, TLS, and SMB tool results; UDP captures include
+UDP and TLS/DTLS results; ESP captures include ESP results. Extraction failures
+are recorded explicitly and reported in the CLI. Unsupported protocols retain
+their packet observations but do not gain new deep-tool capabilities.
+
+The LLM receives first-batch previews automatically and can request additional
+saved batches. Successful saved tool results do not require the PCAP, TShark, or
+decode flags to be supplied again. Missing tool details still require the original
+PCAP and explicit decode options. The original capture remains necessary for
+fields and packet bytes that FlowPilot did not extract.
+
+Detailed collection performs additional TShark reads during creation. Deep-tool
+rows cover the full matching flow for that tool's protocol filter; packet
+observations reflect the initial packet limit and packet-level filters. Prefer
+whole-flow filters and omit packet limits when building a complete flow package.
+Use `--detailed-summary` on a fresh read, not with `--load-summary`; detailed JSON
+is detected automatically on load. Large saved flows are still sent in batches,
+not as one unbounded LLM request.
+
+Deep tools deliver packet details in batches of 1,000 matching packets. Results
+include total packet count, current offset, `has_more`, and `next_offset`, with an
+explicit hint that more details are available. The agent can request the same tool
+and Flow ID with `sample_offset` set to `next_offset`. Full-flow counters are
+repeated in each batch and must not be summed across batches.
+
+If a turn reaches its tool limit, ask “continue reviewing the next batch for flow
+ID 1.” Earlier batches and completed offsets are retained within the chat session.
+Pagination uses saved detailed results when available; otherwise it rereads the
+original PCAP, which must remain available and unchanged.
+It does not automatically send every packet in a single LLM request or guarantee
+that the model has reviewed the complete flow.
 
 FlowPilot sends derived flow metadata to OpenAI, not raw packet payloads. Review
 the generated summary before using LLM reasoning on sensitive captures.

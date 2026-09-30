@@ -5,6 +5,9 @@ import struct
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+from typer.testing import CliRunner
+
 import flowpilot.cli as cli
 from flowpilot.cli import (
     _apply_summary_filters,
@@ -251,6 +254,66 @@ def test_analyze_writes_default_json_without_json_option(tmp_path, monkeypatch) 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["summary"]["flow_count"] == 0
     assert payload["source_capture_path"] == str(capture_path)
+
+
+@pytest.mark.parametrize("output", [None, "capture.json", "alias.json", "chosen.json"])
+def test_loaded_summary_filter_preserves_source_and_previous_reports(tmp_path, monkeypatch, output):
+    monkeypatch.setattr(cli, "FLOWPILOT_PRIVATE_DIR", tmp_path)
+    flows = [
+        FlowSummary(
+            key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol=protocol),
+            packet_count=1, byte_count=100,
+        ) for protocol in ("TCP", "UDP")
+    ]
+    summary = CaptureSummary(
+        packet_count=2, total_bytes=200, flow_count=2, protocols={"TCP": 1, "UDP": 1},
+        top_ports={}, issue_counts={}, names=[], flows=flows,
+    )
+    source = tmp_path / "capture.json"
+    source.write_text(json.dumps({"summary": summary.model_dump(mode="json")}))
+    original = source.read_bytes()
+    if output == "alias.json":
+        (tmp_path / output).hardlink_to(source)
+    previous = tmp_path / "capture.filtered.json"
+    previous.write_text("previous report")
+    args = [
+        "analyze", "capture.pcap", "--load-summary", str(source),
+        "--protocol", "TCP", "--no-llm",
+    ]
+    if output:
+        args += ["--json", output]
+    result = CliRunner().invoke(cli.app, args)
+    assert result.exit_code == 0, result.output
+    assert source.read_bytes() == original
+    assert previous.read_text() == "previous report"
+    if output is None:
+        assert set(tmp_path.iterdir()) == {source, previous}
+        assert "Wrote JSON report" not in result.output
+        return
+    name = "chosen.json" if output == "chosen.json" else "capture.filtered.2.json"
+    destination = tmp_path / name
+    filtered = json.loads(destination.read_text())["summary"]
+    assert filtered["flow_count"] == 1
+    assert filtered["flows"][0]["key"]["protocol"] == "TCP"
+
+
+def test_loaded_summary_without_explicit_json_does_not_save(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "FLOWPILOT_PRIVATE_DIR", tmp_path)
+    summary = CaptureSummary(
+        packet_count=0, total_bytes=0, flow_count=0, protocols={}, top_ports={},
+        issue_counts={}, names=[], flows=[],
+    )
+    source = tmp_path / "capture.json"
+    source.write_text(summary.model_dump_json())
+    original = source.read_bytes()
+    for _ in range(2):
+        result = CliRunner().invoke(cli.app, [
+            "analyze", "capture.pcap", "--load-summary", str(source), "--no-llm",
+        ])
+        assert result.exit_code == 0, result.output
+    assert source.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [source]
+    assert "Wrote JSON report" not in result.output
 
 
 def test_load_summary_accepts_json_report_envelope(tmp_path) -> None:

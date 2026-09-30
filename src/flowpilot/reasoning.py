@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from openai import APIStatusError, APITimeoutError, OpenAI
 from pydantic import ValidationError
 
+from .deep_tools import run_deep_tool
 from .models import AgentChatResponse, CaptureSummary, ReasoningReport
 from .paths import runtime_private_dir
 from .protocols.registry import (
@@ -99,6 +100,14 @@ restatements of packet counts unless they support a hypothesis. Return concise J
 requested schema. Protocol-specific guidance is supplied separately based only on protocols present
 in the metadata or additional deep evidence.
 
+Tool access is delegated through the JSON evidence_requests field; you do not call
+tools directly. Deep packet samples are paged: inspect batch.offset, returned,
+total_matching_packets, has_more, and next_offset. This is only one batch, not the
+entire flow. When more details are needed, request the same tool and flow_id with
+sample_offset set to batch.next_offset. Aggregate counters cover the full matching
+flow and repeat across batches; never sum those counters across pages. Do not claim
+all packets were inspected unless every batch was supplied. If the tool budget stops
+pagination, state which details remain unexamined and that more batches are available.
 Tool access is delegated through the JSON evidence_requests field; you do not call
 tools directly. If more packet evidence is needed, do not say you lack access to
 an allowed tool. Instead, add an evidence_requests item with one allow-listed tool,
@@ -330,6 +339,7 @@ def _chat_about_capture_sync(
         return _guard_answer_ips(
             answer,
             summary,
+            question=question,
             max_flows=max_flows,
             additional_evidence=additional_evidence,
         )
@@ -363,6 +373,7 @@ def _chat_about_capture_sync(
         return _guard_answer_ips(
             answer,
             summary,
+            question=question,
             max_flows=max_flows,
             additional_evidence=additional_evidence,
         )
@@ -380,6 +391,7 @@ def _chat_about_capture_sync(
     return _guard_answer_ips(
         answer,
         summary,
+        question=question,
         max_flows=max_flows,
         additional_evidence=additional_evidence,
     )
@@ -412,6 +424,7 @@ def _agent_chat_about_capture_sync(
         return _guard_agent_chat_response_ips(
             response,
             summary,
+            question=question,
             max_flows=max_flows,
             additional_evidence=additional_evidence,
         )
@@ -445,6 +458,7 @@ def _agent_chat_about_capture_sync(
         return _guard_agent_chat_response_ips(
             response,
             summary,
+            question=question,
             max_flows=max_flows,
             additional_evidence=additional_evidence,
         )
@@ -462,6 +476,7 @@ def _agent_chat_about_capture_sync(
     return _guard_agent_chat_response_ips(
         response,
         summary,
+        question=question,
         max_flows=max_flows,
         additional_evidence=additional_evidence,
     )
@@ -502,6 +517,34 @@ def _wall_clock_timeout_message(operation: str) -> str:
     )
 
 
+def _with_saved_evidence(
+    summary: CaptureSummary, compact_summary: dict[str, Any],
+    evidence: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Attach bounded previews; complete saved rows stay local for batch retrieval."""
+    result = list(evidence or [])
+    present = {
+        (item.get("tool"), item.get("flow_id")) for item in result
+        if item.get("batch", {}).get("offset", 0) == 0
+    }
+    for metadata in compact_summary.get("top_flows", []):
+        flow_id = metadata["flow_id"]
+        flow = summary.flows[flow_id - 1]
+        for tool, details in flow.deep_details.items():
+            if details.get("status") != "ok" or (tool, flow_id) in present:
+                continue
+            batch = run_deep_tool(tool, None, flow_id=flow_id, flow=flow,
+                                  reason="Saved detailed summary preview")
+            batch["target_flow"] = {
+                key: metadata[key] for key in (
+                    "flow_id", "flow_label", "protocol", "endpoint_a", "endpoint_b",
+                    "port_a", "port_b",
+                )
+            }
+            result.append(batch)
+    return result
+
+
 def _reason_with_responses(
     client: OpenAI,
     summary: CaptureSummary,
@@ -513,6 +556,7 @@ def _reason_with_responses(
 ) -> ReasoningReport:
     _respect_llm_rate_limit()
     compact_summary = summary.compact(max_flows=max_flows)
+    additional_evidence = _with_saved_evidence(summary, compact_summary, additional_evidence)
     response = client.responses.parse(
         model=model,
         instructions=_system_prompt(
@@ -554,6 +598,7 @@ def _reason_with_chat_completions(
 ) -> ReasoningReport:
     _respect_llm_rate_limit()
     compact_summary = summary.compact(max_flows=max_flows)
+    additional_evidence = _with_saved_evidence(summary, compact_summary, additional_evidence)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -603,7 +648,10 @@ def _chat_with_responses(
     analysis_focus: AnalysisFocus = "transport",
 ) -> str:
     _respect_llm_rate_limit()
-    compact_summary = summary.compact(max_flows=max_flows)
+    compact_summary = summary.compact(
+        max_flows=max_flows, include_flow_id=_requested_flow_id(question)
+    )
+    additional_evidence = _with_saved_evidence(summary, compact_summary, additional_evidence)
     response = client.responses.create(
         model=model,
         instructions=_chat_system_prompt(
@@ -639,7 +687,10 @@ def _chat_with_chat_completions(
     analysis_focus: AnalysisFocus = "transport",
 ) -> str:
     _respect_llm_rate_limit()
-    compact_summary = summary.compact(max_flows=max_flows)
+    compact_summary = summary.compact(
+        max_flows=max_flows, include_flow_id=_requested_flow_id(question)
+    )
+    additional_evidence = _with_saved_evidence(summary, compact_summary, additional_evidence)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -683,7 +734,10 @@ def _agent_chat_with_responses(
     analysis_focus: AnalysisFocus = "transport",
 ) -> AgentChatResponse:
     _respect_llm_rate_limit()
-    compact_summary = summary.compact(max_flows=max_flows)
+    compact_summary = summary.compact(
+        max_flows=max_flows, include_flow_id=_requested_flow_id(question)
+    )
+    additional_evidence = _with_saved_evidence(summary, compact_summary, additional_evidence)
     response = client.responses.parse(
         model=model,
         instructions=_agent_chat_system_prompt(
@@ -719,7 +773,10 @@ def _agent_chat_with_chat_completions(
     analysis_focus: AnalysisFocus = "transport",
 ) -> AgentChatResponse:
     _respect_llm_rate_limit()
-    compact_summary = summary.compact(max_flows=max_flows)
+    compact_summary = summary.compact(
+        max_flows=max_flows, include_flow_id=_requested_flow_id(question)
+    )
+    additional_evidence = _with_saved_evidence(summary, compact_summary, additional_evidence)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -838,7 +895,10 @@ def _agent_chat_plain_fallback(
     structured_finish_reason: str | None = None,
 ) -> str:
     _respect_llm_rate_limit()
-    compact_summary = summary.compact(max_flows=max_flows)
+    compact_summary = summary.compact(
+        max_flows=max_flows, include_flow_id=_requested_flow_id(question)
+    )
+    additional_evidence = _with_saved_evidence(summary, compact_summary, additional_evidence)
     system_prompt = _system_prompt(
         analysis_focus,
         compact_summary=compact_summary,
@@ -909,7 +969,7 @@ def _chat_input(
 ) -> list[dict[str, str]]:
     evidence = additional_evidence or []
     if isinstance(compact_summary, CaptureSummary):
-        compact_summary = compact_summary.compact()
+        compact_summary = compact_summary.compact(include_flow_id=_requested_flow_id(question))
     context = {
         "current_question": question,
         "requested_analysis_focus": analysis_focus,
@@ -1311,6 +1371,7 @@ def _guard_agent_chat_response_ips(
     summary: CaptureSummary,
     *,
     max_flows: int,
+    question: str = "",
     additional_evidence: list[dict[str, Any]] | None,
 ) -> AgentChatResponse:
     if additional_evidence and _claims_additional_evidence_missing(response.answer):
@@ -1323,6 +1384,7 @@ def _guard_agent_chat_response_ips(
     guarded_answer = _guard_answer_ips(
         response.answer,
         summary,
+        question=question,
         max_flows=max_flows,
         additional_evidence=additional_evidence,
     )
@@ -1381,16 +1443,21 @@ def _guard_answer_ips(
     summary: CaptureSummary,
     *,
     max_flows: int,
+    question: str = "",
     additional_evidence: list[dict[str, Any]] | None,
 ) -> str:
+    compact_summary = summary.compact(
+        max_flows=max_flows, include_flow_id=_requested_flow_id(question)
+    )
+    additional_evidence = _with_saved_evidence(summary, compact_summary, additional_evidence)
     invalid_ips = _unverified_answer_ips(
         answer,
-        summary.compact(max_flows=max_flows),
+        compact_summary,
         additional_evidence or [],
     )
     if not invalid_ips:
         return answer
-    inventory = summary.compact(max_flows=max_flows).get("flow_endpoint_inventory", {})
+    inventory = compact_summary.get("flow_endpoint_inventory", {})
     valid_endpoints = ", ".join(inventory.get("endpoint_ports", [])[:20]) or "none"
     return (
         "FlowPilot suppressed the LLM answer because it mentioned IP address(es) "

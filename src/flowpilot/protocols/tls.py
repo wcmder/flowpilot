@@ -11,6 +11,8 @@ from rich.table import Table
 
 from ..models import CaptureSummary, FlowSummary, TlsCertificateObservation
 from .deep_common import (
+    DEFAULT_EVIDENCE_BATCH_SIZE,
+    evidence_batch,
     field_command,
     parse_field_rows,
     tcp_flow_filter,
@@ -287,7 +289,8 @@ def deep_tls_flow(
     flow_id: int,
     flow: FlowSummary,
     reason: str,
-    sample_limit: int = 200,
+    sample_limit: int | None = DEFAULT_EVIDENCE_BATCH_SIZE,
+    sample_offset: int = 0,
     timeout: int = 120,
 ) -> dict[str, Any]:
     if flow.key.protocol not in {"TCP", "UDP"}:
@@ -356,9 +359,12 @@ def deep_tls_flow(
         "packet_count": len(rows),
         "tls_metadata_counts": tls_metadata_counts(rows),
         "tls_deep_fields": TLS_DEEP_FIELDS,
-        "tls_deep_samples": rows[:sample_limit],
+        "tls_deep_samples": rows[
+            sample_offset:sample_offset + sample_limit if sample_limit is not None else None
+        ],
         "sample_limit": sample_limit,
-        "truncated": len(rows) > sample_limit,
+        "truncated": sample_offset > 0 or (sample_limit is not None and len(rows) > sample_limit),
+        "batch": evidence_batch(len(rows), sample_offset, sample_limit),
     }
 
 

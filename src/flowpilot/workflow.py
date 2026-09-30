@@ -180,7 +180,7 @@ def _build_reasoning_graph() -> Any:
     StateGraph, START, END = _langgraph_primitives()
 
     def deterministic_router_node(state: FlowPilotAgentState) -> dict[str, list[dict[str, Any]]]:
-        if "capture_path" not in state:
+        if "capture_path" not in state and not any(f.deep_details for f in state["summary"].flows):
             return {"tool_requests": []}
         if not state.get("agent_auto_tools", False):
             _progress(
@@ -329,17 +329,25 @@ def _build_chat_graph() -> Any:
                 "tool_requests": [],
             }
         loop_count = state.get("tool_loop_count", 0)
+        pending_requests = _valid_tool_requests(state, response.evidence_requests)
+        answer = response.answer
         if loop_count >= state.get("max_tool_rereads", 2):
             requests = []
+            if any(request.get("sample_offset", 0) > 0 for request in pending_requests):
+                answer += (
+                    "\n\nFlowPilot reached this turn's tool limit before retrieving all "
+                    "requested packet batches. More details remain available; ask to "
+                    "continue reviewing the next batch."
+                )
         else:
-            requests = _valid_tool_requests(state, response.evidence_requests)
+            requests = pending_requests
         if requests:
             _progress(
                 state,
                 f"LLM chat requested {len(requests)} additional deep evidence reread(s).",
             )
         return {
-            "answer": response.answer,
+            "answer": answer,
             "chat_response": response,
             "tool_requests": requests,
             "tool_loop_count": loop_count + 1 if requests else loop_count,
@@ -380,7 +388,7 @@ def _deterministic_tool_requests(
 
 
 def _llm_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
-    if "capture_path" not in state:
+    if "capture_path" not in state and not any(f.deep_details for f in state["summary"].flows):
         return []
     report = state.get("report")
     if not report:
@@ -389,7 +397,7 @@ def _llm_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
 
 
 def _explicit_chat_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
-    if "capture_path" not in state:
+    if "capture_path" not in state and not any(f.deep_details for f in state["summary"].flows):
         return []
     question = state.get("question", "")
     requests = []
@@ -450,7 +458,7 @@ def _valid_tool_requests(
     for request in evidence_requests:
         if request.tool not in ALLOWED_TOOLS or not _valid_flow_id(state, request.flow_id):
             continue
-        request_dict = request.model_dump()
+        request_dict = request.model_dump(exclude_defaults=True)
         if _tool_request_key(request_dict) not in state.get("completed_tool_requests", []):
             requests.append(request_dict)
     return requests
@@ -488,10 +496,11 @@ def _run_tool_request(state: FlowPilotAgentState, request: dict[str, Any]) -> di
         }
     result = run_deep_tool(
         tool,
-        state["capture_path"],
+        state.get("capture_path"),
         flow_id=flow_id,
         flow=flow,
         reason=request.get("reason", ""),
+        **({"sample_offset": request["sample_offset"]} if request.get("sample_offset") else {}),
     )
     result.setdefault("flow_id", flow_id)
     result["target_flow"] = _tool_target_flow(flow_id, flow)
@@ -534,7 +543,9 @@ def _route_after_tool_request(state: FlowPilotAgentState) -> Literal["tools", "r
 
 
 def _tool_request_key(request: dict[str, Any]) -> str:
-    return f"{request.get('tool')}:{request.get('flow_id')}"
+    key = f"{request.get('tool')}:{request.get('flow_id')}"
+    offset = request.get("sample_offset", request.get("batch", {}).get("offset", 0))
+    return f"{key}:offset={offset}" if offset else key
 
 
 def _tool_result_error_detail(tool_result: dict[str, Any]) -> str:

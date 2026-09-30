@@ -5,7 +5,14 @@ from pathlib import Path
 from typing import Any
 
 from ..models import FlowSummary
-from .deep_common import field_command, parse_field_rows, tshark_path, udp_flow_filter
+from .deep_common import (
+    DEFAULT_EVIDENCE_BATCH_SIZE,
+    evidence_batch,
+    field_command,
+    parse_field_rows,
+    tshark_path,
+    udp_flow_filter,
+)
 
 UDP_HEADER_FIELDS = [
     "frame.number",
@@ -62,7 +69,8 @@ def deep_udp_flow(
     flow_id: int,
     flow: FlowSummary,
     reason: str,
-    sample_limit: int = 200,
+    sample_limit: int | None = DEFAULT_EVIDENCE_BATCH_SIZE,
+    sample_offset: int = 0,
     timeout: int = 120,
 ) -> dict[str, Any]:
     if flow.key.protocol != "UDP":
@@ -124,9 +132,12 @@ def deep_udp_flow(
         "packet_count": len(rows),
         "udp_metadata_counts": udp_metadata_counts(rows),
         "udp_header_fields": UDP_HEADER_FIELDS,
-        "udp_header_samples": rows[:sample_limit],
+        "udp_header_samples": rows[
+            sample_offset:sample_offset + sample_limit if sample_limit is not None else None
+        ],
         "sample_limit": sample_limit,
-        "truncated": len(rows) > sample_limit,
+        "truncated": sample_offset > 0 or (sample_limit is not None and len(rows) > sample_limit),
+        "batch": evidence_batch(len(rows), sample_offset, sample_limit),
     }
 
 
