@@ -36,6 +36,9 @@ chat through a stateful workflow that can be extended with targeted rereads.
 
 ## Architecture notes
 
+See [structure.md](structure.md) for the module map and required behavior for
+flow identity, directional metrics, saved summaries, chat context, and deep evidence.
+
 FlowPilot is moving toward protocol and deep-tool registries so new protocol
 support can be added with fewer cross-cutting edits. Deep reread tools are
 registered in `src/flowpilot/deep_tools.py`. Protocol metadata is registered in
