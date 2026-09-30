@@ -27,6 +27,67 @@ def _summary() -> CaptureSummary:
     )
 
 
+@pytest.mark.skipif(not workflow.langgraph_available(), reason="LangGraph is not installed")
+def test_interactive_chat_retains_evidence_and_completed_tools(monkeypatch, tmp_path) -> None:
+    import flowpilot.cli as cli
+
+    summary = _summary()
+    summary.flows = [
+        FlowSummary(key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="UDP")),
+        FlowSummary(key=FlowKey(endpoint_a="10.0.0.3", endpoint_b="10.0.0.4", protocol="UDP")),
+    ]
+    initial = [{"tool": "deep_udp_flow", "flow_id": 2, "status": "ok"}]
+    calls, evidence_seen, completed_seen = [], [], []
+
+    def tool(tool_name, capture_path, *, flow_id, flow, reason):
+        calls.append((tool_name, flow_id))
+        return {"tool": tool_name, "flow_id": flow_id, "status": "ok", "packet_count": 12}
+
+    def chat(*args, **kwargs):
+        evidence_seen.append(list(kwargs["additional_evidence"]))
+        # Even if the provider requests the same tool again, it must be deduplicated.
+        return AgentChatResponse(
+            answer="Evidence received.",
+            evidence_requests=[{"tool": "deep_udp_flow", "flow_id": 1, "reason": "inspect"}],
+        )
+
+    original = workflow.run_agent_chat_state
+
+    def run_state(*args, **kwargs):
+        result = original(*args, **kwargs)
+        completed_seen.append(result["completed_tool_requests"])
+        return result
+
+    questions = iter([
+        "run deep_udp_flow for flow id 1", "what did that show?",
+        "run deep_udp_flow for flow id 1", "run deep_udp_flow for flow id 2", "exit",
+    ])
+    monkeypatch.setattr(cli.Prompt, "ask", lambda *args, **kwargs: next(questions))
+    monkeypatch.setattr(cli, "run_agent_chat_state", run_state)
+    monkeypatch.setattr(workflow, "run_deep_tool", tool)
+    monkeypatch.setattr(workflow, "agent_chat_about_capture", chat)
+    cli._run_chat(
+        summary, report=None, model="test", max_flows=25, agent=True,
+        additional_evidence=initial, capture_path=tmp_path / "capture.pcap",
+    )
+    assert calls == [("deep_udp_flow", 1)]
+    assert len(evidence_seen) == 4
+    assert all(len(evidence) == 2 for evidence in evidence_seen)
+    assert all(evidence == evidence_seen[0] for evidence in evidence_seen)
+    assert all(set(keys) == {"deep_udp_flow:1", "deep_udp_flow:2"} for keys in completed_seen)
+    assert evidence_seen[0][1]["target_flow"]["endpoint_a"] == "10.0.0.1"
+    assert initial == [{"tool": "deep_udp_flow", "flow_id": 2, "status": "ok"}]
+
+    # A new session has no inherited evidence or completed requests.
+    questions = iter(["run deep_udp_flow for flow id 1", "exit"])
+    cli._run_chat(
+        summary, report=None, model="test", max_flows=25, agent=True,
+        capture_path=tmp_path / "capture.pcap",
+    )
+    assert calls == [("deep_udp_flow", 1), ("deep_udp_flow", 1)]
+    assert len(evidence_seen[-1]) == 1
+
+
 def test_deterministic_router_requests_deep_tcp_for_tcp_issues() -> None:
     summary = _summary()
     summary.flows = [

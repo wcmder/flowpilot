@@ -115,7 +115,37 @@ def run_agent_chat(
     max_tool_rereads: int = 2,
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
+    """Return a standalone answer; use run_agent_chat_state for session persistence."""
+    return run_agent_chat_state(
+        summary, question, model=model, max_flows=max_flows, analysis_focus=analysis_focus,
+        report=report, history=history, additional_evidence=additional_evidence,
+        capture_path=capture_path, max_tool_rereads=max_tool_rereads,
+        progress_callback=progress_callback,
+    )["answer"]
+
+
+def run_agent_chat_state(
+    summary: CaptureSummary,
+    question: str,
+    *,
+    model: str = DEFAULT_MODEL,
+    max_flows: int = 25,
+    analysis_focus: AnalysisFocus = "transport",
+    report: ReasoningReport | None = None,
+    history: list[dict[str, str]] | None = None,
+    additional_evidence: list[dict[str, Any]] | None = None,
+    completed_tool_requests: list[str] | None = None,
+    capture_path: Path | None = None,
+    max_tool_rereads: int = 2,
+    progress_callback: Callable[[str], None] | None = None,
+) -> FlowPilotAgentState:
+    """Return evidence and completed requests for reuse within this capture's chat."""
     graph = _build_chat_graph()
+    evidence = list(additional_evidence or [])
+    completed = list(dict.fromkeys([
+        *(completed_tool_requests or []),
+        *(_tool_request_key(item) for item in evidence if item.get("tool") in ALLOWED_TOOLS),
+    ]))
     state: FlowPilotAgentState = {
         "summary": summary,
         "model": model,
@@ -123,9 +153,9 @@ def run_agent_chat(
         "max_flows": max_flows,
         "question": question,
         "history": history or [],
-        "deep_evidence": additional_evidence or [],
+        "deep_evidence": evidence,
         "tool_requests": [],
-        "completed_tool_requests": [],
+        "completed_tool_requests": completed,
         "tool_loop_count": 0,
         "max_tool_rereads": max_tool_rereads,
     }
@@ -135,8 +165,7 @@ def run_agent_chat(
         state["report"] = report
     if progress_callback:
         state["progress_callback"] = progress_callback
-    result = graph.invoke(state)
-    return result["answer"]
+    return graph.invoke(state)
 
 
 def langgraph_available() -> bool:

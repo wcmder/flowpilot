@@ -44,7 +44,7 @@ from .reasoning import (
     openai_models_url,
     reason_about_capture,
 )
-from .workflow import run_agent_chat, run_agent_reasoning_state
+from .workflow import run_agent_chat_state, run_agent_reasoning_state
 
 app = typer.Typer(help="Agentic packet data-flow analysis with PyShark and OpenAI.")
 console = Console()
@@ -1029,6 +1029,8 @@ def _run_chat(
 ) -> None:
     _info("Interactive chat started. Ask follow-up questions, or type `exit` to quit.")
     history: list[dict[str, str]] = []
+    chat_evidence = list(additional_evidence or [])
+    completed_tool_requests: list[str] = []
     while True:
         try:
             question = Prompt.ask("[bold cyan]flowpilot[/bold cyan]")
@@ -1048,7 +1050,7 @@ def _run_chat(
         if agent:
             agent_progress = _RefreshingInfo()
             try:
-                answer = run_agent_chat(
+                chat_state = run_agent_chat_state(
                     summary,
                     question,
                     model=model,
@@ -1056,9 +1058,15 @@ def _run_chat(
                     analysis_focus=analysis_focus,
                     report=report,
                     history=history,
-                    additional_evidence=additional_evidence,
+                    additional_evidence=chat_evidence,
+                    completed_tool_requests=completed_tool_requests,
                     capture_path=capture_path,
                     progress_callback=agent_progress,
+                )
+                answer = chat_state["answer"]
+                chat_evidence = chat_state.get("deep_evidence", chat_evidence)
+                completed_tool_requests = chat_state.get(
+                    "completed_tool_requests", completed_tool_requests
                 )
             finally:
                 agent_progress.finish()
