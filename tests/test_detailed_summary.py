@@ -40,7 +40,7 @@ def test_detailed_summary_preserves_every_analyzed_flow_type(
         "analyze", "capture.pcap", "--detailed-summary", "--no-llm",
     ])
     assert result.exit_code == 0, result.output
-    loaded = cli._load_summary(tmp_path / "capture.json")
+    loaded = cli._load_summary(tmp_path / "capture-detailed.json")
     assert loaded.flows[0].packet_details == [observation]
     expected = {
         "TCP": {"deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow"},
@@ -99,7 +99,7 @@ def test_cli_saves_selected_packet_details_and_loads_without_capture(tmp_path, m
         "analyze", "capture.pcap", "--host", "10.0.0.1", "--detailed-summary", "--no-llm",
     ])
     assert result.exit_code == 0, result.output
-    saved = tmp_path / "capture.json"
+    saved = tmp_path / "capture-detailed.json"
     loaded = cli._load_summary(saved)
     assert loaded.flow_count == 1
     assert len(loaded.flows[0].packet_details) == 1
@@ -112,7 +112,7 @@ def test_cli_saves_selected_packet_details_and_loads_without_capture(tmp_path, m
 
     monkeypatch.setattr(cli, "read_capture", no_capture)
     result = CliRunner().invoke(cli.app, [
-        "analyze", "capture.pcap", "--load-summary", str(saved), "--no-llm",
+        "analyze", "capture.pcap", "--load-detailed-summary", str(saved), "--no-llm",
     ])
     assert result.exit_code == 0, result.output
     assert saved.read_bytes() == before
@@ -149,3 +149,52 @@ def test_provider_receives_saved_preview_not_entire_large_snapshot(monkeypatch):
     assert evidence["batch"]["next_offset"] == 1000
     assert "deep_details" not in context["summary"]["top_flows"][0]
     assert len(flow.deep_details["deep_esp_flow"]["esp_deep_samples"]) == 2005
+
+
+@pytest.mark.parametrize("filename,expected", [
+    ("chosen.json", "chosen-detailed.json"),
+    ("chosen-detailed.json", "chosen-detailed.json"),
+])
+def test_custom_detailed_filename_preserves_regular_summary(
+    tmp_path, monkeypatch, filename, expected,
+):
+    monkeypatch.setattr(cli, "FLOWPILOT_PRIVATE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "_capture_packet_count", lambda _: None)
+    monkeypatch.setattr(cli, "read_capture", lambda *args, **kwargs: iter([]))
+    regular = tmp_path / "capture.json"
+    regular.write_text("original")
+    result = CliRunner().invoke(cli.app, [
+        "analyze", "capture.pcap", "--detailed-summary", "--json", filename, "--no-llm",
+    ])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / expected).exists()
+    assert regular.read_text() == "original"
+
+
+@pytest.mark.parametrize("flags", [
+    ["--load-summary", "regular.json", "--load-detailed-summary", "details.json"],
+    ["--detailed-summary", "--load-detailed-summary", "details.json"],
+    ["--detailed-summary", "--load-summary", "regular.json"],
+])
+def test_summary_modes_reject_conflicting_flags(flags):
+    result = CliRunner().invoke(cli.app, ["analyze", "capture.pcap", *flags, "--no-llm"])
+    assert result.exit_code == 2
+
+
+def test_bare_detailed_loader_selects_detailed_file_without_writing(tmp_path, monkeypatch):
+    monkeypatch.setattr(cli, "FLOWPILOT_PRIVATE_DIR", tmp_path)
+    summary = CaptureSummary(packet_count=0, total_bytes=0, flow_count=0,
+                             protocols={}, top_ports={}, issue_counts={}, names=[], flows=[])
+    saved = tmp_path / "capture-detailed.json"
+    saved.write_text(summary.model_dump_json())
+    before = saved.read_bytes()
+    (tmp_path / "capture.json").write_text("not the detailed file")
+    args = cli._normalize_optional_json_arg([
+        "analyze", "capture.pcap", "--load-detailed-summary", "--no-llm",
+    ])
+    assert args == ["analyze", "capture.pcap", "--load-detailed-summary",
+                    "capture-detailed.json", "--no-llm"]
+    result = CliRunner().invoke(cli.app, args)
+    assert result.exit_code == 0, result.output
+    assert saved.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["capture-detailed.json", "capture.json"]

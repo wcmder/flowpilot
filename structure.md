@@ -41,6 +41,13 @@ PCAP → packet observations → bidirectional CaptureSummary
 Saved summaries and LLM metadata are different representations. Derived rates are
 calculated from the stored counters and timestamps when compact metadata is built.
 
+Detailed creation must save as `<capture>-detailed.json`; custom `--json` names
+must also receive the `-detailed` suffix exactly once. `--load-detailed-summary`
+must default to this filename, separately from `--load-summary` (`<capture>.json`).
+The loading options must be mutually exclusive and must not write JSON unless
+`--json` is explicit. Neither loading option may be combined with creation via
+`--detailed-summary`. Explicit paths must support older detailed filenames.
+
 Optional `--detailed-summary` adds all selected packet observations and complete
 supported deep-tool results to each flow. Compact metadata includes an availability
 manifest, not the entire stored dataset. Provider requests attach first-batch

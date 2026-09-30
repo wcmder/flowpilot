@@ -73,10 +73,13 @@ def _normalize_optional_json_arg(argv: list[str]) -> list[str]:
     while index < len(argv):
         arg = argv[index]
         normalized.append(arg)
-        if arg in {"--json", "--load-summary"}:
+        if arg in {"--json", "--load-summary", "--load-detailed-summary"}:
             next_arg = argv[index + 1] if index + 1 < len(argv) else None
             if next_arg is None or next_arg.startswith("-"):
-                normalized.append(default_json_filename)
+                normalized.append(
+                    _detailed_summary_path(Path(default_json_filename)).name
+                    if arg == "--load-detailed-summary" else default_json_filename
+                )
         index += 1
     return normalized
 
@@ -90,6 +93,11 @@ def _default_summary_filename(argv: list[str]) -> str:
 
 def _default_summary_path_for_capture(capture_path: Path) -> Path:
     return Path(f"{capture_path.stem}.json")
+
+
+def _detailed_summary_path(path: Path) -> Path:
+    stem = path.stem
+    return path.with_name(f"{stem if stem.endswith('-detailed') else stem + '-detailed'}.json")
 
 
 def _capture_path_arg(argv: list[str]) -> str | None:
@@ -112,11 +120,12 @@ def _capture_path_arg(argv: list[str]) -> str | None:
         "--analysis-focus",
         "--json",
         "--load-summary",
+        "--load-detailed-summary",
     }
     index = 1
     while index < len(argv):
         arg = argv[index]
-        if arg in {"--json", "--load-summary"}:
+        if arg in {"--json", "--load-summary", "--load-detailed-summary"}:
             next_arg = argv[index + 1] if index + 1 < len(argv) else None
             if next_arg is not None and not next_arg.startswith("-"):
                 index += 2
@@ -249,7 +258,8 @@ def analyze(
             "--json",
             help=(
                 "Override the automatic JSON report filename under private/. Without "
-                "this option, fresh analysis saves automatically; --load-summary does not save. "
+                "this option, fresh analysis saves automatically; loading either summary "
+                "does not save. "
                 "Outputs targeting the loaded source are saved separately."
             ),
         ),
@@ -257,7 +267,8 @@ def analyze(
     detailed_summary: Annotated[
         bool, typer.Option(
             "--detailed-summary",
-            help="Save all selected packet observations and supported deep-tool rows in the JSON.",
+            help=("Save all selected packet observations and supported deep-tool rows "
+                  "to -detailed.json."),
         ),
     ] = False,
     load_summary: Annotated[
@@ -268,6 +279,17 @@ def analyze(
                 "Load a previously written --json summary and skip the initial pcap read. "
                 "Flow filters are applied to summarized flows. If no filename follows "
                 "--load-summary, defaults to the capture filename with .json."
+            ),
+        ),
+    ] = None,
+    load_detailed_summary: Annotated[
+        Path | None,
+        typer.Option(
+            "--load-detailed-summary",
+            help=(
+                "Load saved detailed JSON and skip the initial pcap read. Without a "
+                "filename, defaults to <capture>-detailed.json. Does not save unless "
+                "--json is supplied."
             ),
         ),
     ] = None,
@@ -291,13 +313,18 @@ def analyze(
 ) -> None:
     """Analyze a packet capture."""
     original_capture_path = capture_path
-    if detailed_summary and load_summary:
+    if load_summary is not None and load_detailed_summary is not None:
+        raise typer.BadParameter("Use only one of --load-summary or --load-detailed-summary.")
+    loaded_summary_path = load_detailed_summary or load_summary
+    if detailed_summary and loaded_summary_path:
         raise typer.BadParameter(
-            "--detailed-summary builds details from a PCAP; omit --load-summary. "
-            "Existing detailed summaries load automatically."
+            "--detailed-summary builds details from a PCAP; omit both loading options. "
+            "Use --load-detailed-summary to load existing detailed JSON."
         )
     source_capture_path_for_json = original_capture_path
     effective_json_path = json_path or _default_summary_path_for_capture(original_capture_path)
+    if detailed_summary:
+        effective_json_path = _detailed_summary_path(effective_json_path)
     if chat and no_llm:
         raise typer.BadParameter(
             "--chat requires LLM reasoning, so it cannot be used with --no-llm."
@@ -328,9 +355,9 @@ def analyze(
             src_port=src_port,
             dst_port=dst_port,
         )
-        if load_summary:
-            _info(f"Loading local summary from {load_summary}. Skipping initial pcap read.")
-            summary, summary_source_capture_path = _load_summary_with_metadata(load_summary)
+        if loaded_summary_path:
+            _info(f"Loading local summary from {loaded_summary_path}. Skipping initial pcap read.")
+            summary, summary_source_capture_path = _load_summary_with_metadata(loaded_summary_path)
             if summary_source_capture_path:
                 source_capture_path_for_json = summary_source_capture_path
             if summary_source_capture_path and not capture_path.exists():
@@ -457,10 +484,10 @@ def analyze(
                 _render_agent_evidence(agent_evidence)
             _render_reasoning(report)
 
-        if not load_summary or json_path is not None:
+        if not loaded_summary_path or json_path is not None:
             json_output_path = _summary_json_output_path(effective_json_path)
-            if load_summary:
-                source_summary = _summary_json_input_path(load_summary)
+            if loaded_summary_path:
+                source_summary = _summary_json_input_path(loaded_summary_path)
                 same_source = json_output_path.resolve() == source_summary.resolve()
                 if json_output_path.exists() and source_summary.exists():
                     same_source = same_source or json_output_path.samefile(source_summary)

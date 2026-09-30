@@ -422,7 +422,8 @@ Core options:
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
 | `--json [PATH]` | Set the JSON output filename under `private/`. Fresh analysis saves automatically to `<capture>.json`. With `--load-summary`, nothing is saved unless `--json` is supplied. An output targeting the loaded source is redirected to a separate `.filtered.json` or `.reanalyzed.json` report, numbered if necessary, to preserve the source. |
-| `--detailed-summary` | On a fresh analysis, retain every selected packet observation and all extracted rows from supported deep tools in the saved JSON. Filter to the flow(s) you need first. |
+| `--detailed-summary` | Save to `<capture>-detailed.json` (or append `-detailed` to a custom `--json` filename). On a fresh analysis, retain every selected packet observation and all extracted rows from supported deep tools in the saved JSON. Filter to the flow(s) you need first. |
+| `--load-detailed-summary [PATH]` | Load detailed JSON, defaulting to `private/<capture>-detailed.json`. Skip the initial PCAP read and reuse saved details. Does not save unless `--json` is supplied. Mutually exclusive with `--load-summary`. |
 | `--load-summary [PATH]` | Load a previous `--json` summary and skip the initial pcap read. Defaults to the capture filename with `.json`, such as `private/capture.json`. Flow filters such as `--port`, `--host`, `--peer`, and `--protocol` are applied to summarized flows. |
 | `--cache-pcap` | Copy the capture into a temporary FlowPilot session workspace before analysis. This preserves full captured packet bytes and headers for future agentic rereads during the run. |
 | `--keep-cache` | Keep the temporary session workspace after analysis for debugging. Implies `--cache-pcap`. |
@@ -566,7 +567,7 @@ package. For example, for one ESP-over-UDP conversation:
 
 ```bash
 flowpilot analyze capture.pcap --host 10.0.0.1 --peer 10.0.0.2 --port 12366 --protocol ESP --esp-udp-port 12366 --detailed-summary --no-llm
-flowpilot analyze capture.pcap --load-summary --agent --chat
+flowpilot analyze capture.pcap --load-detailed-summary --agent --chat
 ```
 
 Each saved flow contains `packet_details` (all selected extracted observations)
@@ -586,8 +587,10 @@ Detailed collection performs additional TShark reads during creation. Deep-tool
 rows cover the full matching flow for that tool's protocol filter; packet
 observations reflect the initial packet limit and packet-level filters. Prefer
 whole-flow filters and omit packet limits when building a complete flow package.
-Use `--detailed-summary` on a fresh read, not with `--load-summary`; detailed JSON
-is detected automatically on load. Large saved flows are still sent in batches,
+Use `--detailed-summary` on a fresh read, without either loading option. Load the
+result with `--load-detailed-summary`; `--load-summary` continues to default to the
+regular `<capture>.json`. Older detailed files can be loaded by supplying their
+filename explicitly to `--load-detailed-summary`. Large saved flows are still sent in batches,
 not as one unbounded LLM request.
 
 Deep tools deliver packet details in batches of 1,000 matching packets. Results
