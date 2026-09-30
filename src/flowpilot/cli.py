@@ -20,7 +20,7 @@ from rich.table import Table
 
 from .analysis import summarize_capture
 from .capture import read_capture
-from .decode_as import set_esp_udp_ports
+from .decode_as import ALL_ESP_UDP_PORTS, set_esp_udp_ports
 from .filters import (
     FlowFilter,
     filter_observations,
@@ -55,6 +55,16 @@ FLOWPILOT_PRIVATE_DIR = runtime_private_dir()
 def _normalize_optional_json_arg(argv: list[str]) -> list[str]:
     if not argv or argv[0] != "analyze":
         return argv
+    # Expand the optional integer before locating the capture filename. This
+    # also supports placing the bare flag before the positional capture path.
+    expanded = []
+    for index, arg in enumerate(argv):
+        expanded.append(arg)
+        if arg == "--esp-udp-port":
+            next_arg = argv[index + 1] if index + 1 < len(argv) else ""
+            if not next_arg.lstrip("+-").isdigit():
+                expanded.append(str(ALL_ESP_UDP_PORTS))
+    argv = expanded
     default_json_filename = _default_summary_filename(argv)
     normalized = []
     index = 0
@@ -144,9 +154,13 @@ def analyze(
         list[int] | None,
         typer.Option(
             "--esp-udp-port",
+            metavar="[INTEGER]",
+            min=ALL_ESP_UDP_PORTS,
+            max=65535,
             help=(
-                "Decode this UDP port as ESP before analysis. Repeat for multiple "
-                "Cisco SD-WAN or other UDP-encapsulated ESP ports."
+                "Decode UDP as UDPENCAP/ESP. Omit INTEGER for all UDP ports, or "
+                "repeat with specific ports. All-port decoding can misinterpret "
+                "unrelated UDP traffic."
             ),
         ),
     ] = None,

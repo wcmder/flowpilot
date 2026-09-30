@@ -677,7 +677,7 @@ def test_tshark_custom_parameters_include_esp_udp_decode_as() -> None:
         params = _tshark_custom_parameters(None)
 
         assert params is not None
-        assert params[:2] == ["-d", "udp.port==12346,esp"]
+        assert params[:2] == ["-d", "udp.port==12346,udpencap"]
     finally:
         set_esp_udp_ports(None)
 

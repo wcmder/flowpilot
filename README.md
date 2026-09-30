@@ -419,7 +419,7 @@ Core options:
 | `--keep-cache` | Keep the temporary session workspace after analysis for debugging. Implies `--cache-pcap`. |
 | `--packet-limit INTEGER` | Stop reading after this many packets. Useful for quick checks on very large captures. |
 | `--tls-keylog-file PATH` | Pass a TLS key log file to TShark for decryption, usually an `SSLKEYLOGFILE` generated during capture. |
-| `--esp-udp-port INTEGER` | Decode this UDP port as ESP before analysis. Repeat the option for multiple Cisco SD-WAN or other UDP-encapsulated ESP ports. |
+| `--esp-udp-port [INTEGER]` | Decode UDP as UDPENCAP/ESP. Omit the integer for all UDP ports, or repeat with specific ports. |
 | `--max-flows INTEGER` | Maximum top flows included in the LLM request. Does not limit `--json` output. Defaults to `25`. |
 | `--show-flows INTEGER` | Maximum flows shown in the terminal table. Does not limit `--json` output. Defaults to `10`. |
 
@@ -520,9 +520,22 @@ For multiple encapsulation ports, repeat the option:
 flowpilot analyze capture.pcap --esp-udp-port 12346 --esp-udp-port 12366 --agent
 ```
 
-FlowPilot passes `-d udp.port==PORT,esp` to TShark/PyShark during the initial
+To apply UDPENCAP decoding to all UDP ports, omit the integer:
+
+```bash
+flowpilot analyze capture.pcap --esp-udp-port --agent
+```
+
+This forces decoding on every UDP port; it does not automatically distinguish
+ESP from unrelated UDP traffic such as DNS or QUIC. Prefer explicit ports for
+mixed captures. A bare flag takes precedence if combined with specific ports.
+
+FlowPilot passes `-d udp.port==PORT,udpencap` to TShark/PyShark during the initial
 read and to deep TShark rereads, so decoded packets are summarized as ESP while
 retaining the outer UDP ports for filtering and deep-tool targeting.
+The UDP decode target is `udpencap`, not `esp`; using `esp` directly causes
+TShark to reject the command before reading packets.
+The bare flag uses `-d udp.port==0-65535,udpencap` for both initial and deep reads.
 
 ## Notes
 

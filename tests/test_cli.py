@@ -147,6 +147,23 @@ def test_analyze_json_option_without_filename_defaults_to_capture_name() -> None
         "--json",
         "capture.json",
     ]
+
+
+def test_optional_esp_udp_port_normalization() -> None:
+    assert _normalize_optional_json_arg(["analyze", "capture.pcap", "--esp-udp-port"]) == [
+        "analyze", "capture.pcap", "--esp-udp-port", "-1",
+    ]
+    assert _normalize_optional_json_arg(
+        ["analyze", "--esp-udp-port", "capture.pcap", "--json", "--no-llm"]
+    ) == ["analyze", "--esp-udp-port", "-1", "capture.pcap", "--json", "capture.json", "--no-llm"]
+    explicit = ["analyze", "capture.pcap", "--esp-udp-port", "12366", "--esp-udp-port", "12346"]
+    assert _normalize_optional_json_arg(explicit) == explicit
+    assert _normalize_optional_json_arg(
+        ["analyze", "capture.pcap", "--esp-udp-port", "--agent"]
+    ) == ["analyze", "capture.pcap", "--esp-udp-port", "-1", "--agent"]
+
+
+def test_optional_json_filename_with_following_flag_and_directory() -> None:
     assert _normalize_optional_json_arg(["analyze", "capture.pcap", "--json", "--no-llm"]) == [
         "analyze",
         "capture.pcap",

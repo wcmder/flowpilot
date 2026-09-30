@@ -133,6 +133,11 @@ calculated from the stored counters and timestamps when compact metadata is buil
 ## Must: deep evidence is traceable and bounded
 
 - Route requests through registered, allow-listed tools and validate Flow IDs.
+- UDP-encapsulated ESP must use TShark's `udpencap` decode target for both initial
+  reads and deep rereads (`-d udp.port==PORT,udpencap`), not `udp.port==PORT,esp`.
+- A bare `--esp-udp-port` must decode all UDP ports using
+  `udp.port==0-65535,udpencap`. Explicit port values must remain supported, and
+  documentation must explain that forcing all ports can misdecode unrelated UDP.
 - Attach `flow_id` and `target_flow` identity to tool results. Use evidence only
   for its matching flow and distinguish successful results from errors.
 - Preserve `frame.time_relative` in packet samples where available. It represents

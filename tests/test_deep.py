@@ -89,7 +89,7 @@ def test_field_command_includes_configured_esp_udp_decode_as(tmp_path) -> None:
         assert command[:5] == [
             "tshark",
             "-d",
-            "udp.port==12346,esp",
+            "udp.port==12346,udpencap",
             "-r",
             str(tmp_path / "capture.pcap"),
         ]
