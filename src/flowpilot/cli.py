@@ -1024,7 +1024,10 @@ def _render_reasoning(report) -> None:
 
 
 def _render_agent_evidence(agent_evidence: list[dict]) -> None:
-    table = Table(title="LangGraph Deep Evidence", show_lines=True)
+    table = Table(
+        title="LangGraph Deep Evidence", show_lines=True,
+        caption="Packets = packet rows included in this evidence batch for the LLM.",
+    )
     table.add_column("Flow ID", justify="right")
     table.add_column("Tool", overflow="fold")
     table.add_column("Status", overflow="fold")
@@ -1038,7 +1041,7 @@ def _render_agent_evidence(agent_evidence: list[dict]) -> None:
             str(evidence.get("flow_id") or "-"),
             str(evidence.get("tool") or "-"),
             str(evidence.get("status") or "-"),
-            str(evidence.get("packet_count") or "-"),
+            str((evidence.get("batch") or {}).get("returned", "-")),
             _format_agent_evidence_counts(evidence),
             str(evidence.get("display_filter") or "-"),
             str(evidence.get("message") or "-"),

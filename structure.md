@@ -271,3 +271,7 @@ not verified by that review.
 - State whether validation used mocks or a live provider. Never claim live LLM
   behavior was verified solely from unit-test results.
 - Update this document when an intentional change revises these contracts.
+
+- The Deep Evidence table’s Packets column must show `batch.returned`, the packet
+  rows included in that evidence batch for the LLM, not full-flow `packet_count`.
+  Zero must display as `0`; missing batch metadata must display as unknown (`-`).
