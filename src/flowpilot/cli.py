@@ -103,6 +103,7 @@ def _detailed_summary_path(path: Path) -> Path:
 def _capture_path_arg(argv: list[str]) -> str | None:
     options_with_values = {
         "--model",
+        "--max-request",
         "--packet-limit",
         "--tls-keylog-file",
         "--esp-udp-port",
@@ -242,6 +243,15 @@ def analyze(
             ),
         ),
     ] = False,
+    request: Annotated[
+        int,
+        typer.Option(
+            "--max-request", min=0,
+            help=("Maximum LLM-requested deep-tool rounds per analysis or chat turn "
+                  "with --agent. Default: 2. Zero disables additional rounds. "
+                  "Each round may request multiple tools; automatic initial tools are separate."),
+        ),
+    ] = 2,
     agent_auto_tools: Annotated[
         bool,
         typer.Option(
@@ -441,7 +451,8 @@ def analyze(
                 agent_progress = _RefreshingInfo()
                 _info(
                     "LangGraph agent workflow started. "
-                    f"auto_tools={agent_auto_tools}, model={model}, api={LLM_API}, "
+                    f"auto_tools={agent_auto_tools}, request_limit={request}, "
+                    f"model={model}, api={LLM_API}, "
                     f"focus={analysis_focus}, "
                     f"timeout={LLM_TIMEOUT_SECONDS:g}s. Raw packet payloads are not sent."
                 )
@@ -453,6 +464,7 @@ def analyze(
                         max_flows=max_flows,
                         analysis_focus=analysis_focus,
                         agent_auto_tools=agent_auto_tools,
+                        max_tool_rereads=request,
                         progress_callback=agent_progress,
                     )
                 finally:
@@ -514,6 +526,7 @@ def analyze(
                 model=model,
                 max_flows=max_flows,
                 agent=agent,
+                max_tool_rereads=request,
                 analysis_focus=analysis_focus,
                 additional_evidence=agent_evidence if agent else None,
                 capture_path=capture_path if agent else None,
@@ -1110,6 +1123,7 @@ def _run_chat(
     model: str,
     max_flows: int,
     agent: bool = False,
+    max_tool_rereads: int = 2,
     analysis_focus: str = "transport",
     additional_evidence: list[dict] | None = None,
     capture_path: Path | None = None,
@@ -1147,6 +1161,7 @@ def _run_chat(
                     history=history,
                     additional_evidence=chat_evidence,
                     completed_tool_requests=completed_tool_requests,
+                    max_tool_rereads=max_tool_rereads,
                     capture_path=capture_path,
                     progress_callback=agent_progress,
                 )

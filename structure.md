@@ -275,3 +275,7 @@ not verified by that review.
 - The Deep Evidence table’s Packets column must show `batch.returned`, the packet
   rows included in that evidence batch for the LLM, not full-flow `packet_count`.
   Zero must display as `0`; missing batch metadata must display as unknown (`-`).
+
+- `--max-request N` must bound LLM-requested tool rounds per analysis/chat turn
+  (default 2, nonnegative), independently of automatic initial tools. Graph
+  recursion limits must accommodate the configured number of rounds.

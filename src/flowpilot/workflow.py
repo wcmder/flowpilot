@@ -98,7 +98,7 @@ def run_agent_reasoning_state(
         state["capture_path"] = capture_path
     if progress_callback:
         state["progress_callback"] = progress_callback
-    return graph.invoke(state)
+    return graph.invoke(state, config={"recursion_limit": max(25, 4 * max_tool_rereads + 10)})
 
 
 def run_agent_chat(
@@ -165,7 +165,7 @@ def run_agent_chat_state(
         state["report"] = report
     if progress_callback:
         state["progress_callback"] = progress_callback
-    return graph.invoke(state)
+    return graph.invoke(state, config={"recursion_limit": max(25, 4 * max_tool_rereads + 10)})
 
 
 def langgraph_available() -> bool:
@@ -190,7 +190,7 @@ def _build_reasoning_graph() -> Any:
             return {"tool_requests": []}
         requests = _deterministic_tool_requests(
             state["summary"],
-            max_requests=state.get("max_tool_rereads", 2),
+            max_requests=2,
         )
         _progress(
             state,

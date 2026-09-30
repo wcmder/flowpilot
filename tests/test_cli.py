@@ -1158,3 +1158,38 @@ def test_traffic_matches_direction_label_style() -> None:
     )
 
     assert _traffic(flow) == "pkts 7\nbytes 10500"
+
+
+@pytest.mark.parametrize("limit", [0, 1, 10])
+def test_request_limit_reaches_analysis_and_chat(tmp_path, monkeypatch, limit):
+    from flowpilot.models import ReasoningReport
+
+    monkeypatch.setattr(cli, "FLOWPILOT_PRIVATE_DIR", tmp_path)
+    monkeypatch.setattr(cli, "_capture_packet_count", lambda _: 0)
+    monkeypatch.setattr(cli, "read_capture", lambda *args, **kwargs: iter([]))
+    seen = []
+    report = ReasoningReport(executive_summary="Done", risk_level="unknown",
+                             findings=[], next_questions=[])
+
+    def reasoning(summary, **kwargs):
+        seen.append(kwargs["max_tool_rereads"])
+        return {"report": report, "deep_evidence": []}
+
+    def chat(summary, question, **kwargs):
+        seen.append(kwargs["max_tool_rereads"])
+        return {"answer": "Done"}
+
+    monkeypatch.setattr(cli, "run_agent_reasoning_state", reasoning)
+    monkeypatch.setattr(cli, "run_agent_chat_state", chat)
+    questions = iter(["inspect flow 1", "exit"])
+    monkeypatch.setattr(cli.Prompt, "ask", lambda *args, **kwargs: next(questions))
+    result = CliRunner().invoke(cli.app, [
+        "analyze", "capture.pcap", "--agent", "--chat", "--max-request", str(limit),
+    ])
+    assert result.exit_code == 0, result.output
+    assert seen == [limit, limit]
+
+
+def test_request_limit_rejects_negative():
+    result = CliRunner().invoke(cli.app, ["analyze", "capture.pcap", "--max-request", "-1"])
+    assert result.exit_code == 2

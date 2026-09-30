@@ -608,3 +608,10 @@ that the model has reviewed the complete flow.
 
 FlowPilot sends derived flow metadata to OpenAI, not raw packet payloads. Review
 the generated summary before using LLM reasoning on sensitive captures.
+
+`--max-request NUMBER` controls the maximum LLM-requested deep-tool rounds with
+`--agent` (default `2`, minimum `0`). It applies separately to initial analysis
+and each chat turn. Each round may request multiple tools. Automatic initial
+tools from `--agent-auto-tools` are separate; `--max-request 0` disables only subsequent
+LLM-requested tools. For example, `--agent --agent-auto-tools --max-request 1` allows
+one additional round after the initial evidence. This limits rounds, not tokens.
