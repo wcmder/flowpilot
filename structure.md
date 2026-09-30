@@ -53,6 +53,8 @@ calculated from the stored counters and timestamps when compact metadata is buil
   an endpoint, metric, or sample from another flow or invent a missing identity.
 - An unavailable Flow ID must be reported explicitly. An ambiguous reference
   must be clarified rather than silently mapped to another flow.
+- An explicitly requested flow that exists locally must be included in chat
+  context even when it falls outside the initial `max_flows` selection.
 
 ## Must: directional metrics for every protocol
 
@@ -89,10 +91,18 @@ calculated from the stored counters and timestamps when compact metadata is buil
 - Missing source measurements must be treated as unavailable; never invent them.
 - Deep tools still require access to the capture file for packet rereads. A saved
   summary is not a substitute for raw packet evidence.
+- Inspecting or filtering a loaded summary must not silently overwrite the
+  source summary. Save derived subsets separately unless replacement is explicit.
+- Loaded-summary filters must preserve endpoint/port pairing and document any
+  packet-level filtering semantics they cannot reproduce from aggregated data.
+- Persist decode settings, including specific or all-port ESP-over-UDP mode,
+  with summaries and restore them for deep rereads, subject to explicit CLI overrides.
 
 ## Must: follow-up context reaches the provider
 
 - Each follow-up must be self-contained. Do not rely on provider session memory.
+- Preserve newly collected deep evidence and completed tool requests across
+  chat turns; an answer string alone is not sufficient session state.
 - Put retained chat history first, then one final user message containing the
   current question, current summary, requested-flow context, initial report when
   available, and attached deep evidence.
@@ -133,6 +143,14 @@ calculated from the stored counters and timestamps when compact metadata is buil
 ## Must: deep evidence is traceable and bounded
 
 - Route requests through registered, allow-listed tools and validate Flow IDs.
+- Match complete endpoint pairs: `(A address/source port → B address/destination
+  port) OR (B address/source port → A address/destination port)`. Independent
+  `ip.addr` and `tcp.port`/`udp.port` membership tests are insufficient.
+- Apply the same pairing rules to IPv4 and IPv6 and to tools layered on TCP/UDP,
+  including TLS/DTLS, SMB, and UDP-encapsulated ESP. Bind every known port to its
+  endpoint; missing ports must not be invented. Port zero is a valid filter value.
+- ESP rereads must require an ESP layer, excluding IKE and NAT keepalives sharing
+  UDP/4500. Native ESP filters must exclude UDP-encapsulated ESP conversations.
 - UDP-encapsulated ESP must use TShark's `udpencap` decode target for both initial
   reads and deep rereads (`-d udp.port==PORT,udpencap`), not `udp.port==PORT,esp`.
 - A bare `--esp-udp-port` must decode all UDP ports using
@@ -149,6 +167,33 @@ calculated from the stored counters and timestamps when compact metadata is buil
   than merely telling the user to run it. Do not claim a tool can recover
   measurements that the capture cannot expose.
 - Respect reread limits and avoid repeating completed tool requests.
+
+## Must: large-capture resource use
+
+- Aggregate observations incrementally where packet retention is unnecessary.
+- Bound retained deep samples while computing full-flow counters incrementally;
+  a 200-sample output limit must not imply retaining all TShark output in memory.
+- Avoid copying a growing RTT list for every packet. Define and test the memory
+  budget and precision tradeoff if RTT samples are bounded or approximated.
+
+## Review findings and implementation status
+
+The 2026-09-30 review identified the following gaps. Requirements above are the
+target contract; an open row must not be interpreted as already implemented.
+
+| Finding | Status | Required verification |
+| --- | --- | --- |
+| 1. Deep filters mix distinct conversations | Fixed in this change | Real TShark tests accept both intended directions and reject swapped port/address pairings, wrong peers, and wrong ports on IPv4/IPv6. |
+| 2. New deep evidence is lost between chat turns | Open | A second chat turn retains evidence and completed requests from the first. |
+| 3. Loaded-summary filtering can overwrite its source | Open | Source summary remains unchanged during filtered inspection. |
+| 4. Flow ID sorting and context limits disagree | Open | Unsorted summaries retain consistent IDs; explicitly requested flows outside the initial limit are attached. |
+| 5. Loaded-summary filters differ from packet filters | Open | Address/port pairs remain bound; unsupported packet-level semantics are explicit. |
+| 6. ESP decode settings are not persisted | Open | Reloaded summaries reproduce decoding without repeating the original flags. |
+| 7. Large captures incur excessive retention and copying | Open | Large-capture measurements demonstrate bounded sampling and incremental aggregation. |
+
+The review also found an import-formatting lint issue in
+`packaging/flowpilot_entry.py`; Windows packaging and live provider behavior were
+not verified by that review.
 
 ## Must: validation and maintenance
 

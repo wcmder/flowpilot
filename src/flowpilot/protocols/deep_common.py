@@ -75,33 +75,33 @@ def parse_field_rows(output: str, fields: list[str]) -> list[dict[str, str]]:
 
 
 def tcp_flow_filter(flow: FlowSummary) -> str:
-    endpoint_filter = endpoint_filter_for_flow(flow)
-    ports = [port for port in (flow.key.port_a, flow.key.port_b) if port is not None]
-    if not ports:
-        return f"{endpoint_filter} && tcp"
-    port_filter = " && ".join(f"tcp.port == {port}" for port in sorted(set(ports)))
-    return f"{endpoint_filter} && {port_filter}"
+    return f"{_bidirectional_filter(flow, 'tcp')} && tcp"
 
 
 def udp_flow_filter(flow: FlowSummary) -> str:
-    endpoint_filter = endpoint_filter_for_flow(flow)
-    ports = [port for port in (flow.key.port_a, flow.key.port_b) if port is not None]
-    if not ports:
-        return f"{endpoint_filter} && udp"
-    port_filter = " && ".join(f"udp.port == {port}" for port in sorted(set(ports)))
-    return f"{endpoint_filter} && {port_filter}"
+    return f"{_bidirectional_filter(flow, 'udp')} && udp"
 
 
 def endpoint_filter_for_flow(flow: FlowSummary) -> str:
+    return _bidirectional_filter(flow)
+
+
+def _bidirectional_filter(flow: FlowSummary, transport: str | None = None) -> str:
+    """Bind each port to its address, then reverse the entire endpoint pair."""
     family = _endpoint_address_family(flow.key.endpoint_a, flow.key.endpoint_b)
-    if family == 6:
-        return f"(ipv6.addr == {flow.key.endpoint_a} && ipv6.addr == {flow.key.endpoint_b})"
-    if family == 4:
-        return f"(ip.addr == {flow.key.endpoint_a} && ip.addr == {flow.key.endpoint_b})"
-    return (
-        f"((ip.addr == {flow.key.endpoint_a} && ip.addr == {flow.key.endpoint_b}) || "
-        f"(ipv6.addr == {flow.key.endpoint_a} && ipv6.addr == {flow.key.endpoint_b}))"
-    )
+    fields = ["ip"] if family == 4 else ["ipv6"] if family == 6 else ["ip", "ipv6"]
+    endpoints = [(flow.key.endpoint_a, flow.key.port_a), (flow.key.endpoint_b, flow.key.port_b)]
+    branches = []
+    for field in fields:
+        for source, destination in (endpoints, endpoints[::-1]):
+            terms = [f"{field}.src == {source[0]}", f"{field}.dst == {destination[0]}"]
+            if transport:
+                if source[1] is not None:
+                    terms.append(f"{transport}.srcport == {source[1]}")
+                if destination[1] is not None:
+                    terms.append(f"{transport}.dstport == {destination[1]}")
+            branches.append("(" + " && ".join(terms) + ")")
+    return "(" + " || ".join(branches) + ")"
 
 
 def _endpoint_address_family(endpoint_a: str, endpoint_b: str) -> int | None:

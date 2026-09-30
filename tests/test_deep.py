@@ -318,7 +318,10 @@ def test_esp_flow_filter_uses_ipv4_field_for_ipv4_endpoints() -> None:
 
     from flowpilot.protocols.esp import esp_flow_filter
 
-    assert esp_flow_filter(flow) == "(ip.addr == 10.0.0.10 && ip.addr == 10.0.0.20) && esp"
+    assert esp_flow_filter(flow) == (
+        "((ip.src == 10.0.0.10 && ip.dst == 10.0.0.20) || "
+        "(ip.src == 10.0.0.20 && ip.dst == 10.0.0.10)) && esp && !udp"
+    )
 
 
 def test_esp_flow_filter_uses_ipv6_field_for_ipv6_endpoints() -> None:
@@ -329,7 +332,8 @@ def test_esp_flow_filter_uses_ipv6_field_for_ipv6_endpoints() -> None:
     from flowpilot.protocols.esp import esp_flow_filter
 
     assert esp_flow_filter(flow) == (
-        "(ipv6.addr == 2001:db8::1 && ipv6.addr == 2001:db8::2) && esp"
+        "((ipv6.src == 2001:db8::1 && ipv6.dst == 2001:db8::2) || "
+        "(ipv6.src == 2001:db8::2 && ipv6.dst == 2001:db8::1)) && esp && !udp"
     )
 
 
@@ -347,8 +351,10 @@ def test_esp_flow_filter_includes_nat_t_ports_when_present() -> None:
     from flowpilot.protocols.esp import esp_flow_filter
 
     assert esp_flow_filter(flow) == (
-        "(ip.addr == 10.0.0.10 && ip.addr == 10.0.0.20) && "
-        "(udp.port == 4500) && (esp || udp.port == 4500)"
+        "((ip.src == 10.0.0.10 && ip.dst == 10.0.0.20 && "
+        "udp.srcport == 4500 && udp.dstport == 4500) || "
+        "(ip.src == 10.0.0.20 && ip.dst == 10.0.0.10 && "
+        "udp.srcport == 4500 && udp.dstport == 4500)) && udp && esp"
     )
 
 
@@ -626,8 +632,8 @@ def test_tls_flow_filter_uses_tcp_or_udp_transport() -> None:
         )
     )
 
-    assert "tcp.port == 443" in tls_flow_filter(tcp_flow)
-    assert "udp.port == 4433" in tls_flow_filter(udp_flow)
+    assert "tcp.dstport == 443" in tls_flow_filter(tcp_flow)
+    assert "udp.dstport == 4433" in tls_flow_filter(udp_flow)
     assert "(tls || dtls)" in tls_flow_filter(tcp_flow)
 
 
@@ -636,7 +642,10 @@ def test_endpoint_filter_uses_ipv4_field_for_ipv4_endpoints() -> None:
         key=FlowKey(endpoint_a="10.0.0.10", endpoint_b="10.0.0.53", protocol="UDP")
     )
 
-    assert endpoint_filter_for_flow(flow) == "(ip.addr == 10.0.0.10 && ip.addr == 10.0.0.53)"
+    assert endpoint_filter_for_flow(flow) == (
+        "((ip.src == 10.0.0.10 && ip.dst == 10.0.0.53) || "
+        "(ip.src == 10.0.0.53 && ip.dst == 10.0.0.10))"
+    )
 
 
 def test_endpoint_filter_uses_ipv6_field_for_ipv6_endpoints() -> None:
@@ -645,5 +654,6 @@ def test_endpoint_filter_uses_ipv6_field_for_ipv6_endpoints() -> None:
     )
 
     assert endpoint_filter_for_flow(flow) == (
-        "(ipv6.addr == 2001:db8::1 && ipv6.addr == 2001:db8::2)"
+        "((ipv6.src == 2001:db8::1 && ipv6.dst == 2001:db8::2) || "
+        "(ipv6.src == 2001:db8::2 && ipv6.dst == 2001:db8::1))"
     )

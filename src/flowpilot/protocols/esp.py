@@ -11,6 +11,7 @@ from .deep_common import (
     field_command,
     parse_field_rows,
     tshark_path,
+    udp_flow_filter,
 )
 
 ESP_DEEP_FIELDS = [
@@ -217,12 +218,10 @@ def deep_esp_flow(
 
 
 def esp_flow_filter(flow: FlowSummary) -> str:
-    endpoint_filter = endpoint_filter_for_flow(flow)
-    ports = [port for port in (flow.key.port_a, flow.key.port_b) if port is not None]
-    if ports:
-        port_filter = " && ".join(f"udp.port == {port}" for port in sorted(set(ports)))
-        return f"{endpoint_filter} && ({port_filter}) && (esp || udp.port == 4500)"
-    return f"{endpoint_filter} && esp"
+    if flow.key.port_a is not None or flow.key.port_b is not None:
+        # UDP/4500 also carries IKE and keepalives; require an actual ESP layer.
+        return f"{udp_flow_filter(flow)} && esp"
+    return f"{endpoint_filter_for_flow(flow)} && esp && !udp"
 
 
 def parse_esp_rows(
