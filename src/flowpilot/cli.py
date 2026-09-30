@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import os
 import re
 import shutil
 import struct
@@ -466,6 +467,7 @@ def analyze(
                 if same_source:
                     suffix = "filtered" if flow_filter.is_active or sip_phone else "reanalyzed"
                     json_output_path = _unused_summary_output_path(source_summary.stem, suffix)
+            _info(f"Preparing JSON report for {json_output_path}.")
             payload = {
                 "source_capture_path": str(
                     source_capture_path_for_json.expanduser().resolve(strict=False)
@@ -474,8 +476,8 @@ def analyze(
             }
             if report:
                 payload["reasoning"] = report.model_dump(mode="json")
-            json_output_path.parent.mkdir(parents=True, exist_ok=True)
-            json_output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+            _info(f"Writing JSON report to {json_output_path}.")
+            _write_json_report(json_output_path, payload)
             console.print(f"[green]Wrote JSON report:[/green] {json_output_path}")
 
         if chat and report:
@@ -620,6 +622,31 @@ def _load_summary_with_metadata(summary_path: Path) -> tuple[CaptureSummary, Pat
     if isinstance(data, dict) and data.get("source_capture_path"):
         source_capture_path = Path(str(data["source_capture_path"])).expanduser()
     return CaptureSummary.model_validate(summary_data), source_capture_path
+
+
+def _write_json_report(path: Path, payload: dict) -> None:
+    """Publish a report only after its complete JSON has been written successfully."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            # Stream encoding instead of allocating one giant JSON string and byte buffer.
+            json.dump(payload, stream, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    except (OSError, ValueError, TypeError, MemoryError) as exc:
+        raise RuntimeError(
+            f"Could not save JSON report to {path}: {type(exc).__name__}: {exc}. "
+            "The destination was not replaced; any previous report is unchanged."
+        ) from exc
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _summary_json_output_path(json_path: Path) -> Path:

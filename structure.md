@@ -110,6 +110,10 @@ previews and retrieve subsequent saved batches through existing deep tools.
   source summary. Save derived subsets separately unless replacement is explicit.
 - `--load-summary` must not write JSON unless `--json` is explicitly supplied,
   whether or not filters are active. Fresh PCAP analysis still saves automatically.
+- Write JSON to a temporary file in the destination directory, flush and sync it,
+  then atomically replace the destination. Serialization failures, write failures,
+  and interrupted writes must not truncate an existing report or publish an empty
+  new one. Only announce success after replacement; preserve all detailed rows.
 - An explicit `--json` targeting the loaded source redirects to
   `private/<summary>.filtered.json` with filters or `<summary>.reanalyzed.json`
   otherwise. Number existing derived names from `.2.json` onward; distinct explicit
