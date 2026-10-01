@@ -39,6 +39,7 @@ from .protocols.smb import render_smb_details
 from .protocols.tls import render_tls_details
 from .reasoning import (
     DEFAULT_MODEL,
+    EVIDENCE_START_OFFSET,
     LLM_API,
     LLM_TIMEOUT_SECONDS,
     chat_about_capture,
@@ -104,6 +105,7 @@ def _capture_path_arg(argv: list[str]) -> str | None:
     options_with_values = {
         "--model",
         "--max-request",
+        "--offset",
         "--packet-limit",
         "--tls-keylog-file",
         "--esp-udp-port",
@@ -243,6 +245,13 @@ def analyze(
             ),
         ),
     ] = False,
+    offset: Annotated[
+        int, typer.Option(
+            "--offset", min=0,
+            help=("Start deep-evidence samples at this zero-based matching packet offset "
+                  "per flow/tool. Full-flow summary metrics remain unchanged."),
+        ),
+    ] = 0,
     request: Annotated[
         int,
         typer.Option(
@@ -354,6 +363,7 @@ def analyze(
             f"{session.capture_path}. Full packet headers and captured bytes are preserved."
         )
         capture_path = session.capture_path
+    offset_token = EVIDENCE_START_OFFSET.set(offset)
     try:
         flow_filter = FlowFilter(
             host=host,
@@ -465,6 +475,7 @@ def analyze(
                         analysis_focus=analysis_focus,
                         agent_auto_tools=agent_auto_tools,
                         max_tool_rereads=request,
+                        sample_offset=offset,
                         progress_callback=agent_progress,
                     )
                 finally:
@@ -527,11 +538,13 @@ def analyze(
                 max_flows=max_flows,
                 agent=agent,
                 max_tool_rereads=request,
+                sample_offset=offset,
                 analysis_focus=analysis_focus,
                 additional_evidence=agent_evidence if agent else None,
                 capture_path=capture_path if agent else None,
             )
     finally:
+        EVIDENCE_START_OFFSET.reset(offset_token)
         if session:
             session.close()
 
@@ -1129,6 +1142,7 @@ def _run_chat(
     max_flows: int,
     agent: bool = False,
     max_tool_rereads: int = 2,
+    sample_offset: int = 0,
     analysis_focus: str = "transport",
     additional_evidence: list[dict] | None = None,
     capture_path: Path | None = None,
@@ -1167,6 +1181,7 @@ def _run_chat(
                     additional_evidence=chat_evidence,
                     completed_tool_requests=completed_tool_requests,
                     max_tool_rereads=max_tool_rereads,
+                    sample_offset=sample_offset,
                     capture_path=capture_path,
                     progress_callback=agent_progress,
                 )

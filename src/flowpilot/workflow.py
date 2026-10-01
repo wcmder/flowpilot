@@ -43,6 +43,7 @@ class FlowPilotAgentState(TypedDict, total=False):
     deep_evidence: list[dict[str, Any]]
     tool_loop_count: int
     max_tool_rereads: int
+    sample_offset: int
     agent_auto_tools: bool
     progress_callback: Callable[[str], None]
 
@@ -55,6 +56,7 @@ def run_agent_reasoning(
     max_flows: int = 25,
     analysis_focus: AnalysisFocus = "transport",
     max_tool_rereads: int = 2,
+    sample_offset: int = 0,
     agent_auto_tools: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> ReasoningReport:
@@ -65,6 +67,7 @@ def run_agent_reasoning(
         max_flows=max_flows,
         analysis_focus=analysis_focus,
         max_tool_rereads=max_tool_rereads,
+        sample_offset=sample_offset,
         agent_auto_tools=agent_auto_tools,
         progress_callback=progress_callback,
     )["report"]
@@ -78,6 +81,7 @@ def run_agent_reasoning_state(
     max_flows: int = 25,
     analysis_focus: AnalysisFocus = "transport",
     max_tool_rereads: int = 2,
+    sample_offset: int = 0,
     agent_auto_tools: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> FlowPilotAgentState:
@@ -88,6 +92,7 @@ def run_agent_reasoning_state(
         "analysis_focus": analysis_focus,
         "max_flows": max_flows,
         "max_tool_rereads": max_tool_rereads,
+        "sample_offset": sample_offset,
         "tool_loop_count": 0,
         "agent_auto_tools": agent_auto_tools,
         "completed_tool_requests": [],
@@ -113,6 +118,7 @@ def run_agent_chat(
     additional_evidence: list[dict[str, Any]] | None = None,
     capture_path: Path | None = None,
     max_tool_rereads: int = 2,
+    sample_offset: int = 0,
     progress_callback: Callable[[str], None] | None = None,
 ) -> str:
     """Return a standalone answer; use run_agent_chat_state for session persistence."""
@@ -120,6 +126,7 @@ def run_agent_chat(
         summary, question, model=model, max_flows=max_flows, analysis_focus=analysis_focus,
         report=report, history=history, additional_evidence=additional_evidence,
         capture_path=capture_path, max_tool_rereads=max_tool_rereads,
+        sample_offset=sample_offset,
         progress_callback=progress_callback,
     )["answer"]
 
@@ -137,6 +144,7 @@ def run_agent_chat_state(
     completed_tool_requests: list[str] | None = None,
     capture_path: Path | None = None,
     max_tool_rereads: int = 2,
+    sample_offset: int = 0,
     progress_callback: Callable[[str], None] | None = None,
 ) -> FlowPilotAgentState:
     """Return evidence and completed requests for reuse within this capture's chat."""
@@ -158,6 +166,7 @@ def run_agent_chat_state(
         "completed_tool_requests": completed,
         "tool_loop_count": 0,
         "max_tool_rereads": max_tool_rereads,
+        "sample_offset": sample_offset,
     }
     if capture_path:
         state["capture_path"] = capture_path
@@ -466,11 +475,15 @@ def _valid_tool_requests(
 
 def _pending_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
     completed = set(state.get("completed_tool_requests", []))
-    return [
-        request
-        for request in state.get("tool_requests", [])
-        if request.get("tool") in ALLOWED_TOOLS and _tool_request_key(request) not in completed
-    ]
+    requests = []
+    for original in state.get("tool_requests", []):
+        request = dict(original)
+        offset = max(request.get("sample_offset", 0), state.get("sample_offset", 0))
+        if offset:
+            request["sample_offset"] = offset
+        if request.get("tool") in ALLOWED_TOOLS and _tool_request_key(request) not in completed:
+            requests.append(request)
+    return requests
 
 
 def _run_tool_request(state: FlowPilotAgentState, request: dict[str, Any]) -> dict[str, Any]:

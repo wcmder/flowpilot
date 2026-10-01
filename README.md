@@ -615,3 +615,15 @@ and each chat turn. Each round may request multiple tools. Automatic initial
 tools from `--agent-auto-tools` are separate; `--max-request 0` disables only subsequent
 LLM-requested tools. For example, `--agent --agent-auto-tools --max-request 1` allows
 one additional round after the initial evidence. This limits rounds, not tokens.
+
+Use `--offset 5000` to skip the first 5,000 matching packet rows when retrieving
+deep evidence (including saved detailed previews). Each flow/tool starts at its
+own zero-based offset; this is not a capture frame number. Later batches continue
+from their absolute offsets (5,000, 6,000, 7,000 with 1,000-row batches). Earlier
+sample requests are clamped to the starting offset. Full-flow metrics and saved
+summary contents are unchanged. An offset past the matching packets returns an
+empty batch. No summary regeneration is needed.
+
+```bash
+flowpilot analyze capture.pcap --load-summary --agent --agent-auto-tools --offset 5000 --max-request 2
+```

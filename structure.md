@@ -285,3 +285,8 @@ not verified by that review.
 - LLM requests must serialize packet evidence without pretty-print indentation.
   Chat must attach each evidence payload once, with the current question and
   flow identity context; do not duplicate it in a second fenced JSON block.
+
+- `--offset N` must be nonnegative and set the minimum zero-based matching packet
+  offset for deep evidence per flow/tool, including cached previews and chat.
+  Apply it before completed-request deduplication; later offsets stay absolute.
+  It must not filter initial analysis, full-flow counters, or saved packet data.

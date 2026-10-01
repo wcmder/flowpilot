@@ -1173,10 +1173,12 @@ def test_request_limit_reaches_analysis_and_chat(tmp_path, monkeypatch, limit):
 
     def reasoning(summary, **kwargs):
         seen.append(kwargs["max_tool_rereads"])
+        assert kwargs["sample_offset"] == 5000
         return {"report": report, "deep_evidence": []}
 
     def chat(summary, question, **kwargs):
         seen.append(kwargs["max_tool_rereads"])
+        assert kwargs["sample_offset"] == 5000
         return {"answer": "Done"}
 
     monkeypatch.setattr(cli, "run_agent_reasoning_state", reasoning)
@@ -1185,6 +1187,7 @@ def test_request_limit_reaches_analysis_and_chat(tmp_path, monkeypatch, limit):
     monkeypatch.setattr(cli.Prompt, "ask", lambda *args, **kwargs: next(questions))
     result = CliRunner().invoke(cli.app, [
         "analyze", "capture.pcap", "--agent", "--chat", "--max-request", str(limit),
+        "--offset", "5000",
     ])
     assert result.exit_code == 0, result.output
     assert seen == [limit, limit]
@@ -1192,4 +1195,9 @@ def test_request_limit_reaches_analysis_and_chat(tmp_path, monkeypatch, limit):
 
 def test_request_limit_rejects_negative():
     result = CliRunner().invoke(cli.app, ["analyze", "capture.pcap", "--max-request", "-1"])
+    assert result.exit_code == 2
+
+
+def test_offset_rejects_negative():
+    result = CliRunner().invoke(cli.app, ["analyze", "capture.pcap", "--offset", "-1"])
     assert result.exit_code == 2

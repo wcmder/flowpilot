@@ -878,7 +878,8 @@ def test_agent_chat_explicit_tool_evidence_is_prompt_visible(monkeypatch, tmp_pa
         assert additional_evidence[0]["target_flow"]["flow_label"] == (
             "TCP 10.0.0.10:53150 <-> 10.0.0.20:443"
         )
-        assert "Treat additional_tool_evidence as the newest deep evidence" in messages[-1]["content"]
+        assert ("Treat additional_tool_evidence as the newest deep evidence"
+                in messages[-1]["content"])
         assert "target_flow as the authoritative identity" in messages[-1]["content"]
         assert "absent from summary.flow_endpoint_inventory" in messages[-1]["content"]
         assert '"tls_alert_packets": 1' in messages[-1]["content"]
@@ -897,3 +898,19 @@ def test_agent_chat_explicit_tool_evidence_is_prompt_visible(monkeypatch, tmp_pa
     )
 
     assert answer == "I can see the deep TLS evidence."
+
+
+def test_start_offset_applies_before_deduplication_and_keeps_later_pages():
+    state = {
+        "sample_offset": 5000,
+        "completed_tool_requests": ["deep_esp_flow:1:offset=5000"],
+        "tool_requests": [
+            {"tool": "deep_esp_flow", "flow_id": 1},
+            {"tool": "deep_esp_flow", "flow_id": 1, "sample_offset": 1000},
+            {"tool": "deep_esp_flow", "flow_id": 1, "sample_offset": 6000},
+            {"tool": "deep_tcp_flow", "flow_id": 2},
+        ],
+    }
+    pending = workflow._pending_tool_requests(state)
+    assert [(r["flow_id"], r["sample_offset"]) for r in pending] == [(1, 6000), (2, 5000)]
+    assert "sample_offset" not in state["tool_requests"][0]

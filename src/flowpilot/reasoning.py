@@ -8,6 +8,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Any, Literal, TypeVar
 
 from dotenv import load_dotenv
@@ -35,6 +36,7 @@ LLM_API = os.getenv("FLOWPILOT_LLM_API", "responses").lower()
 LLM_REQUESTS_PER_MINUTE = int(os.getenv("FLOWPILOT_LLM_REQUESTS_PER_MINUTE", "120"))
 LLM_TIMEOUT_SECONDS = float(os.getenv("FLOWPILOT_LLM_TIMEOUT_SECONDS", "120"))
 _last_llm_request_at = 0.0
+EVIDENCE_START_OFFSET: ContextVar[int] = ContextVar("evidence_start_offset", default=0)
 
 SYSTEM_PROMPT = f"""You are FlowPilot, a network transport troubleshooting agent for data-transfer
 issues. Do not merely summarize the flows. Diagnose likely transport issues from derived metadata.
@@ -523,9 +525,10 @@ def _with_saved_evidence(
 ) -> list[dict[str, Any]]:
     """Attach bounded previews; complete saved rows stay local for batch retrieval."""
     result = list(evidence or [])
+    start_offset = EVIDENCE_START_OFFSET.get()
     present = {
         (item.get("tool"), item.get("flow_id")) for item in result
-        if item.get("batch", {}).get("offset", 0) == 0
+        if item.get("batch", {}).get("offset", 0) == start_offset
     }
     for metadata in compact_summary.get("top_flows", []):
         flow_id = metadata["flow_id"]
@@ -534,7 +537,8 @@ def _with_saved_evidence(
             if details.get("status") != "ok" or (tool, flow_id) in present:
                 continue
             batch = run_deep_tool(tool, None, flow_id=flow_id, flow=flow,
-                                  reason="Saved detailed summary preview")
+                                  reason="Saved detailed summary preview",
+                                  sample_offset=start_offset)
             batch["target_flow"] = {
                 key: metadata[key] for key in (
                     "flow_id", "flow_label", "protocol", "endpoint_a", "endpoint_b",
