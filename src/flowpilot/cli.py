@@ -21,7 +21,7 @@ from rich.table import Table
 
 from .analysis import summarize_capture
 from .capture import read_capture
-from .decode_as import ALL_ESP_UDP_PORTS, set_esp_udp_ports
+from .decode_as import ALL_ESP_UDP_PORTS, set_esp_udp_ports, set_rtp_udp_ports
 from .deep_tools import collect_flow_details
 from .filters import (
     FlowFilter,
@@ -34,6 +34,7 @@ from .paths import runtime_private_dir
 from .protocols.dhcp import render_dhcp_details
 from .protocols.dns import render_dns_details
 from .protocols.esp import format_esp_sequences
+from .protocols.rtp import render_rtp_details
 from .protocols.sip import render_sip_details
 from .protocols.smb import render_smb_details
 from .protocols.tls import render_tls_details
@@ -106,6 +107,8 @@ def _capture_path_arg(argv: list[str]) -> str | None:
         "--model",
         "--max-request",
         "--offset",
+        "--rtp-udp-port",
+        "--srtp-udp-port",
         "--packet-limit",
         "--tls-keylog-file",
         "--esp-udp-port",
@@ -245,6 +248,14 @@ def analyze(
             ),
         ),
     ] = False,
+    rtp_udp_port: Annotated[
+        list[int] | None, typer.Option("--rtp-udp-port", min=0, max=65535,
+                                      help="Decode UDP port as RTP; repeat for multiple ports."),
+    ] = None,
+    srtp_udp_port: Annotated[
+        list[int] | None, typer.Option("--srtp-udp-port", min=0, max=65535,
+                                      help="Decode visible RTP headers on a known SRTP UDP port."),
+    ] = None,
     offset: Annotated[
         int, typer.Option(
             "--offset", min=0,
@@ -355,6 +366,10 @@ def analyze(
     if keep_cache:
         cache_pcap = True
     set_esp_udp_ports(esp_udp_port)
+    try:
+        set_rtp_udp_ports(rtp_udp_port, srtp_udp_port)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     session = _CachedCaptureSession.create(capture_path, keep=keep_cache) if cache_pcap else None
     if session:
@@ -619,6 +634,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
             _format_flow_issues(flow),
         )
     console.print(table)
+    render_rtp_details(summary, show_flows=show_flows, console=console)
     render_dns_details(summary, show_flows=show_flows, console=console)
     render_dhcp_details(summary, show_flows=show_flows, console=console)
     render_sip_details(summary, show_flows=show_flows, console=console)
@@ -1085,7 +1101,8 @@ def _format_agent_evidence_counts(evidence: dict) -> str:
         return _format_esp_agent_evidence_counts(evidence.get("esp_metadata_counts") or {})
 
     counts = (
-        evidence.get("tcp_analysis_counts")
+        evidence.get("rtp_metadata_counts")
+        or evidence.get("tcp_analysis_counts")
         or evidence.get("udp_metadata_counts")
         or evidence.get("tls_metadata_counts")
         or evidence.get("smb2_credit_counts")

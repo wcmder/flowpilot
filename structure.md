@@ -290,3 +290,26 @@ not verified by that review.
   offset for deep evidence per flow/tool, including cached previews and chat.
   Apply it before completed-request deduplication; later offsets stay absolute.
   It must not filter initial analysis, full-flow counters, or saved packet data.
+
+## Must: RTP/SRTP media support
+
+- Keep media on underlying UDP Flow IDs and shared directional rates. Extract
+  visible RTP v2 headers, never media payloads; retain SSRC, sequence, timestamp,
+  marker, payload type, and observed/explicit SRTP classification in observations.
+- Separate streams by direction and SSRC. Extend 16-bit sequences across rollover,
+  count duplicates and reordered unique packets separately, and reconcile late
+  arrivals when reporting observed holes. Preserve sequence state in saved JSON.
+  Explain ambiguity at restarts/large gaps; observed holes are not proven loss.
+- `deep_rtp_flow` must use the registry, exact UDP endpoint pairing and RTP layer
+  filter, shared batch/offset semantics, full-flow statistics, and cached detailed
+  rows. Detailed UDP collection must include this tool. No RTP/SRTP payload,
+  authentication tag, or key material may be included in its evidence fields.
+- `--rtp-udp-port` and `--srtp-udp-port` require repeatable integer ports. Both decode
+  visible RTP headers; the secure option explicitly marks the user's SRTP knowledge.
+  Reject conflicting ESP decode rules. Actual rereads require explicit flags again.
+- Do not infer cleartext from missing SRTP indicators, codecs from dynamic payload
+  types, or latency/media quality from header timestamps. Clock-rate negotiation,
+  jitter calculation, RTCP, decryption, and RTP over TCP remain unsupported.
+- Older summaries default to empty media streams; new source measurements require
+  a fresh read or explicit deep evidence. Verify real TShark IPv4/IPv6 targeting,
+  SDP SRTP recognition, wrapping/reordering, complete saving, and cached batches.

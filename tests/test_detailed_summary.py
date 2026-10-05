@@ -44,7 +44,7 @@ def test_detailed_summary_preserves_every_analyzed_flow_type(
     assert loaded.flows[0].packet_details == [observation]
     expected = {
         "TCP": {"deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow"},
-        "UDP": {"deep_udp_flow", "deep_tls_flow"}, "ESP": {"deep_esp_flow"},
+        "UDP": {"deep_udp_flow", "deep_tls_flow", "deep_rtp_flow"}, "ESP": {"deep_esp_flow"},
     }.get(protocol, set())
     assert set(loaded.flows[0].deep_details) == expected
     assert len(calls) == len(expected)
@@ -118,16 +118,22 @@ def test_cli_saves_selected_packet_details_and_loads_without_capture(tmp_path, m
     assert saved.read_bytes() == before
 
 
-def test_provider_receives_saved_preview_not_entire_large_snapshot(monkeypatch):
+@pytest.mark.parametrize("protocol,tool,samples", [
+    ("ESP", "deep_esp_flow", "esp_deep_samples"),
+    ("UDP", "deep_rtp_flow", "rtp_header_samples"),
+])
+def test_provider_receives_saved_preview_not_entire_large_snapshot(
+    monkeypatch, protocol, tool, samples,
+):
     from flowpilot.models import FlowKey, FlowSummary
 
-    flow = FlowSummary(key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="ESP"))
-    flow.deep_details["deep_esp_flow"] = {
-        "tool": "deep_esp_flow", "flow_id": 99, "status": "ok", "packet_count": 2005,
-        "esp_deep_samples": [{"frame.number": str(i)} for i in range(1, 2006)],
+    flow = FlowSummary(key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol=protocol))
+    flow.deep_details[tool] = {
+        "tool": tool, "flow_id": 99, "status": "ok", "packet_count": 2005,
+        samples: [{"frame.number": str(i)} for i in range(1, 2006)],
     }
     summary = CaptureSummary(packet_count=2005, total_bytes=2005, flow_count=1,
-                             protocols={"ESP": 2005}, top_ports={}, issue_counts={}, names=[],
+                             protocols={protocol: 2005}, top_ports={}, issue_counts={}, names=[],
                              flows=[flow])
     calls = []
 
@@ -145,10 +151,10 @@ def test_provider_receives_saved_preview_not_entire_large_snapshot(monkeypatch):
     assert evidence["source"] == "saved_summary"
     assert evidence["flow_id"] == 1
     assert evidence["target_flow"]["flow_id"] == 1
-    assert len(evidence["esp_deep_samples"]) == 1000
+    assert len(evidence[samples]) == 1000
     assert evidence["batch"]["next_offset"] == 1000
     assert "deep_details" not in context["summary"]["top_flows"][0]
-    assert len(flow.deep_details["deep_esp_flow"]["esp_deep_samples"]) == 2005
+    assert len(flow.deep_details[tool][samples]) == 2005
 
 
 @pytest.mark.parametrize("filename,expected", [

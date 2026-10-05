@@ -96,6 +96,7 @@ def run_deep_tool(
 
 
 _SAMPLE_KEYS = {
+    "deep_rtp_flow": "rtp_header_samples",
     "deep_tcp_flow": "tcp_header_samples",
     "deep_udp_flow": "udp_header_samples",
     "deep_tls_flow": "tls_deep_samples",
@@ -108,7 +109,7 @@ def collect_flow_details(capture_path: Path, flow: FlowSummary, flow_id: int) ->
     """Save all extracted rows for each supported tool, including explicit failures."""
     tools = {
         "TCP": ("deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow"),
-        "UDP": ("deep_udp_flow", "deep_tls_flow"),
+        "UDP": ("deep_udp_flow", "deep_tls_flow", "deep_rtp_flow"),
         "ESP": ("deep_esp_flow",),
     }.get(flow.key.protocol, ())
     for tool in tools:
@@ -161,6 +162,7 @@ def _deep_tool_aliases(tool_name: str) -> tuple[str, ...]:
 
 def _deep_tool_priority(tool_name: str) -> int:
     return {
+        "deep_rtp_flow": -1,
         "deep_tls_flow": 0,
         "deep_smb2_flow": 5,
         "deep_esp_flow": 8,

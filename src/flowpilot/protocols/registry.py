@@ -8,6 +8,22 @@ from .base import ProtocolModule
 
 PROTOCOLS: tuple[ProtocolModule, ...] = (
     ProtocolModule(
+        name="rtp", display_name="RTP/SRTP", flow_attributes=("rtp_streams",),
+        extract_hook="flowpilot.protocols.rtp.extract_rtp",
+        record_hook="flowpilot.protocols.rtp.record_rtp",
+        render_hook="flowpilot.protocols.rtp.render_rtp_details",
+        compact_metadata_key="rtp", deep_tools=("deep_rtp_flow",),
+        deep_tool_runner_hooks=("flowpilot.protocols.rtp.deep_rtp_flow",),
+        deep_reason_hook="flowpilot.protocols.rtp.deep_rtp_reason",
+        deep_tool_prompt="Use deep_rtp_flow for UDP RTP/SRTP visible headers and packet timing.",
+        transport_prompt=("RTP/SRTP: separate SSRCs and directions. Sequence holes do not prove "
+                          "network loss; capture loss and restarts can contribute. Do not infer "
+                          "codec/clock rate from dynamic payload type, "
+                          "latency from RTP timestamps, "
+                          "or media quality/decryption from SRTP headers."),
+        notes="Visible UDP RTP/SRTP headers; no media payload extraction or decryption.",
+    ),
+    ProtocolModule(
         name="tcp",
         display_name="TCP",
         flow_attributes=(

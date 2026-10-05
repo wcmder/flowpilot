@@ -172,6 +172,38 @@ class DhcpFlowMetadata(BaseModel):
     lease_times: list[str] = Field(default_factory=list)
 
 
+class RtpStreamSummary(BaseModel):
+    ssrc: str
+    direction: str
+    packet_count: int = 0
+    srtp_packets: int = 0
+    payload_types: dict[str, int] = Field(default_factory=dict)
+    highest_sequence: int | None = None
+    lowest_sequence: int | None = None
+    seen_sequences: set[int] = Field(default_factory=set)
+    duplicate_count: int = 0
+    out_of_order_count: int = 0
+
+    def compact(self) -> dict[str, Any]:
+        expected = (self.highest_sequence - self.lowest_sequence + 1
+                    if self.highest_sequence is not None and self.lowest_sequence is not None
+                    else 0)
+        return {
+            "ssrc": self.ssrc, "direction": self.direction,
+            "packet_count": self.packet_count, "srtp_packets": self.srtp_packets,
+            "payload_types": self.payload_types,
+            "duplicate_count": self.duplicate_count,
+            "out_of_order_count": self.out_of_order_count,
+            "observed_sequence_holes": max(0, expected - len(self.seen_sequences)),
+            "jitter_ms": None,
+            "assessment": "Sequence holes are capture observations, not proven network loss. "
+                          "16-bit sequence extension assumes less than half a sequence space "
+                          "between observations; restarts/large gaps are ambiguous. "
+                          "Clock rate/codec negotiation is not resolved; jitter, latency and "
+                          "media quality are unavailable. SRTP payload is not decrypted.",
+        }
+
+
 class PacketObservation(BaseModel):
     timestamp: datetime | None = None
     src_ip: str
@@ -183,6 +215,12 @@ class PacketObservation(BaseModel):
     rtt_seconds: float | None = None
     initial_rtt_seconds: float | None = None
     issue_tags: list[str] = Field(default_factory=list)
+    rtp_ssrc: str | None = None
+    rtp_sequence: int | None = None
+    rtp_timestamp: int | None = None
+    rtp_payload_type: int | None = None
+    rtp_marker: int | None = None
+    srtp: bool = False
     esp_spi: str | None = None
     esp_sequence: int | None = None
     dns_query: str | None = None
@@ -348,6 +386,7 @@ _FLOW_PROTOCOL_ALIASES = {
 
 
 class FlowSummary(BaseModel):
+    rtp_streams: list[RtpStreamSummary] = Field(default_factory=list)
     key: FlowKey
     packet_details: list[PacketObservation] = Field(default_factory=list)
     deep_details: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -791,6 +830,7 @@ class CaptureSummary(BaseModel):
                             "one_way": flow.is_one_way,
                         },
                     },
+                    "rtp": {"streams": [stream.compact() for stream in flow.rtp_streams]},
                     "esp_spis": flow.esp_spis,
                     "esp_sequences": [
                         sequence.compact() for sequence in flow.esp_sequences

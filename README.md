@@ -3,7 +3,7 @@
 FlowPilot is an agentic data-flow troubleshooting tool for packet captures. It
 uses PyShark/TShark to extract network conversations and OpenAI-compatible LLM
 reasoning to diagnose transfer problems such as TCP retransmissions, UDP
-reachability, ESP/IPsec flows, one-way traffic, resets, zero windows, and possible
+reachability, RTP/SRTP media headers, ESP/IPsec flows, one-way traffic, resets, zero windows, and possible
 path issues. Optional LangGraph agent mode routes LLM reasoning and follow-up
 chat through a stateful workflow that can be extended with targeted rereads.
 
@@ -17,6 +17,9 @@ chat through a stateful workflow that can be extended with targeted rereads.
 - Extracts TLS certificate metadata observed in the capture when TShark exposes
   it, including subject, issuer, serial, validity, SAN DNS names, and SHA-256
   fingerprint.
+- Analyzes RTP/SRTP headers per direction and SSRC, including sequence holes,
+  duplicates, and reordering. Supports explicit media-port decoding and batched
+  deep evidence. See [RTP and SRTP media headers](#rtp-and-srtp-media-headers).
 - Extracts SIP call metadata such as call ID, caller, callee, methods, response
   statuses, and failure response issues when visible.
 - Extracts SMB/SMB2 metadata such as commands, NT status values, session/tree
@@ -326,11 +329,12 @@ use deep_tls_flow for flow id 2
 run deep tls flow for flow 2
 run deep_tcp_flow for flow 5
 for flow id 7 use deep_udp_flow
+run deep_rtp_flow for flow id 1
 run deep smb tool for flow 8
 ```
 
 The supported deep tools are `deep_tcp_flow`, `deep_udp_flow`, `deep_tls_flow`,
-and `deep_smb2_flow`. Spaced or hyphenated forms such as `deep tls flow`,
+`deep_smb2_flow`, `deep_esp_flow`, and `deep_rtp_flow`. Spaced or hyphenated forms such as `deep tls flow`,
 `deep-smb2-flow`, `deep smb2 tool`, and `deep smb tool` are also accepted.
 When one of those tool names appears with a Flow ID, LangGraph runs the tool
 first and sends the result back to the LLM as `additional_tool_evidence`.
@@ -418,7 +422,7 @@ Core options:
 | `--no-llm` | Only run local PyShark/TShark flow analysis. No metadata is sent to the LLM endpoint. |
 | `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
 | `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP/TLS/SMB2 rereads run only when the LLM requests an allow-listed tool. |
-| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2 rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
+| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2/ESP/RTP rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
 | `--json [PATH]` | Set the JSON output filename under `private/`. Fresh analysis saves automatically to `<capture>.json`. With `--load-summary`, nothing is saved unless `--json` is supplied. An output targeting the loaded source is redirected to a separate `.filtered.json` or `.reanalyzed.json` report, numbered if necessary, to preserve the source. |
@@ -430,6 +434,10 @@ Core options:
 | `--packet-limit INTEGER` | Stop reading after this many packets. Useful for quick checks on very large captures. |
 | `--tls-keylog-file PATH` | Pass a TLS key log file to TShark for decryption, usually an `SSLKEYLOGFILE` generated during capture. |
 | `--esp-udp-port [INTEGER]` | Decode UDP as UDPENCAP/ESP. Omit the integer for all UDP ports, or repeat with specific ports. |
+| `--rtp-udp-port INTEGER` | Decode a known UDP media port as RTP. Repeat for multiple ports; applies to initial reads and deep rereads. |
+| `--srtp-udp-port INTEGER` | Decode visible RTP headers on a known SRTP port and mark it as SRTP based on the explicit setting. Repeatable; does not decrypt media. |
+| `--offset INTEGER` | Starting zero-based matching-packet offset per flow/tool, including initial automatic evidence and saved previews. Default `0`; full-flow metrics remain unchanged. |
+| `--max-request INTEGER` | Maximum additional LLM-requested tool rounds per analysis/chat turn. Default `2`; `0` disables additional rounds. Initial automatic tools are separate. |
 | `--max-flows INTEGER` | Initial flow selection limit for LLM requests; chat additionally includes an explicitly requested Flow ID outside this limit. Does not limit `--json` output. Defaults to `25`. |
 | `--show-flows INTEGER` | Maximum flows shown in the terminal table. Does not limit `--json` output. Defaults to `10`. |
 
@@ -573,7 +581,7 @@ flowpilot analyze capture.pcap --load-detailed-summary --agent --chat
 Each saved flow contains `packet_details` (all selected extracted observations)
 and `deep_details` (complete supported tool results, without the 1,000-row storage
 limit). TCP captures include TCP, TLS, and SMB tool results; UDP captures include
-UDP and TLS/DTLS results; ESP captures include ESP results. Extraction failures
+UDP, TLS/DTLS, and RTP/SRTP header results; ESP captures include ESP results. Extraction failures
 are recorded explicitly and reported in the CLI. Unsupported protocols retain
 their packet observations but do not gain new deep-tool capabilities.
 
@@ -627,3 +635,45 @@ empty batch. No summary regeneration is needed.
 ```bash
 flowpilot analyze capture.pcap --load-summary --agent --agent-auto-tools --offset 5000 --max-request 2
 ```
+
+## RTP and SRTP media headers
+
+FlowPilot recognizes RTP/SRTP when TShark decodes it (for example, from captured
+SIP/SDP signaling). Media stays on its underlying **UDP Flow ID**; select it using
+`--protocol UDP`, endpoints, and ports. The RTP/SRTP Streams table and LLM metadata
+separate direction and SSRC, with packet counts, payload types, duplicates,
+out-of-order arrivals, and observed sequence holes. Directional rates retain the
+same whole-flow interval as other protocols.
+
+For captures without signaling, explicitly decode known media ports:
+
+```bash
+flowpilot analyze media.pcap --rtp-udp-port 5004 --agent --agent-auto-tools
+flowpilot analyze media.pcap --srtp-udp-port 5004 --detailed-summary --no-llm
+flowpilot analyze media.pcap --load-detailed-summary --agent --chat --offset 1000
+```
+
+Both port options are repeatable and require an integer. `--srtp-udp-port` means
+the user knows that port carries SRTP; it decodes visible RTP headers and labels
+that security assumption, without decrypting media. Do not force arbitrary UDP
+traffic to RTP. RTP/SRTP ports must not overlap ESP decode-as ports. Repeat decode
+options for actual PCAP rereads; successful saved deep details need no decode flags.
+
+`deep_rtp_flow` is available to the agent and explicit chat requests. It uses exact
+bidirectional address/port matching and preserves frame numbers, capture-relative
+times, SSRC, sequence, RTP timestamp, marker, and payload type. It supports the
+same 1,000-row batches, `--offset`, `--max-request`, and saved-detail retrieval as
+other tools. Detailed creation retains all extracted media header rows for UDP
+flows. It never extracts media payload bytes into the tool result.
+
+Sequence numbers wrap at 65,536. FlowPilot extends them to the nearest sequence
+cycle and reconciles late arrivals; restarts and gaps of half a sequence space or
+more remain ambiguous. Holes in the observed sequence range do not prove network
+loss. Dynamic payload types alone do not identify codec or clock rate. This version
+does not resolve clock rates, calculate RTP jitter/latency/MOS, decrypt SRTP, analyze
+RTCP reports, or support RTP over TCP. Missing SRTP detection does not prove cleartext.
+
+Existing summaries still load. Regenerate from the PCAP to populate new RTP stream
+metadata; old summaries can request `deep_rtp_flow` explicitly when the capture is
+available. Header definitions follow the [Wireshark RTP field reference](https://www.wireshark.org/docs/dfref/r/rtp.html)
+and [SRTP specification](https://www.rfc-editor.org/rfc/rfc3711.html).
