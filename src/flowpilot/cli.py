@@ -35,6 +35,7 @@ from .protocols.dhcp import render_dhcp_details
 from .protocols.dns import render_dns_details
 from .protocols.esp import format_esp_sequences
 from .protocols.ike import render_ike_details
+from .protocols.link_security import render_eapol_details, render_macsec_details
 from .protocols.rtp import render_rtp_details
 from .protocols.sip import render_sip_details
 from .protocols.smb import render_smb_details
@@ -183,7 +184,7 @@ def analyze(
         ),
     ] = None,
     host: Annotated[
-        str | None, typer.Option(help="Only include packets where this IP is either endpoint.")
+        str | None, typer.Option(help="Match this IP or MAC address at either endpoint.")
     ] = None,
     peer: Annotated[
         str | None,
@@ -199,10 +200,10 @@ def analyze(
         int | None, typer.Option(help="Only include packets where this TCP/UDP port appears.")
     ] = None,
     src: Annotated[
-        str | None, typer.Option(help="Only include packets from this source IP.")
+        str | None, typer.Option(help="Only include packets from this source IP or MAC address.")
     ] = None,
     dst: Annotated[
-        str | None, typer.Option(help="Only include packets to this destination IP.")
+        str | None, typer.Option(help="Only include packets to this destination IP or MAC address.")
     ] = None,
     src_port: Annotated[
         int | None, typer.Option(help="Only include packets from this TCP/UDP source port.")
@@ -640,6 +641,8 @@ def _render_summary(summary, *, show_flows: int) -> None:
             _format_flow_issues(flow),
         )
     console.print(table)
+    render_macsec_details(summary, show_flows=show_flows, console=console)
+    render_eapol_details(summary, show_flows=show_flows, console=console)
     render_ike_details(summary, show_flows=show_flows, console=console)
     render_rtp_details(summary, show_flows=show_flows, console=console)
     render_dns_details(summary, show_flows=show_flows, console=console)
@@ -1114,7 +1117,8 @@ def _format_agent_evidence_counts(evidence: dict) -> str:
         return _format_esp_agent_evidence_counts(evidence.get("esp_metadata_counts") or {})
 
     counts = (
-        evidence.get("ike_metadata_counts")
+        evidence.get("link_security_counts")
+        or evidence.get("ike_metadata_counts")
         or evidence.get("rtp_metadata_counts")
         or evidence.get("tcp_analysis_counts")
         or evidence.get("udp_metadata_counts")

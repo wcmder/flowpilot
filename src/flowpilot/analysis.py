@@ -71,7 +71,7 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         if packet.initial_rtt_seconds is not None:
             flow.initial_rtt_ms = packet.initial_rtt_seconds * 1000
 
-        is_src_to_dst = packet.src_ip == key.endpoint_a and (
+        is_src_to_dst = packet.source_endpoint == key.endpoint_a and (
             key.port_a is None or packet.src_port == key.port_a
         )
         detected = packet_protocols(packet)

@@ -235,12 +235,39 @@ class IkeSessionSummary(BaseModel):
     v2_responses: int = 0
 
 
+class LinkSecuritySummary(BaseModel):
+    packet_count: int = 0
+    fields: dict[str, dict[str, int]] = Field(default_factory=dict)
+    number_ranges: dict[str, list[int]] = Field(default_factory=dict)
+
+
 class PacketObservation(BaseModel):
+    src_mac: str | None = None
+    dst_mac: str | None = None
+    link_type: str | None = None
+    vlan_ids: tuple[int, ...] = ()
+    macsec_fields: dict[str, list[str]] = Field(default_factory=dict)
+    eapol_fields: dict[str, list[str]] = Field(default_factory=dict)
+
+    @property
+    def source_endpoint(self) -> str:
+        value = self.src_mac if self.protocol in {"MACSEC", "EAPOL"} else self.src_ip
+        if value is None:
+            raise ValueError("Packet has no source endpoint")
+        return value
+
+    @property
+    def destination_endpoint(self) -> str:
+        value = self.dst_mac if self.protocol in {"MACSEC", "EAPOL"} else self.dst_ip
+        if value is None:
+            raise ValueError("Packet has no destination endpoint")
+        return value
+
     decoded_protocols: list[str] = Field(default_factory=list)
     ike: IkePacketMetadata | None = None
     timestamp: datetime | None = None
-    src_ip: str
-    dst_ip: str
+    src_ip: str | None = None
+    dst_ip: str | None = None
     src_port: int | None = None
     dst_port: int | None = None
     protocol: str = "UNKNOWN"
@@ -299,6 +326,9 @@ class PacketObservation(BaseModel):
 
 
 class FlowKey(BaseModel, frozen=True):
+    address_type: str = "ip"
+    link_type: str | None = None
+    vlan_ids: tuple[int, ...] = ()
     endpoint_a: str
     endpoint_b: str
     port_a: int | None = None
@@ -317,8 +347,8 @@ class FlowKey(BaseModel, frozen=True):
                 protocol=packet.protocol,
             )
 
-        left = (packet.src_ip, packet.src_port)
-        right = (packet.dst_ip, packet.dst_port)
+        left = (packet.source_endpoint, packet.src_port)
+        right = (packet.destination_endpoint, packet.dst_port)
         if _endpoint_sort_key(left) <= _endpoint_sort_key(right):
             endpoint_a, port_a = left
             endpoint_b, port_b = right
@@ -326,6 +356,9 @@ class FlowKey(BaseModel, frozen=True):
             endpoint_a, port_a = right
             endpoint_b, port_b = left
         return cls(
+            address_type="mac" if packet.protocol in {"MACSEC", "EAPOL"} else "ip",
+            link_type=packet.link_type if packet.protocol in {"MACSEC", "EAPOL"} else None,
+            vlan_ids=packet.vlan_ids if packet.protocol in {"MACSEC", "EAPOL"} else (),
             endpoint_a=endpoint_a,
             endpoint_b=endpoint_b,
             port_a=port_a,
@@ -419,6 +452,8 @@ _FLOW_PROTOCOL_ALIASES = {
 
 
 class FlowSummary(BaseModel):
+    macsec: LinkSecuritySummary = Field(default_factory=LinkSecuritySummary)
+    eapol: LinkSecuritySummary = Field(default_factory=LinkSecuritySummary)
     decoded_protocols: list[str] = Field(default_factory=list)
     protocols_a_to_b: list[str] = Field(default_factory=list)
     protocols_b_to_a: list[str] = Field(default_factory=list)
@@ -800,6 +835,11 @@ class CaptureSummary(BaseModel):
                         },
                         "retrieval": "Use evidence_requests to read saved deep-tool batches.",
                     },
+                    "address_type": flow.key.address_type,
+                    "link_type": flow.key.link_type,
+                    "vlan_ids": flow.key.vlan_ids,
+                    "macsec": flow.macsec.model_dump() if flow.macsec.packet_count else {},
+                    "eapol": flow.eapol.model_dump() if flow.eapol.packet_count else {},
                     "protocol": flow.key.protocol,
                     "decoded_protocols": flow.decoded_protocols,
                     "endpoint_a": flow.key.endpoint_a,

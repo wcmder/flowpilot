@@ -10,6 +10,8 @@ chat through a stateful workflow that can be extended with targeted rereads.
 ## What it does
 
 - Reads `.pcap` / `.pcapng` files with PyShark.
+- Analyzes MACsec SecTAG and EAPOL/EAP/MKA headers using MAC-address flows,
+  including packets without an IP layer. See [MACsec and EAPOL](#macsec-and-eapol).
 - Aggregates packets into bidirectional flows.
 - Highlights top talkers, protocols, ports, DNS names, ESP SPIs, ESP sequence
   gaps/out-of-order/duplicate indicators, and TCP issue counters when TShark
@@ -338,7 +340,7 @@ run deep smb tool for flow 8
 ```
 
 The supported deep tools are `deep_tcp_flow`, `deep_udp_flow`, `deep_tls_flow`,
-`deep_smb2_flow`, `deep_esp_flow`, `deep_rtp_flow`, and `deep_ike_flow`. Spaced or hyphenated forms such as `deep tls flow`,
+`deep_smb2_flow`, `deep_esp_flow`, `deep_rtp_flow`, `deep_ike_flow`, `deep_macsec_flow`, and `deep_eapol_flow`. Spaced or hyphenated forms such as `deep tls flow`,
 `deep-smb2-flow`, `deep smb2 tool`, and `deep smb tool` are also accepted.
 When one of those tool names appears with a Flow ID, LangGraph runs the tool
 first and sends the result back to the LLM as `additional_tool_evidence`.
@@ -426,7 +428,7 @@ Core options:
 | `--no-llm` | Only run local PyShark/TShark flow analysis. No metadata is sent to the LLM endpoint. |
 | `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
 | `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP/TLS/SMB2 rereads run only when the LLM requests an allow-listed tool. |
-| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2/ESP/RTP/IKE rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
+| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2/ESP/RTP/IKE/MACsec/EAPOL rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
 | `--json [PATH]` | Set the JSON output filename under `private/`. Fresh analysis saves automatically to `<capture>.json`. With `--load-summary`, nothing is saved unless `--json` is supplied. An output targeting the loaded source is redirected to a separate `.filtered.json` or `.reanalyzed.json` report, numbered if necessary, to preserve the source. |
@@ -739,8 +741,8 @@ and [IKEv2 specification](https://www.rfc-editor.org/rfc/rfc7296.html).
 
 `--protocol NAME` matches decoded protocol presence, similar to entering a protocol
 name in Wireshark. It does not accept full display-filter expressions (`&&`, field
-comparisons, etc.). FlowPilot still analyzes IP conversations; this does not add
-non-IP/ARP analysis or dedicated deep tools for every dissector.
+comparisons, etc.). FlowPilot analyzes IP conversations and MACsec/EAPOL MAC-address flows; this does
+not add generic non-IP/ARP analysis or dedicated deep tools for every dissector.
 
 ```bash
 flowpilot analyze vpn.pcap --protocol IKEV2 --agent --agent-auto-tools
@@ -779,3 +781,58 @@ lack generic dissector names or directional evidence. Missing evidence does not
 match; regenerate from the capture for complete protocol filtering. Detailed packet
 observations can also supply evidence when present. Loading alone does not rewrite
 the summary.
+
+
+## MACsec and EAPOL
+
+`--protocol MACSEC`, `--protocol EAPOL`, and `--protocol MKA` select decoded
+MACsec, EAPOL, and MACsec Key Agreement traffic. `--protocol EAP` selects visible
+EAP within EAPOL. No IP layer is required. MACsec/EAPOL flows use the real source
+and destination MAC addresses, link type (Ethernet or WLAN), and VLAN stack;
+IP endpoints remain absent. MACsec is grouped by its outer MAC endpoints even
+if TShark exposes an inner packet. Existing IP flows retain their identities.
+
+```bash
+flowpilot analyze lan.pcap --protocol MACSEC --agent --agent-auto-tools
+flowpilot analyze lan.pcap --protocol EAPOL --detailed-summary --no-llm
+flowpilot analyze lan.pcap --load-detailed-summary --protocol MKA --agent --chat
+flowpilot analyze lan.pcap --protocol MACSEC --host 00:11:22:33:44:55 --no-llm
+```
+
+`--host`, `--peer`, `--src`, and `--dst` accept MAC addresses for these flows
+(case-insensitive colon notation). Port filters do not match MAC-address flows.
+Directional throughput and packet rates use the same whole-flow interval as IP
+flows. Throughput is observed frame traffic, not decrypted application goodput.
+
+The header tables and LLM metadata include:
+
+- **MACsec:** TCI flags (including encryption and SCI presence), association
+  number, SCI system/port identifiers when present, short length, and observed
+  packet-number range.
+- **EAPOL/EAP:** version, packet type, length, key-descriptor metadata/replay
+  counter range, EAP code/identifier/type, and decoded RSNA key-message number
+  and flags when available. EAP code `3`/`4` means observed Success/Failure.
+- **MKA:** version, key-server priority/role, MACsec capability/desire, SCI,
+  actor identifier/message-number range, association usage, and cipher-suite
+  identifiers when visible.
+
+`deep_macsec_flow` and `deep_eapol_flow` retain all allow-listed header rows and
+capture-relative timestamps, with normal 1,000-row batches, offsets, and request
+limits. Rereads bind the exact MAC pair in both directions and filter the complete
+VLAN stack. Detailed summaries save all these rows and can serve cached batches
+without the PCAP. Frame numbers and VLANs make the evidence traceable.
+
+Packet-number ranges are observations, not loss/replay calculations; rekey and
+multiple secure channels can affect them. Omitted SCI values remain unknown; XPN
+high bits are not reconstructed. EAP Success or MKA presence alone does not prove
+MACsec establishment. Multicast EAPOL and unicast peers remain separate flows;
+there is no automatic port-session/secure-channel correlation. The tool does not
+perform decryption or verify cryptographic integrity. Keys, wrapped keys, EAP
+identities/challenges/responses, authentication payload bytes, and raw protected
+payloads are excluded from extracted evidence.
+
+Regenerate old summaries to include non-IP packets previously skipped by the
+reader. Existing summaries remain loadable. Header definitions follow the
+[Wireshark MACsec](https://www.wireshark.org/docs/dfref/m/macsec.html),
+[EAPOL](https://www.wireshark.org/docs/dfref/e/eapol.html), and
+[MKA](https://www.wireshark.org/docs/dfref/m/mka.html) field references.

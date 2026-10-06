@@ -545,6 +545,9 @@ def _with_saved_evidence(
                     "port_a", "port_b",
                 )
             }
+            if metadata.get("address_type") == "mac":
+                batch["target_flow"].update({key: metadata[key] for key in
+                                             ("address_type", "link_type", "vlan_ids")})
             result.append(batch)
     return result
 
@@ -1229,7 +1232,7 @@ def _present_protocol_registry_names(
 def _add_flow_protocol_metadata(present: set[str], flow: dict[str, Any]) -> None:
     registry_aliases = {"isakmp": "ike", "ikev1": "ike", "ikev2": "ike",
                         "srtp": "rtp", "dtls": "tls", "ssl": "tls",
-                        "smb2": "smb", "bootp": "dhcp"}
+                        "smb2": "smb", "bootp": "dhcp", "mka": "eapol", "eap": "eapol"}
     for decoded in flow.get("decoded_protocols", []):
         name = str(decoded).lower()
         name = registry_aliases.get(name, name)
@@ -1239,7 +1242,7 @@ def _add_flow_protocol_metadata(present: set[str], flow: dict[str, Any]) -> None
         present.add("tls")
     if flow.get("esp_spis") or flow.get("esp_sequences"):
         present.add("esp")
-    for name in ("sip", "smb", "dns", "dhcp", "rtp", "ike"):
+    for name in ("sip", "smb", "dns", "dhcp", "rtp", "ike", "macsec", "eapol"):
         metadata = flow.get(name)
         if isinstance(metadata, dict) and any(
             _metadata_value_present(value) for value in metadata.values()

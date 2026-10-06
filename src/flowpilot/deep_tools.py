@@ -96,6 +96,8 @@ def run_deep_tool(
 
 
 _SAMPLE_KEYS = {
+    "deep_macsec_flow": "link_header_samples",
+    "deep_eapol_flow": "link_header_samples",
     "deep_ike_flow": "ike_header_samples",
     "deep_rtp_flow": "rtp_header_samples",
     "deep_tcp_flow": "tcp_header_samples",
@@ -112,6 +114,8 @@ def collect_flow_details(capture_path: Path, flow: FlowSummary, flow_id: int) ->
         "TCP": ("deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow"),
         "UDP": ("deep_udp_flow", "deep_tls_flow", "deep_rtp_flow", "deep_ike_flow"),
         "ESP": ("deep_esp_flow",),
+        "MACSEC": ("deep_macsec_flow",),
+        "EAPOL": ("deep_eapol_flow",),
     }.get(flow.key.protocol, ())
     for tool in tools:
         try:
@@ -163,6 +167,8 @@ def _deep_tool_aliases(tool_name: str) -> tuple[str, ...]:
 
 def _deep_tool_priority(tool_name: str) -> int:
     return {
+        "deep_macsec_flow": -4,
+        "deep_eapol_flow": -3,
         "deep_ike_flow": -2,
         "deep_rtp_flow": -1,
         "deep_tls_flow": 0,

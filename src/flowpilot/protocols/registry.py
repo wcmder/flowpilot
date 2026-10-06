@@ -8,6 +8,39 @@ from .base import ProtocolModule
 
 PROTOCOLS: tuple[ProtocolModule, ...] = (
     ProtocolModule(
+        name="macsec", display_name="MACSEC", flow_attributes=("macsec",),
+        extract_hook="flowpilot.protocols.link_security.extract_macsec",
+        record_hook="flowpilot.protocols.link_security.record_macsec",
+        render_hook="flowpilot.protocols.link_security.render_macsec_details",
+        compact_metadata_key="macsec", deep_tools=("deep_macsec_flow",),
+        deep_tool_runner_hooks=("flowpilot.protocols.link_security.deep_macsec_flow",),
+        deep_reason_hook="flowpilot.protocols.link_security.deep_macsec_reason",
+        deep_tool_prompt="Use deep_macsec_flow for visible link-security headers and frame times.",
+        transport_prompt=("Link-security endpoints are MAC addresses, not IPs. Do not infer "
+                          "loss/replay from PN ranges or integrity from SecTAG presence. "
+                          "EAPOL/MKA multicast flows are not automatically paired with unicast "
+                          "traffic. EAP Success/Failure is observed status, not proof of MACsec "
+                          "establishment. Encrypted contents and keys remain unavailable."),
+        notes="Visible headers only; no credentials, keys or encrypted payload extraction.",
+    ),
+    ProtocolModule(
+        name="eapol", display_name="EAPOL", flow_attributes=("eapol",),
+        extract_hook="flowpilot.protocols.link_security.extract_eapol",
+        record_hook="flowpilot.protocols.link_security.record_eapol",
+        render_hook="flowpilot.protocols.link_security.render_eapol_details",
+        compact_metadata_key="eapol", deep_tools=("deep_eapol_flow",),
+        deep_tool_runner_hooks=("flowpilot.protocols.link_security.deep_eapol_flow",),
+        deep_reason_hook="flowpilot.protocols.link_security.deep_eapol_reason",
+        deep_tool_prompt="Use deep_eapol_flow for visible link-security headers and frame times.",
+        transport_prompt=("Link-security endpoints are MAC addresses, not IPs. Do not infer "
+                          "loss/replay from PN ranges or integrity from SecTAG presence. "
+                          "EAPOL/MKA multicast flows are not automatically paired with unicast "
+                          "traffic. EAP Success/Failure is observed status, not proof of MACsec "
+                          "establishment. Encrypted contents and keys remain unavailable."),
+        notes="Visible headers only; no credentials, keys or encrypted payload extraction.",
+    ),
+
+    ProtocolModule(
         name="ike", display_name="IKEv1/IKEv2", flow_attributes=("ike_sessions",),
         extract_hook="flowpilot.protocols.ike.extract_ike",
         record_hook="flowpilot.protocols.ike.record_ike",

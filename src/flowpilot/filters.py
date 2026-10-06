@@ -39,7 +39,8 @@ class FlowFilter:
 
     def matches(self, packet: PacketObservation) -> bool:
         return (not self.protocol or canonical(self.protocol) in packet_protocols(packet)) and (
-            self._matches_endpoints(packet.src_ip, packet.dst_ip, packet.src_port, packet.dst_port)
+            self._matches_endpoints(packet.source_endpoint, packet.destination_endpoint,
+                                    packet.src_port, packet.dst_port)
         )
 
     @property
@@ -66,15 +67,21 @@ class FlowFilter:
     def _matches_endpoints(
         self, src: str, dst: str, src_port: int | None, dst_port: int | None
     ) -> bool:
-        if self.host and self.host not in (src, dst):
+        is_mac = bool(re.fullmatch(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", src))
+        if is_mac:
+            src, dst = src.lower(), dst.lower()
+
+        def normalize(value):
+            return value.lower() if is_mac and value else value
+        if self.host and normalize(self.host) not in (src, dst):
             return False
-        if self.peer and self.peer not in (src, dst):
+        if self.peer and normalize(self.peer) not in (src, dst):
             return False
-        if self.host and self.peer and {src, dst} != {self.host, self.peer}:
+        if self.host and self.peer and {src, dst} != {normalize(self.host), normalize(self.peer)}:
             return False
-        if self.src and src != self.src:
+        if self.src and src != normalize(self.src):
             return False
-        if self.dst and dst != self.dst:
+        if self.dst and dst != normalize(self.dst):
             return False
         if self.port is not None and self.port not in (src_port, dst_port):
             return False

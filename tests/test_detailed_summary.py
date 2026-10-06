@@ -125,6 +125,8 @@ def test_cli_saves_selected_packet_details_and_loads_without_capture(tmp_path, m
     ("ESP", "deep_esp_flow", "esp_deep_samples"),
     ("UDP", "deep_rtp_flow", "rtp_header_samples"),
     ("UDP", "deep_ike_flow", "ike_header_samples"),
+    ("MACSEC", "deep_macsec_flow", "link_header_samples"),
+    ("EAPOL", "deep_eapol_flow", "link_header_samples"),
 ])
 def test_provider_receives_saved_preview_not_entire_large_snapshot(
     monkeypatch, protocol, tool, samples,
@@ -132,6 +134,9 @@ def test_provider_receives_saved_preview_not_entire_large_snapshot(
     from flowpilot.models import FlowKey, FlowSummary
 
     flow = FlowSummary(key=FlowKey(endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol=protocol))
+    if protocol in {"MACSEC", "EAPOL"}:
+        flow.key = FlowKey(endpoint_a="00:11:22:33:44:55", endpoint_b="00:aa:bb:cc:dd:ee",
+                           protocol=protocol, address_type="mac", link_type="eth")
     flow.deep_details[tool] = {
         "tool": tool, "flow_id": 99, "status": "ok", "packet_count": 2005,
         samples: [{"frame.number": str(i)} for i in range(1, 2006)],
@@ -155,6 +160,9 @@ def test_provider_receives_saved_preview_not_entire_large_snapshot(
     assert evidence["source"] == "saved_summary"
     assert evidence["flow_id"] == 1
     assert evidence["target_flow"]["flow_id"] == 1
+    if protocol in {"MACSEC", "EAPOL"}:
+        assert evidence["target_flow"]["address_type"] == "mac"
+        assert evidence["target_flow"]["endpoint_a"] == "00:11:22:33:44:55"
     assert len(evidence[samples]) == 1000
     assert evidence["batch"]["next_offset"] == 1000
     assert "deep_details" not in context["summary"]["top_flows"][0]

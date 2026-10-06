@@ -69,13 +69,31 @@ def _tshark_custom_parameters(tls_keylog_file: Path | None) -> list[str] | None:
 
 def packet_to_observation(packet: Any) -> PacketObservation | None:
     src_ip, dst_ip = _ip_pair(packet)
-    if not src_ip or not dst_ip:
-        return None
-
-    protocol = _transport_protocol(packet)
-    src_port, dst_port = _ports(packet, protocol)
+    link_protocol = ("MACSEC" if hasattr(packet, "macsec") else
+                     "EAPOL" if hasattr(packet, "eapol") else None)
+    link_type = "eth" if hasattr(packet, "eth") else "wlan"
+    link = getattr(packet, link_type, None)
+    source = getattr(link, "src" if link_type == "eth" else "sa", None)
+    destination = getattr(link, "dst" if link_type == "eth" else "da", None)
+    src_mac = str(source).lower() if source is not None else None
+    dst_mac = str(destination).lower() if destination is not None else None
+    if link_protocol:
+        if not src_mac or not dst_mac:
+            return None
+        protocol, src_port, dst_port = link_protocol, None, None
+        src_ip, dst_ip = None, None
+    else:
+        if not src_ip or not dst_ip:
+            return None
+        protocol = _transport_protocol(packet)
+        src_port, dst_port = _ports(packet, protocol)
+    vlan = getattr(getattr(packet, "vlan", None), "id", None)
+    vlan_ids = tuple(int(v.show) for v in getattr(vlan, "all_fields", [])
+                     if str(getattr(v, "show", "")).isdigit())
 
     observation_fields = {
+        "src_mac": src_mac, "dst_mac": dst_mac,
+        "link_type": link_type if link_protocol else None, "vlan_ids": vlan_ids,
         "timestamp": _timestamp(packet),
         "src_ip": src_ip,
         "dst_ip": dst_ip,
@@ -93,6 +111,8 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
     }
     helpers = _extract_helpers(src_ip=src_ip, src_port=src_port, protocol=protocol)
     for extract_protocol in PROTOCOL_EXTRACT_HOOKS:
+        if link_protocol and extract_protocol.__module__ != "flowpilot.protocols.link_security":
+            continue
         _merge_extracted_fields(observation_fields, extract_protocol(packet, helpers))
     return PacketObservation(**observation_fields)
 

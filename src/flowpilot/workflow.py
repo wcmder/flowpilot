@@ -625,6 +625,8 @@ def _tool_target_flow(flow_id: int, flow: FlowSummary) -> dict[str, Any]:
     return {
         "flow_id": flow_id,
         "flow_label": _flow_label(flow),
+        **({"address_type": "mac", "vlan_ids": flow.key.vlan_ids,
+            "link_type": flow.key.link_type} if flow.key.address_type == "mac" else {}),
         "protocol": flow.key.protocol,
         "endpoint_a": flow.key.endpoint_a,
         "port_a": flow.key.port_a,

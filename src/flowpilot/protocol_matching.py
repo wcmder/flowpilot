@@ -18,6 +18,8 @@ def expanded(names) -> set[str]:
         result.add("IKE")
     if "SRTP" in result:
         result.add("RTP")
+    if "MKA" in result:
+        result.add("EAPOL")
     if "SMB2" in result:
         result.add("SMB")
     return result
@@ -25,6 +27,14 @@ def expanded(names) -> set[str]:
 
 def packet_protocols(packet: PacketObservation) -> set[str]:
     names = expanded([packet.protocol, *packet.decoded_protocols])
+    if packet.macsec_fields:
+        names.add("MACSEC")
+    if packet.eapol_fields:
+        names.add("EAPOL")
+        if any(k.startswith("mka.") for k in packet.eapol_fields):
+            names.add("MKA")
+        if any(k.startswith("eap.") for k in packet.eapol_fields):
+            names.add("EAP")
     if packet.ike is not None:
         names.update(("IKE", f"IKEV{packet.ike.version >> 4}"))
     if packet.rtp_ssrc is not None:
@@ -53,7 +63,7 @@ def flow_protocols(flow: FlowSummary, direction: int | None = None) -> set[str]:
     else:
         names.update(expanded(flow.protocols_a_to_b if direction == 0 else flow.protocols_b_to_a))
     for packet in flow.packet_details:
-        packet_direction = int(not (packet.src_ip == flow.key.endpoint_a and
+        packet_direction = int(not (packet.source_endpoint == flow.key.endpoint_a and
                                    (flow.key.port_a is None or packet.src_port == flow.key.port_a)))
         if direction is None or packet_direction == direction:
             names.update(packet_protocols(packet))

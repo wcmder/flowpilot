@@ -71,8 +71,10 @@ def parse_field_rows(output: str, fields: list[str]) -> list[dict[str, str]]:
             field: values[index] if index < len(values) else ""
             for index, field in enumerate(fields)
         }
-        row["src"] = row["ip.src"] or row["ipv6.src"]
-        row["dst"] = row["ip.dst"] or row["ipv6.dst"]
+        row["src"] = (row.get("ip.src") or row.get("ipv6.src") or
+                      row.get("eth.src") or row.get("wlan.sa", ""))
+        row["dst"] = (row.get("ip.dst") or row.get("ipv6.dst") or
+                      row.get("eth.dst") or row.get("wlan.da", ""))
         rows.append({key: value for key, value in row.items() if value != ""})
     return rows
 

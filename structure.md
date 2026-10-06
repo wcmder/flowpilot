@@ -360,4 +360,34 @@ not verified by that review.
   observations when available; missing protocol/direction evidence is unavailable,
   not an implicit match. Explain whole-flow semantics and regeneration needs.
 - This is protocol-name filtering, not arbitrary Wireshark expression evaluation;
-  reject expressions clearly. Non-IP analysis and extra deep tools are not implied.
+  reject expressions clearly. Generic non-IP analysis and extra deep tools are not implied; MACsec/EAPOL
+  are explicitly supported MAC-address flows.
+
+
+## Must: MACsec and EAPOL link-security flows
+
+- Include decoded MACsec and EAPOL without an IP layer. Store actual MAC endpoints,
+  link type and VLAN stack; do not invent IP addresses or overload IP fields with
+  MAC strings. FlowKey address type is explicit. Existing IP identities remain
+  compatible. MACsec outer MAC identity takes precedence over decoded inner IP.
+- Match MAC addresses case-insensitively in endpoint filters. Preserve A/B ordering,
+  shared directional rates, source timestamps, and protocol-presence filtering.
+  MACsec/EAPOL port values are absent; their flows must not match port filters.
+- Register MACsec/EAPOL extract/record/render/deep hooks. EAP and MKA decoded tags
+  must be directly filterable under EAPOL; do not equate MKA control with MACsec data.
+- Deep filters bind complete Ethernet or WLAN MAC pairs in both directions and
+  require the correct protocol layer. Enforce exact ordered VLAN-stack matching
+  before counting/paging rows so identical addresses on different VLANs stay separate.
+- Extract allow-listed SecTAG/SCI/AN/PN, EAPOL/EAP status, and MKA public-header
+  fields. Do not extract raw payloads, keys (including wrapped keys), credentials,
+  EAP identities/challenge-response bytes, or authentication material. MACsec/EAPOL
+  capture paths must not invoke unrelated inner-protocol extraction hooks.
+- Header counts and number ranges cannot prove packet loss, replay, authentication,
+  integrity or secure-channel establishment. Omitted SCI/XPN bits remain unknown.
+  Multicast and unicast flows are not automatically correlated; packet-number ranges
+  may span rekeys/channels. Preserve detail locally and state these limitations.
+- Apply normal saved/detailed summaries, evidence persistence, 1,000-row batching,
+  offsets and request budgets. Label MAC endpoints in compact/provider/tool metadata.
+- Verify real TShark Ethernet MACsec, EAPOL, MKA, WLAN EAPOL, VLAN separation,
+  payload exclusion, cached pagination, CLI saves, and mocked provider context.
+  Older summaries require regeneration for previously skipped non-IP frames.
