@@ -82,6 +82,10 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         "src_port": src_port,
         "dst_port": dst_port,
         "protocol": protocol,
+        "decoded_protocols": sorted({
+            str(layer.layer_name).upper() for layer in getattr(packet, "layers", [])
+            if getattr(layer, "layer_name", None)
+        }),
         "length": _safe_int(getattr(packet, "length", 0)) or 0,
         "issue_tags": [],
         "http_host": _layer_attr(packet, "http", "host"),

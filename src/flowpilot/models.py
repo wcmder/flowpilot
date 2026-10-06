@@ -236,6 +236,7 @@ class IkeSessionSummary(BaseModel):
 
 
 class PacketObservation(BaseModel):
+    decoded_protocols: list[str] = Field(default_factory=list)
     ike: IkePacketMetadata | None = None
     timestamp: datetime | None = None
     src_ip: str
@@ -418,6 +419,9 @@ _FLOW_PROTOCOL_ALIASES = {
 
 
 class FlowSummary(BaseModel):
+    decoded_protocols: list[str] = Field(default_factory=list)
+    protocols_a_to_b: list[str] = Field(default_factory=list)
+    protocols_b_to_a: list[str] = Field(default_factory=list)
     ike_sessions: list[IkeSessionSummary] = Field(default_factory=list)
     rtp_streams: list[RtpStreamSummary] = Field(default_factory=list)
     key: FlowKey
@@ -797,6 +801,7 @@ class CaptureSummary(BaseModel):
                         "retrieval": "Use evidence_requests to read saved deep-tool batches.",
                     },
                     "protocol": flow.key.protocol,
+                    "decoded_protocols": flow.decoded_protocols,
                     "endpoint_a": flow.key.endpoint_a,
                     "port_a": flow.key.port_a,
                     "endpoint_b": flow.key.endpoint_b,

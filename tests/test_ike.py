@@ -7,6 +7,7 @@ from flowpilot.analysis import summarize_capture
 from flowpilot.capture import read_capture
 from flowpilot.decode_as import set_esp_udp_ports, set_rtp_udp_ports
 from flowpilot.deep_tools import collect_flow_details, deep_tool_requests_for_flow, run_deep_tool
+from flowpilot.filters import FlowFilter
 from flowpilot.models import CaptureSummary, FlowKey, FlowSummary
 from flowpilot.protocols.deep_common import tshark_path
 from flowpilot.protocols.ike import deep_ike_flow
@@ -70,6 +71,9 @@ def test_real_ike_versions_natt_excludes_esp_and_keepalives(tmp_path, version, f
     observations = list(read_capture(path))
     packet = observations[0]
     assert packet.protocol == "UDP"
+    assert FlowFilter(protocol="ike").matches(packet)
+    assert FlowFilter(protocol=f"ikev{version >> 4}").matches(packet)
+    assert not FlowFilter(protocol=f"ikev{3 - (version >> 4)}").matches(packet)
     assert packet.ike.version == version
     assert packet.ike.message_id == 0
     assert packet.ike.notify_types == [14, 24]

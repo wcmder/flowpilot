@@ -343,3 +343,21 @@ not verified by that review.
   and fragment headers, proposal fields, exact filters, saved batches, and mocked
   provider payloads. Document unsupported SA correlation, retransmission/RTT
   calculation, decryption, and nonstandard direct-IKE port decoding.
+
+
+## Must: direct decoded-protocol filtering
+
+- `--protocol` must match one case-insensitive decoded protocol name, independently
+  of transport FlowKey identity. Preserve all decoded layer names on observations
+  and their union per flow and A/B direction in new saved summaries.
+- Support IKE/ISAKMP, IKEV1/IKEV2, RTP/SRTP, DNS, DHCP/BOOTP, SIP, TLS/SSL, DTLS,
+  SMB family/SMB2, plus generic recorded dissector names. Do not infer a protocol
+  solely from its port. Explicit SRTP decoding remains user-supplied knowledge.
+- Fresh filtering is packet-level; loaded filtering selects whole flows and
+  retains counters. For directional filters, protocol presence and endpoint/port
+  pairing must match the same direction. Do not borrow reverse-direction evidence.
+- Old summaries remain readable. Use recorded protocol metadata or detailed
+  observations when available; missing protocol/direction evidence is unavailable,
+  not an implicit match. Explain whole-flow semantics and regeneration needs.
+- This is protocol-name filtering, not arbitrary Wireshark expression evaluation;
+  reject expressions clearly. Non-IP analysis and extra deep tools are not implied.

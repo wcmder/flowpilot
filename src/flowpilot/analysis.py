@@ -10,6 +10,7 @@ from .models import (
     PacketObservation,
     counter_to_sorted_dict,
 )
+from .protocol_matching import packet_protocols
 from .protocols.registry import record_hooks
 
 PROTOCOL_RECORD_HOOKS = record_hooks()
@@ -73,6 +74,12 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         is_src_to_dst = packet.src_ip == key.endpoint_a and (
             key.port_a is None or packet.src_port == key.port_a
         )
+        detected = packet_protocols(packet)
+        flow.decoded_protocols = sorted(set(flow.decoded_protocols) | detected)
+        if is_src_to_dst:
+            flow.protocols_a_to_b = sorted(set(flow.protocols_a_to_b) | detected)
+        else:
+            flow.protocols_b_to_a = sorted(set(flow.protocols_b_to_a) | detected)
         if is_src_to_dst:
             flow.src_to_dst_packets += 1
             flow.src_to_dst_bytes += packet.length

@@ -1227,6 +1227,14 @@ def _present_protocol_registry_names(
 
 
 def _add_flow_protocol_metadata(present: set[str], flow: dict[str, Any]) -> None:
+    registry_aliases = {"isakmp": "ike", "ikev1": "ike", "ikev2": "ike",
+                        "srtp": "rtp", "dtls": "tls", "ssl": "tls",
+                        "smb2": "smb", "bootp": "dhcp"}
+    for decoded in flow.get("decoded_protocols", []):
+        name = str(decoded).lower()
+        name = registry_aliases.get(name, name)
+        if name in PROTOCOL_REGISTRY:
+            present.add(name)
     if flow.get("tls_certificates") or flow.get("tls_snis") or flow.get("tls_alerts"):
         present.add("tls")
     if flow.get("esp_spis") or flow.get("esp_sequences"):

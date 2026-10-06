@@ -190,7 +190,10 @@ def analyze(
         typer.Option(help="Use with --host to isolate traffic between two endpoints."),
     ] = None,
     protocol: Annotated[
-        str | None, typer.Option(help="Only include this protocol, for example tcp, udp, esp.")
+        str | None, typer.Option(help=(
+            "Match a decoded protocol name, e.g. tcp, esp, ike, ikev2, rtp, dns, tls, smb. "
+            "One name, not a Wireshark display-filter expression."
+        ))
     ] = None,
     port: Annotated[
         int | None, typer.Option(help="Only include packets where this TCP/UDP port appears.")
@@ -352,6 +355,8 @@ def analyze(
             "--detailed-summary builds details from a PCAP; omit both loading options. "
             "Use --load-detailed-summary to load existing detailed JSON."
         )
+    if protocol and not re.fullmatch(r"[A-Za-z0-9_.-]+", protocol):
+        raise typer.BadParameter("--protocol accepts one decoded protocol name, not an expression.")
     source_capture_path_for_json = original_capture_path
     effective_json_path = json_path or _default_summary_path_for_capture(original_capture_path)
     if detailed_summary:
@@ -751,6 +756,12 @@ def _apply_summary_filters(
     flows = summary.flows
     if flow_filter.is_active:
         _info("Applying flow filters to loaded summary.")
+        if flow_filter.protocol:
+            _info(
+                "Protocol filters select whole saved flows using recorded protocol evidence; "
+                "all saved counters are retained. Older summaries may lack protocol or "
+                "direction evidence. Reread the PCAP for packet-level protocol filtering."
+            )
         if flow_filter.is_directional:
             _info(
                 "Directional filters select whole saved flows with matching observed "

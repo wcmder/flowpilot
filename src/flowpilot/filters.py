@@ -7,6 +7,7 @@ from ipaddress import ip_address
 from urllib.parse import urlparse
 
 from .models import FlowSummary, PacketObservation
+from .protocol_matching import canonical, flow_protocols, packet_protocols
 
 
 @dataclass(frozen=True)
@@ -37,8 +38,8 @@ class FlowFilter:
         )
 
     def matches(self, packet: PacketObservation) -> bool:
-        return self._matches_endpoints(
-            packet.protocol, packet.src_ip, packet.dst_ip, packet.src_port, packet.dst_port
+        return (not self.protocol or canonical(self.protocol) in packet_protocols(packet)) and (
+            self._matches_endpoints(packet.src_ip, packet.dst_ip, packet.src_port, packet.dst_port)
         )
 
     @property
@@ -56,15 +57,15 @@ class FlowFilter:
         )
         return any(
             (not self.is_directional or packets > 0)
-            and self._matches_endpoints(key.protocol, src, dst, src_port, dst_port)
-            for src, dst, src_port, dst_port, packets in directions
+            and (not self.protocol or canonical(self.protocol) in
+                 flow_protocols(flow, index if self.is_directional else None))
+            and self._matches_endpoints(src, dst, src_port, dst_port)
+            for index, (src, dst, src_port, dst_port, packets) in enumerate(directions)
         )
 
     def _matches_endpoints(
-        self, protocol: str, src: str, dst: str, src_port: int | None, dst_port: int | None
+        self, src: str, dst: str, src_port: int | None, dst_port: int | None
     ) -> bool:
-        if self.protocol and protocol.upper() != self.protocol.upper():
-            return False
         if self.host and self.host not in (src, dst):
             return False
         if self.peer and self.peer not in (src, dst):

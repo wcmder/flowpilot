@@ -460,7 +460,7 @@ Local packet filters:
 | `--peer IP` | Bidirectional | Use with `--host` to isolate traffic between two endpoints. |
 | `--src IP` | One-way | Include packets from this source IP only. |
 | `--dst IP` | One-way | Include packets to this destination IP only. |
-| `--protocol TEXT` | Either | Include only this protocol, for example `tcp`, `udp`, `esp`, `ah`, `gre`, or `icmp`. |
+| `--protocol TEXT` | Either | Match one decoded protocol name, e.g. `tcp`, `udp`, `esp`, `ike`, `ikev1`, `ikev2`, `rtp`, `srtp`, `dns`, `sip`, `tls`, `dtls`, `smb`, or `quic`. Case-insensitive; see protocol filtering below. |
 | `--port INTEGER` | Either | Include packets where this TCP/UDP source or destination port appears. |
 | `--src-port INTEGER` | One-way | Include packets from this TCP/UDP source port only. |
 | `--dst-port INTEGER` | One-way | Include packets to this TCP/UDP destination port only. |
@@ -643,8 +643,8 @@ flowpilot analyze capture.pcap --load-summary --agent --agent-auto-tools --offse
 ## RTP and SRTP media headers
 
 FlowPilot recognizes RTP/SRTP when TShark decodes it (for example, from captured
-SIP/SDP signaling). Media stays on its underlying **UDP Flow ID**; select it using
-`--protocol UDP`, endpoints, and ports. The RTP/SRTP Streams table and LLM metadata
+SIP/SDP signaling). Media stays on its underlying **UDP Flow ID**; select it directly
+using `--protocol RTP` or `--protocol SRTP`, plus endpoints and ports. The RTP/SRTP Streams table and LLM metadata
 separate direction and SSRC, with packet counts, payload types, duplicates,
 out-of-order arrivals, and observed sequence holes. Directional rates retain the
 same whole-flow interval as other protocols.
@@ -687,10 +687,11 @@ and [SRTP specification](https://www.rfc-editor.org/rfc/rfc3711.html).
 
 FlowPilot recognizes TShark's ISAKMP/IKE layer, normally on UDP/500 and NAT-T
 UDP/4500. IKE remains on its **UDP Flow ID**, separately from ESP traffic. Use
-`--protocol UDP` and endpoint/port filters; `--protocol IKE` is not a flow filter.
+`--protocol IKE` for both versions, or `--protocol IKEV1` / `--protocol IKEV2`,
+combined with endpoint/port filters.
 
 ```bash
-flowpilot analyze vpn.pcap --host 10.0.0.1 --peer 10.0.0.2 --protocol UDP --agent --agent-auto-tools
+flowpilot analyze vpn.pcap --host 10.0.0.1 --peer 10.0.0.2 --protocol IKE --agent --agent-auto-tools
 flowpilot analyze vpn.pcap --protocol UDP --port 4500 --detailed-summary --no-llm
 flowpilot analyze vpn.pcap --load-detailed-summary --agent --chat --offset 1000 --max-request 2
 ```
@@ -732,3 +733,49 @@ decode-as flag is provided. For nonstandard UDPENCAP ports, the existing explici
 References: [Wireshark ISAKMP fields](https://www.wireshark.org/docs/dfref/i/isakmp.html),
 [IKEv1/ISAKMP header specification](https://www.rfc-editor.org/rfc/rfc2408.html),
 and [IKEv2 specification](https://www.rfc-editor.org/rfc/rfc7296.html).
+
+
+## Direct protocol filtering
+
+`--protocol NAME` matches decoded protocol presence, similar to entering a protocol
+name in Wireshark. It does not accept full display-filter expressions (`&&`, field
+comparisons, etc.). FlowPilot still analyzes IP conversations; this does not add
+non-IP/ARP analysis or dedicated deep tools for every dissector.
+
+```bash
+flowpilot analyze vpn.pcap --protocol IKEV2 --agent --agent-auto-tools
+flowpilot analyze media.pcap --protocol SRTP --srtp-udp-port 5004 --no-llm
+flowpilot analyze capture.pcap --protocol DNS --no-llm
+flowpilot analyze capture.pcap --protocol TLS --no-llm
+flowpilot analyze capture.pcap --load-summary --protocol IKE
+```
+
+Names are case-insensitive. TCP/UDP/ESP/AH/GRE/ICMP/ICMPV6 still work. Other
+TShark-decoded layer names such as QUIC, HTTP2, IP, and IPV6 are retained on newly
+analyzed packets. Recognized families/aliases include:
+
+| Name | Matches |
+| --- | --- |
+| `IKE`, `ISAKMP` | Decoded IKE, either version |
+| `IKEV1`, `IKEV2` | The corresponding observed IKE header version |
+| `RTP` | RTP headers, including recognized SRTP |
+| `SRTP` | SRTP detected by the dissector or explicitly marked with `--srtp-udp-port` |
+| `SMB` | SMB family, including SMB2/SMB3 dissections |
+| `SMB2` | The `smb2` dissector layer |
+| `DHCP`, `BOOTP` | DHCP/BOOTP dissections or extracted DHCP metadata |
+| `TLS`, `SSL` | TLS/SSL; DTLS remains separately selectable as `DTLS` |
+| `IPV4` | The `ip` dissector layer |
+
+Filters use observed layers/metadata, not port-number guesses. A fresh read selects
+matching packets: for example, TLS-only filtering can omit TCP handshake packets.
+Flow IDs and labels continue to use their underlying transport. `--protocol UDP`
+can include UDP-encapsulated ESP when the UDP layer is present.
+
+On load, filters select **whole saved flows**, retaining both directions and all
+saved counters. New summaries save detected protocols per direction. A directional
+filter must match protocol and endpoints in the same observed direction. Old
+summaries can infer supported application presence from existing metadata, but may
+lack generic dissector names or directional evidence. Missing evidence does not
+match; regenerate from the capture for complete protocol filtering. Detailed packet
+observations can also supply evidence when present. Loading alone does not rewrite
+the summary.

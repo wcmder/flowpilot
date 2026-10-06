@@ -8,6 +8,7 @@ from flowpilot.analysis import summarize_capture
 from flowpilot.capture import read_capture
 from flowpilot.decode_as import set_esp_udp_ports, set_rtp_udp_ports
 from flowpilot.deep_tools import collect_flow_details, deep_tool_requests_for_flow, run_deep_tool
+from flowpilot.filters import FlowFilter
 from flowpilot.models import CaptureSummary, FlowKey, FlowSummary, PacketObservation
 from flowpilot.protocols.deep_common import tshark_path
 from flowpilot.protocols.rtp import deep_rtp_flow
@@ -71,6 +72,8 @@ def test_real_rtp_capture_deep_batches_and_saved_details(tmp_path, family, secur
     assert observations[0].rtp_sequence == 0
     assert observations[0].rtp_timestamp == 0
     assert observations[0].srtp is secure
+    assert FlowFilter(protocol="rtp").matches(observations[0])
+    assert FlowFilter(protocol="srtp").matches(observations[0]) is secure
     flow = FlowSummary(key=FlowKey(endpoint_a=a, endpoint_b=b, port_a=5000, port_b=6000,
                                    protocol="UDP"))
     result = deep_rtp_flow(path, flow_id=1, flow=flow, reason="test", sample_offset=1000)
