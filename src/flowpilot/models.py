@@ -204,7 +204,39 @@ class RtpStreamSummary(BaseModel):
         }
 
 
+class IkePacketMetadata(BaseModel):
+    version: int
+    initiator_spi: str | None = None
+    responder_spi: str | None = None
+    exchange_type: int | None = None
+    message_id: int | None = None
+    flags: int | None = None
+    next_payload: int | None = None
+    length: int | None = None
+    notify_types: list[int] = Field(default_factory=list)
+    fragment_number: int | None = None
+    fragment_total: int | None = None
+    fragment_id: int | None = None
+    fragment_last: int | None = None
+    proposal_fields: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class IkeSessionSummary(BaseModel):
+    version: int
+    initiator_spi: str | None = None
+    responder_spi: str | None = None
+    packets_by_direction: list[int] = Field(default_factory=lambda: [0, 0])
+    exchanges: dict[str, int] = Field(default_factory=dict)
+    notifications: dict[str, int] = Field(default_factory=dict)
+    encrypted_packets: int = 0
+    fragmented_packets: int = 0
+    proposal_values: dict[str, dict[str, int]] = Field(default_factory=dict)
+    v2_requests: int = 0
+    v2_responses: int = 0
+
+
 class PacketObservation(BaseModel):
+    ike: IkePacketMetadata | None = None
     timestamp: datetime | None = None
     src_ip: str
     dst_ip: str
@@ -386,6 +418,7 @@ _FLOW_PROTOCOL_ALIASES = {
 
 
 class FlowSummary(BaseModel):
+    ike_sessions: list[IkeSessionSummary] = Field(default_factory=list)
     rtp_streams: list[RtpStreamSummary] = Field(default_factory=list)
     key: FlowKey
     packet_details: list[PacketObservation] = Field(default_factory=list)
@@ -830,6 +863,7 @@ class CaptureSummary(BaseModel):
                             "one_way": flow.is_one_way,
                         },
                     },
+                    "ike": {"sessions": [s.model_dump() for s in flow.ike_sessions]},
                     "rtp": {"streams": [stream.compact() for stream in flow.rtp_streams]},
                     "esp_spis": flow.esp_spis,
                     "esp_sequences": [

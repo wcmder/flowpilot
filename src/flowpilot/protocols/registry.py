@@ -8,6 +8,24 @@ from .base import ProtocolModule
 
 PROTOCOLS: tuple[ProtocolModule, ...] = (
     ProtocolModule(
+        name="ike", display_name="IKEv1/IKEv2", flow_attributes=("ike_sessions",),
+        extract_hook="flowpilot.protocols.ike.extract_ike",
+        record_hook="flowpilot.protocols.ike.record_ike",
+        render_hook="flowpilot.protocols.ike.render_ike_details",
+        compact_metadata_key="ike", deep_tools=("deep_ike_flow",),
+        deep_tool_runner_hooks=("flowpilot.protocols.ike.deep_ike_flow",),
+        deep_reason_hook="flowpilot.protocols.ike.deep_ike_reason",
+        deep_tool_prompt="Use deep_ike_flow for IKEv1/IKEv2 headers, notifications and fragments.",
+        transport_prompt=("IKE: distinguish v1 Main/Aggressive/Quick Mode from v2 "
+                          "IKE_SA_INIT/IKE_AUTH/CREATE_CHILD_SA. IKEv1 has no response flag. "
+                          "Repeated message IDs do not establish retransmission. Encrypted "
+                          "contents, authentication success and tunnel establishment are unknown "
+                          "unless explicit evidence supports them. Zero responder SPI and later "
+                          "SPI groups may belong to one negotiation. Missing responses may be "
+                          "capture scope/loss; proposals are not necessarily selected algorithms."),
+        notes="Visible UDP IKEv1/IKEv2, including NAT-T; no decryption or key extraction.",
+    ),
+    ProtocolModule(
         name="rtp", display_name="RTP/SRTP", flow_attributes=("rtp_streams",),
         extract_hook="flowpilot.protocols.rtp.extract_rtp",
         record_hook="flowpilot.protocols.rtp.record_rtp",

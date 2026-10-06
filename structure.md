@@ -208,7 +208,7 @@ previews and retrieve subsequent saved batches through existing deep tools.
   for its matching flow and distinguish successful results from errors.
 - Preserve `frame.time_relative` in packet samples where available. It represents
   seconds since capture start, not an absolute date/time.
-- TCP, UDP, ESP, TLS, and SMB tools return packet details in batches of 1,000 by
+- TCP, UDP, ESP, TLS, SMB, RTP, and IKE tools return packet details in batches of 1,000 by
   default. Each result must include `batch.offset`, `returned`,
   `total_matching_packets`, `has_more`, `next_offset`, and a continuation hint.
   Offset counts matching packets in capture order, not global frame numbers.
@@ -313,3 +313,33 @@ not verified by that review.
 - Older summaries default to empty media streams; new source measurements require
   a fresh read or explicit deep evidence. Verify real TShark IPv4/IPv6 targeting,
   SDP SRTP recognition, wrapping/reordering, complete saving, and cached batches.
+
+
+## Must: IKEv1/IKEv2 support
+
+- Keep IKE on underlying UDP Flow IDs with shared directional rates, separately
+  from ESP. Extract only the visible ISAKMP/IKE layer, including standard UDP/500
+  and NAT-T UDP/4500. Do not classify arbitrary UDP solely by port.
+- Preserve numeric version, flags, exchange, message ID (including zero), both
+  cookies/SPIs, all visible notification occurrences, proposal fields, and fragment
+  headers. Normalize SPI formatting consistently across PyShark and deep TShark.
+- Group observations by version and SPI pair, retaining counts in A/B order.
+  These are not established-SA counts: initial zero responder SPI, changed SPI,
+  and port migrations are not automatically correlated. Never merge distinct pairs.
+- Distinguish v1 and v2 exchange names/notification namespaces. IKEv1 has no
+  response flag; repeated message ID zero alone cannot establish retransmission.
+  IKEv2 response flags cannot prove authentication or tunnel establishment.
+  Missing responses cannot prove loss; header spacing cannot prove network latency.
+- `deep_ike_flow` must be registered and use exact UDP endpoint pairing plus an
+  IKE-layer filter excluding ESP/keepalives. Preserve all repeated notification and
+  proposal fields, label flattened proposal values as observations, and never infer
+  selected algorithms from offers. Keep frame times and standard batch metadata.
+- Integrate normal/detailed summaries, cached rows, offsets, request limits,
+  rendering and provider context. Detailed UDP collection includes the IKE tool;
+  older summaries default to empty IKE metadata and remain readable.
+- No key material, nonces, authentication bytes, raw encrypted payloads, or
+  certificate bodies in extracted IKE metadata/deep evidence. Do not claim decryption.
+- Verify real TShark v1/v2 IPv4/IPv6 and NAT-T, notification multiplicity, encrypted
+  and fragment headers, proposal fields, exact filters, saved batches, and mocked
+  provider payloads. Document unsupported SA correlation, retransmission/RTT
+  calculation, decryption, and nonstandard direct-IKE port decoding.

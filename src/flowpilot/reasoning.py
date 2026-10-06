@@ -1231,7 +1231,7 @@ def _add_flow_protocol_metadata(present: set[str], flow: dict[str, Any]) -> None
         present.add("tls")
     if flow.get("esp_spis") or flow.get("esp_sequences"):
         present.add("esp")
-    for name in ("sip", "smb", "dns", "dhcp", "rtp"):
+    for name in ("sip", "smb", "dns", "dhcp", "rtp", "ike"):
         metadata = flow.get(name)
         if isinstance(metadata, dict) and any(
             _metadata_value_present(value) for value in metadata.values()

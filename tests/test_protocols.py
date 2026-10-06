@@ -13,6 +13,7 @@ from flowpilot.protocols.registry import (
 
 def test_protocol_registry_lists_existing_protocol_modules() -> None:
     assert protocol_names() == {
+        "ike",
         "rtp",
         "tcp",
         "udp",
@@ -36,6 +37,7 @@ def test_protocol_registry_deep_tool_hooks_are_importable() -> None:
     hooked_tool_names = {tool_name for tool_name, _, _ in deep_tool_hooks()}
 
     assert hooked_tool_names == {
+        "deep_ike_flow",
         "deep_rtp_flow",
         "deep_tcp_flow",
         "deep_udp_flow",
@@ -84,7 +86,7 @@ def test_protocol_registry_render_hooks_are_importable() -> None:
 def test_protocol_registry_extract_hooks_are_importable() -> None:
     extractable_protocols = {protocol.name for protocol in protocols() if protocol.extract_hook}
 
-    assert extractable_protocols == {"tcp", "tls", "smb", "sip", "dns", "dhcp", "esp", "rtp"}
+    assert extractable_protocols == {"tcp", "tls", "smb", "sip", "dns", "dhcp", "esp", "rtp", "ike"}
     assert len(extract_hooks()) == len(extractable_protocols)
     for protocol in protocols():
         if protocol.extract_hook:
@@ -96,7 +98,7 @@ def test_protocol_registry_extract_hooks_are_importable() -> None:
 def test_protocol_registry_record_hooks_are_importable() -> None:
     recordable_protocols = {protocol.name for protocol in protocols() if protocol.record_hook}
 
-    assert recordable_protocols == {"tls", "smb", "sip", "dns", "dhcp", "esp", "rtp"}
+    assert recordable_protocols == {"tls", "smb", "sip", "dns", "dhcp", "esp", "rtp", "ike"}
     assert len(record_hooks()) == len(recordable_protocols)
     for protocol in protocols():
         if protocol.record_hook:

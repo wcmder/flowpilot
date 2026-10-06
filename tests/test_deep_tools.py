@@ -8,6 +8,7 @@ from flowpilot.models import FlowKey, FlowSummary
 
 def test_deep_tool_names_lists_registered_tools() -> None:
     assert deep_tool_names() == {
+        "deep_ike_flow",
         "deep_rtp_flow",
         "deep_tcp_flow",
         "deep_udp_flow",

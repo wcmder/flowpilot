@@ -16,6 +16,8 @@ from flowpilot.models import CaptureSummary, PacketObservation
     ("UDP", {}), ("UDP", {"tls_sni": "dtls.example.test"}),
     ("UDP", {"dns_query": "example.test"}), ("UDP", {"dhcp_message_type": "DISCOVER"}),
     ("UDP", {"sip_method": "INVITE"}), ("ESP", {"esp_spi": "0x1234", "esp_sequence": 7}),
+    ("UDP", {"ike": {"version": 16, "exchange_type": 2, "message_id": 0}}),
+    ("UDP", {"ike": {"version": 32, "exchange_type": 34, "message_id": 0}}),
     ("ICMP", {}), ("ICMPV6", {}), ("AH", {}), ("GRE", {}), ("UNKNOWN", {}),
 ])
 def test_detailed_summary_preserves_every_analyzed_flow_type(
@@ -44,7 +46,8 @@ def test_detailed_summary_preserves_every_analyzed_flow_type(
     assert loaded.flows[0].packet_details == [observation]
     expected = {
         "TCP": {"deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow"},
-        "UDP": {"deep_udp_flow", "deep_tls_flow", "deep_rtp_flow"}, "ESP": {"deep_esp_flow"},
+        "UDP": {"deep_udp_flow", "deep_tls_flow", "deep_rtp_flow", "deep_ike_flow"},
+        "ESP": {"deep_esp_flow"},
     }.get(protocol, set())
     assert set(loaded.flows[0].deep_details) == expected
     assert len(calls) == len(expected)
@@ -121,6 +124,7 @@ def test_cli_saves_selected_packet_details_and_loads_without_capture(tmp_path, m
 @pytest.mark.parametrize("protocol,tool,samples", [
     ("ESP", "deep_esp_flow", "esp_deep_samples"),
     ("UDP", "deep_rtp_flow", "rtp_header_samples"),
+    ("UDP", "deep_ike_flow", "ike_header_samples"),
 ])
 def test_provider_receives_saved_preview_not_entire_large_snapshot(
     monkeypatch, protocol, tool, samples,

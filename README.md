@@ -17,6 +17,9 @@ chat through a stateful workflow that can be extended with targeted rereads.
 - Extracts TLS certificate metadata observed in the capture when TShark exposes
   it, including subject, issuer, serial, validity, SAN DNS names, and SHA-256
   fingerprint.
+- Analyzes visible IKEv1/IKEv2 exchanges, cookies/SPIs, notifications, proposal
+  fields, encryption indicators, and fragments on UDP/500 and NAT-T UDP/4500.
+  See [IKEv1 and IKEv2](#ikev1-and-ikev2).
 - Analyzes RTP/SRTP headers per direction and SSRC, including sequence holes,
   duplicates, and reordering. Supports explicit media-port decoding and batched
   deep evidence. See [RTP and SRTP media headers](#rtp-and-srtp-media-headers).
@@ -330,11 +333,12 @@ run deep tls flow for flow 2
 run deep_tcp_flow for flow 5
 for flow id 7 use deep_udp_flow
 run deep_rtp_flow for flow id 1
+run deep_ike_flow for flow id 2
 run deep smb tool for flow 8
 ```
 
 The supported deep tools are `deep_tcp_flow`, `deep_udp_flow`, `deep_tls_flow`,
-`deep_smb2_flow`, `deep_esp_flow`, and `deep_rtp_flow`. Spaced or hyphenated forms such as `deep tls flow`,
+`deep_smb2_flow`, `deep_esp_flow`, `deep_rtp_flow`, and `deep_ike_flow`. Spaced or hyphenated forms such as `deep tls flow`,
 `deep-smb2-flow`, `deep smb2 tool`, and `deep smb tool` are also accepted.
 When one of those tool names appears with a Flow ID, LangGraph runs the tool
 first and sends the result back to the LLM as `additional_tool_evidence`.
@@ -422,7 +426,7 @@ Core options:
 | `--no-llm` | Only run local PyShark/TShark flow analysis. No metadata is sent to the LLM endpoint. |
 | `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
 | `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP/TLS/SMB2 rereads run only when the LLM requests an allow-listed tool. |
-| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2/ESP/RTP rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
+| `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2/ESP/RTP/IKE rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
 | `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
 | `--json [PATH]` | Set the JSON output filename under `private/`. Fresh analysis saves automatically to `<capture>.json`. With `--load-summary`, nothing is saved unless `--json` is supplied. An output targeting the loaded source is redirected to a separate `.filtered.json` or `.reanalyzed.json` report, numbered if necessary, to preserve the source. |
@@ -581,7 +585,7 @@ flowpilot analyze capture.pcap --load-detailed-summary --agent --chat
 Each saved flow contains `packet_details` (all selected extracted observations)
 and `deep_details` (complete supported tool results, without the 1,000-row storage
 limit). TCP captures include TCP, TLS, and SMB tool results; UDP captures include
-UDP, TLS/DTLS, and RTP/SRTP header results; ESP captures include ESP results. Extraction failures
+UDP, TLS/DTLS, RTP/SRTP, and IKE header results; ESP captures include ESP results. Extraction failures
 are recorded explicitly and reported in the CLI. Unsupported protocols retain
 their packet observations but do not gain new deep-tool capabilities.
 
@@ -677,3 +681,54 @@ Existing summaries still load. Regenerate from the PCAP to populate new RTP stre
 metadata; old summaries can request `deep_rtp_flow` explicitly when the capture is
 available. Header definitions follow the [Wireshark RTP field reference](https://www.wireshark.org/docs/dfref/r/rtp.html)
 and [SRTP specification](https://www.rfc-editor.org/rfc/rfc3711.html).
+
+
+## IKEv1 and IKEv2
+
+FlowPilot recognizes TShark's ISAKMP/IKE layer, normally on UDP/500 and NAT-T
+UDP/4500. IKE remains on its **UDP Flow ID**, separately from ESP traffic. Use
+`--protocol UDP` and endpoint/port filters; `--protocol IKE` is not a flow filter.
+
+```bash
+flowpilot analyze vpn.pcap --host 10.0.0.1 --peer 10.0.0.2 --protocol UDP --agent --agent-auto-tools
+flowpilot analyze vpn.pcap --protocol UDP --port 4500 --detailed-summary --no-llm
+flowpilot analyze vpn.pcap --load-detailed-summary --agent --chat --offset 1000 --max-request 2
+```
+
+The IKEv1/IKEv2 Exchanges table and LLM metadata show direction counts, version,
+initiator/responder cookies or SPIs, exchange types, visible notification codes,
+encryption indicators, and fragment counts. IKEv1 Main, Aggressive, Quick, and
+Informational exchanges are distinguished from IKEv2 IKE_SA_INIT, IKE_AUTH,
+CREATE_CHILD_SA, and INFORMATIONAL. IKEv2 request/response counts use its response
+flag; IKEv1 has no equivalent flag. Normal directional throughput/rates remain
+available using the full-flow interval.
+
+`deep_ike_flow` retrieves frame numbers, capture-relative timestamps, header
+flags, message IDs, SPI pairs, all visible notification occurrences, fragment
+headers, and numeric proposal/transform fields. It matches both complete endpoint
+and port pairs and requires an IKE layer, excluding ESP and NAT keepalives. It uses
+1,000-row batches and supports `--offset`, `--max-request`, chat evidence retention,
+and cached detailed summaries. Detailed UDP summaries retain all extracted IKE
+rows. For an older summary, explicitly ask `run deep_ike_flow for flow id 1` with
+the original capture available; regenerate the summary to populate new initial
+IKE metadata. Existing summaries remain loadable without regeneration.
+
+These are observations, not proof of an established tunnel. Initial zero responder
+SPI and subsequent assigned SPI appear as separate groups; port changes also
+remain separate flows. The implementation does not correlate them into one SA.
+Repeated IKEv1 message ID zero does not imply retransmission. IKEv2 response flags
+do not establish authentication success, and missing responses may reflect capture
+scope or capture loss. NAT-detection notifications indicate their presence, not
+proof that a NAT was detected. Proposal values are observed offers/fields, not
+necessarily negotiated selections; flattened repeated fields are not paired into
+individual proposals. Raw header times are not an RTT measurement.
+
+Encrypted IKE contents remain unknown: this tool does not decrypt exchanges or
+extract key material, nonce bytes, authentication payloads, or certificate bodies.
+Nonstandard direct-IKE ports must already be recognized by TShark; no new IKE
+decode-as flag is provided. For nonstandard UDPENCAP ports, the existing explicit
+`--esp-udp-port PORT` applies to initial reads and actual deep rereads.
+
+References: [Wireshark ISAKMP fields](https://www.wireshark.org/docs/dfref/i/isakmp.html),
+[IKEv1/ISAKMP header specification](https://www.rfc-editor.org/rfc/rfc2408.html),
+and [IKEv2 specification](https://www.rfc-editor.org/rfc/rfc7296.html).
