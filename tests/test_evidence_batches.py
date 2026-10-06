@@ -151,7 +151,7 @@ def test_agent_requests_later_batches_and_resumes_after_turn_limit(monkeypatch, 
         summary, "run deep_udp_flow for flow id 1", capture_path=tmp_path / "capture.pcap",
     )
     assert offsets == [0, 1000, 2000]
-    assert "More details remain available" in first["answer"]
+    assert "requested evidence remains unexamined" in first["answer"]
     second = workflow.run_agent_chat_state(
         summary, "continue reviewing the next batch", capture_path=tmp_path / "capture.pcap",
         additional_evidence=first["deep_evidence"],

@@ -914,3 +914,45 @@ def test_start_offset_applies_before_deduplication_and_keeps_later_pages():
     pending = workflow._pending_tool_requests(state)
     assert [(r["flow_id"], r["sample_offset"]) for r in pending] == [(1, 6000), (2, 5000)]
     assert "sample_offset" not in state["tool_requests"][0]
+
+
+def test_same_round_requests_deduplicate_after_offset_clamping(monkeypatch):
+    calls = []
+    monkeypatch.setattr(workflow, "_run_tool_request", lambda state, req: calls.append(req) or {})
+    result = workflow._tool_node_result({
+        "sample_offset": 1000,
+        "tool_requests": [
+            {"tool": "deep_udp_flow", "flow_id": 1, "sample_offset": offset}
+            for offset in (0, 1000, 2000, 2000)
+        ],
+    })
+    assert [req["sample_offset"] for req in calls] == [1000, 2000]
+    assert len(result["deep_evidence"]) == 2
+
+
+@pytest.mark.parametrize("chat", [False, True])
+@pytest.mark.parametrize("offset", [0, 1000])
+def test_exhausted_budget_explains_unexamined_evidence(monkeypatch, tmp_path, chat, offset):
+    summary = _summary()
+    summary.flows = [FlowSummary(key=FlowKey(
+        endpoint_a="10.0.0.1", endpoint_b="10.0.0.2", protocol="UDP",
+    ))]
+    requests = [{"tool": "deep_udp_flow", "flow_id": 1,
+                 "reason": "Need evidence", "sample_offset": offset}]
+    monkeypatch.setattr(workflow, "reason_about_capture", lambda *a, **kw: ReasoningReport(
+        executive_summary="Need evidence.", risk_level="unknown", evidence_requests=requests,
+    ))
+    monkeypatch.setattr(workflow, "agent_chat_about_capture", lambda *a, **kw: AgentChatResponse(
+        answer="Need evidence.", evidence_requests=requests,
+    ))
+    if chat:
+        state = workflow.run_agent_chat_state(summary, "Investigate flow 1", max_tool_rereads=0)
+        answer = state["answer"]
+    else:
+        state = workflow.run_agent_reasoning_state(
+            summary, capture_path=tmp_path / "capture.pcap", max_tool_rereads=0,
+        )
+        answer = state["report"].executive_summary
+    assert "tool limit" in answer
+    assert "unexamined" in answer
+    assert state["deep_evidence"] == []

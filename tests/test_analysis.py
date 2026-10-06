@@ -1984,8 +1984,8 @@ def test_summarize_capture_tracks_dns_metadata() -> None:
 def test_summarize_capture_tracks_dhcp_metadata() -> None:
     packets = [
         PacketObservation(
-            src_ip="0.0.0.0",
-            dst_ip="255.255.255.255",
+            src_ip="10.0.0.50",
+            dst_ip="10.0.0.1",
             src_port=68,
             dst_port=67,
             protocol="UDP",
@@ -1996,8 +1996,8 @@ def test_summarize_capture_tracks_dhcp_metadata() -> None:
             dhcp_requested_ip="10.0.0.50",
         ),
         PacketObservation(
-            src_ip="0.0.0.0",
-            dst_ip="255.255.255.255",
+            src_ip="10.0.0.1",
+            dst_ip="10.0.0.50",
             src_port=67,
             dst_port=68,
             protocol="UDP",
@@ -2025,3 +2025,25 @@ def test_summarize_capture_tracks_dhcp_metadata() -> None:
     assert flow.dhcp_lease_times == ["3600"]
     assert "dhcp exchange lacks ack in observed packets" in flow.diagnostic_hints
     assert summary.compact()["top_flows"][0]["dhcp"]["offered_ips"] == ["10.0.0.51"]
+
+
+@pytest.mark.parametrize("dhcp_type", [None, "Request"])
+def test_dhcp_preserves_endpoint_pairs_and_saved_direction(dhcp_type):
+    start = datetime(2026, 1, 1)
+    packet = PacketObservation(
+        timestamp=start, src_ip="10.0.0.1", dst_ip="10.0.0.2",
+        src_port=68, dst_port=67, protocol="UDP", length=100,
+        dhcp_message_type=dhcp_type,
+    )
+    reply = packet.model_copy(update={
+        "timestamp": start + timedelta(seconds=1), "src_ip": packet.dst_ip,
+        "dst_ip": packet.src_ip, "src_port": 67, "dst_port": 68, "length": 200,
+    })
+    summary = summarize_capture([packet, reply])
+    flow = summary.flows[0]
+    assert (flow.key.port_a, flow.key.port_b) == (68, 67)
+    assert (flow.src_to_dst_packets, flow.dst_to_src_packets) == (1, 1)
+    assert summary.compact()["top_flows"][0]["throughput_mbps_by_direction"] == [0.0008, 0.0016]
+    assert FlowFilter(src="10.0.0.1", src_port=68, dst_port=67).matches_flow(flow)
+    swapped = packet.model_copy(update={"src_port": 67, "dst_port": 68})
+    assert summarize_capture([packet, swapped]).flow_count == 2

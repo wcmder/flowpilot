@@ -391,3 +391,21 @@ not verified by that review.
 - Verify real TShark Ethernet MACsec, EAPOL, MKA, WLAN EAPOL, VLAN separation,
   payload exclusion, cached pagination, CLI saves, and mocked provider context.
   Older summaries require regeneration for previously skipped non-IP frames.
+
+## Workspace compliance follow-up (2026-10-06)
+
+- DHCP uses the shared endpoint-pair canonicalization. Never sort addresses and
+  ports independently or merge distinct conversations merely to group DHCP messages.
+  Older summaries with incorrect DHCP identities require a fresh capture analysis;
+  their original endpoint pairing cannot reliably be recovered from aggregate data.
+- Provider timeout workers inherit the calling context so saved evidence previews
+  honor `--offset`. Worker context changes remain isolated from the caller.
+- Deduplicate requests within each tool round after offset clamping, as well as
+  against completed requests; retain distinct later batches.
+- Both initial analysis and chat explicitly report unexamined requests when the
+  tool budget is exhausted, including requests for the first batch.
+- The previously recorded packaging import-formatting issue is fixed.
+
+Regression coverage includes DHCP direction/pair separation, worker offset
+propagation, repeated requests in one round, and initial/chat budget exhaustion.
+Provider tests use mocks; live LLM behavior and Windows packaging are not validated.

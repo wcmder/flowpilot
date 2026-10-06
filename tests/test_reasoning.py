@@ -1159,3 +1159,21 @@ def test_batched_reasoning_payload_preserves_rows_without_indentation():
     assert decoded["additional_tool_evidence"] == evidence
     assert "\n" not in payload
     assert len(payload) < len(json.dumps(decoded, indent=2))
+
+
+def test_provider_worker_preserves_preview_offset_context():
+    from flowpilot.reasoning import EVIDENCE_START_OFFSET, _run_with_wall_timeout
+
+    token = EVIDENCE_START_OFFSET.set(2000)
+    try:
+        def provider_work():
+            offset = EVIDENCE_START_OFFSET.get()
+            EVIDENCE_START_OFFSET.set(3000)
+            return offset
+
+        assert _run_with_wall_timeout(
+            provider_work, timeout_seconds=5, timeout_result=-1,
+        ) == 2000
+        assert EVIDENCE_START_OFFSET.get() == 2000
+    finally:
+        EVIDENCE_START_OFFSET.reset(token)

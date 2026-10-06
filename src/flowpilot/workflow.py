@@ -25,6 +25,11 @@ from .reasoning import (
 )
 
 ALLOWED_TOOLS = deep_tool_names()
+TOOL_LIMIT_NOTICE = (
+    "\n\nFlowPilot reached this turn's tool limit before retrieving all requested "
+    "packet batches. The requested evidence remains unexamined; ask to continue "
+    "reviewing the next batch."
+)
 
 
 class FlowPilotAgentState(TypedDict, total=False):
@@ -252,9 +257,14 @@ def _build_reasoning_graph() -> Any:
 
     def collect_llm_requests_node(state: FlowPilotAgentState) -> dict[str, Any]:
         loop_count = state.get("tool_loop_count", 0)
+        requests = _pending_tool_requests({**state, "tool_requests": _llm_tool_requests(state)})
         if loop_count >= state.get("max_tool_rereads", 2):
-            return {"tool_requests": [], "tool_loop_count": loop_count}
-        requests = _llm_tool_requests(state)
+            update = {"tool_requests": [], "tool_loop_count": loop_count}
+            if requests:
+                update["report"] = state["report"].model_copy(update={
+                    "executive_summary": state["report"].executive_summary + TOOL_LIMIT_NOTICE,
+                })
+            return update
         if requests:
             _progress(state, f"LLM requested {len(requests)} additional deep evidence reread(s).")
         return {
@@ -338,16 +348,14 @@ def _build_chat_graph() -> Any:
                 "tool_requests": [],
             }
         loop_count = state.get("tool_loop_count", 0)
-        pending_requests = _valid_tool_requests(state, response.evidence_requests)
+        pending_requests = _pending_tool_requests({
+            **state, "tool_requests": _valid_tool_requests(state, response.evidence_requests),
+        })
         answer = response.answer
         if loop_count >= state.get("max_tool_rereads", 2):
             requests = []
-            if any(request.get("sample_offset", 0) > 0 for request in pending_requests):
-                answer += (
-                    "\n\nFlowPilot reached this turn's tool limit before retrieving all "
-                    "requested packet batches. More details remain available; ask to "
-                    "continue reviewing the next batch."
-                )
+            if pending_requests:
+                answer += TOOL_LIMIT_NOTICE
         else:
             requests = pending_requests
         if requests:
@@ -483,6 +491,7 @@ def _pending_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
             request["sample_offset"] = offset
         if request.get("tool") in ALLOWED_TOOLS and _tool_request_key(request) not in completed:
             requests.append(request)
+            completed.add(_tool_request_key(request))
     return requests
 
 

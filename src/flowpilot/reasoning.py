@@ -8,7 +8,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
-from contextvars import ContextVar
+from contextvars import ContextVar, copy_context
 from typing import Any, Literal, TypeVar
 
 from dotenv import load_dotenv
@@ -500,7 +500,10 @@ def _run_with_wall_timeout(
         except BaseException as exc:  # pragma: no cover - passes through provider boundary
             results.put(("error", exc))
 
-    thread = threading.Thread(target=target, daemon=True, name="flowpilot-llm-request")
+    context = copy_context()
+    thread = threading.Thread(
+        target=lambda: context.run(target), daemon=True, name="flowpilot-llm-request"
+    )
     thread.start()
     try:
         kind, value = results.get(timeout=timeout_seconds)
