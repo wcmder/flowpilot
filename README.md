@@ -43,6 +43,43 @@ chat through a stateful workflow that can be extended with targeted rereads.
 - Optionally uses LangGraph for agentic LLM reasoning and interactive follow-up
   chat while keeping packet analysis deterministic.
 
+## Currently supported protocols
+
+All analyzed flows include packet/byte counts, timestamps, and directional packet
+rates and throughput when the measurements are available. Protocol-specific
+analysis depends on the headers and fields TShark can decode.
+
+| Protocol | Current analysis support | Deep evidence tool |
+| --- | --- | --- |
+| TCP | Retransmissions, sequence/ACK information, resets, windows, initial RTT, and timing. | `deep_tcp_flow` |
+| UDP | Directionality, sizes, timing, checksums, and visible DNS/DHCP transactions. | `deep_udp_flow` |
+| ESP / IPsec | SPIs, sequence gaps, duplicates, reordering, fragmentation, and outer headers; native ESP and UDP encapsulation. | `deep_esp_flow` |
+| IKEv1 / IKEv2 (ISAKMP) | Visible exchanges, SPI pairs, notifications, proposals, and fragment headers, including NAT-T. | `deep_ike_flow` |
+| RTP / SRTP over UDP | Visible SSRC, sequence, timestamp, payload-type and marker headers; per-stream sequence tracking. | `deep_rtp_flow` |
+| TLS / DTLS | Visible handshake, SNI, certificates, alerts, and cryptographic negotiation metadata. | `deep_tls_flow` |
+| SMB / SMB2 | Visible commands, statuses, file and transfer metadata; SMB2 credits and transfer headers. | `deep_smb2_flow` for SMB2 |
+| SIP | Call IDs, methods, response statuses, call traces, and visible failure indicators. | No dedicated SIP tool; transport tools provide TCP/UDP evidence. |
+| DNS | Queries, answers, response codes, and visible error indicators. | `deep_udp_flow` for DNS over UDP |
+| DHCP / BOOTP | Message types, transaction IDs, client/server information, offered addresses, and lease metadata. | `deep_udp_flow` |
+| HTTP | Limited host and redirect-location metadata. | No dedicated HTTP tool. |
+| MACsec | Visible SecTAG, SCI, association number, packet number, and MAC/VLAN identity. | `deep_macsec_flow` |
+| EAPOL, including EAP and MKA | Visible authentication status and public control headers on Ethernet/WLAN MAC-address flows. | `deep_eapol_flow` |
+| Other IP traffic, including ICMP/ICMPv6, AH, and GRE | Basic flow summaries and retained observations; no dedicated protocol diagnostics. | No dedicated tool. |
+
+Application protocols retain their underlying TCP/UDP Flow IDs. MACsec and EAPOL
+use MAC-address flows, including frames without an IP layer. Other non-IP
+protocols are not generally analyzed.
+
+`--protocol NAME` accepts one decoded protocol name, case-insensitively, including
+aliases such as `IKE`, `ISAKMP`, `IKEV1`, `IKEV2`, `RTP`, `SRTP`, `EAP`, and `MKA`.
+Generic recorded dissector names can also be filtered; this does not imply
+specialized analysis or a deep tool for every Wireshark protocol. Decode-as flags
+may be needed for traffic on nonstandard ports.
+
+Encrypted-protocol support covers exposed metadata; it does not imply payload
+decryption. RTP/SRTP support does not include RTCP, jitter calculation, media
+playback, or RTP over TCP. See the protocol sections below for details and limits.
+
 ## Architecture notes
 
 See [structure.md](structure.md) for the module map and required behavior for
