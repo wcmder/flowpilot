@@ -1,8 +1,8 @@
 # FlowPilot
 
 FlowPilot is an agentic data-flow troubleshooting tool for packet captures. It
-uses PyShark/TShark to extract network conversations and OpenAI-compatible LLM
-reasoning to diagnose transfer problems such as TCP retransmissions, UDP
+uses PyShark/TShark to extract network conversations and LLM
+reasoning through an OpenAI API-compatible endpoint to diagnose transfer problems such as TCP retransmissions, UDP
 reachability, RTP/SRTP media headers, ESP/IPsec flows, one-way traffic, resets, zero windows, and possible
 path issues. Optional LangGraph agent mode routes LLM reasoning and follow-up
 chat through a stateful workflow that can be extended with targeted rereads.
@@ -37,7 +37,8 @@ chat through a stateful workflow that can be extended with targeted rereads.
 - Calculates local troubleshooting metrics such as retransmission/loss rates,
   local RTT fields when available, one-way flow detection, packet rate, and
   throughput.
-- Optionally asks an OpenAI model to reason over the flow summary and return
+- Optionally asks an LLM through an OpenAI API-compatible endpoint to reason
+  over the flow summary and return
   likely network causes, evidence, and next troubleshooting actions.
 - Optionally uses LangGraph for agentic LLM reasoning and interactive follow-up
   chat while keeping packet analysis deterministic.
@@ -58,7 +59,8 @@ remains unchanged.
 
 - Python 3.10+
 - TShark installed and available on `PATH`
-- An OpenAI API key for LLM analysis
+- For LLM analysis: an OpenAI API-compatible endpoint, a supported model ID,
+  and the API key required by that provider. Local `--no-llm` analysis needs no LLM service.
 
 On macOS, TShark is commonly installed with Wireshark:
 
@@ -83,22 +85,38 @@ mkdir -p private
 cp .env.example private/.env
 ```
 
-OpenAI's Python SDK reads `OPENAI_API_KEY` from the environment after
-`private/.env` is loaded. A legacy root `.env` is still loaded as a fallback, but
-new local secrets should live under `private/`.
-By default, FlowPilot uses the standard OpenAI API endpoint. To use an
-OpenAI-compatible gateway in a restricted or government network, set:
+FlowPilot uses the OpenAI Python SDK as its API client; the model does not have
+to be an OpenAI model. Hosted providers, internal gateways, and local model
+servers can be used when they support the API features described below.
+
+Set `OPENAI_API_KEY` to your chosen provider's key. The variable name is retained
+for SDK compatibility. FlowPilot loads `private/.env` before creating the client;
+a legacy root `.env` is still loaded as a fallback.
+
+Configure an OpenAI API-compatible provider with its base URL and model ID:
 
 ```bash
-export FLOWPILOT_OPENAI_BASE_URL="https://your-openai-compatible-endpoint.example/v1"
-```
-
-Some OpenAI-compatible gateways only document `client.chat.completions.create()`
-instead of the newer Responses API. In that case, set:
-
-```bash
+export OPENAI_API_KEY="your_provider_api_key"
+export FLOWPILOT_OPENAI_BASE_URL="https://your-llm-endpoint.example/v1"
+export FLOWPILOT_MODEL="your-provider-model-id"
 export FLOWPILOT_LLM_API="chat_completions"
 ```
+
+`--model` overrides `FLOWPILOT_MODEL` for an analysis. Without configuration,
+FlowPilot defaults to `https://api.openai.com/v1`, model `gpt-5-mini`, and the
+Responses API. Set the base URL and model explicitly for another provider.
+
+The selected endpoint must support the API mode FlowPilot uses:
+
+- `chat_completions`: Chat Completions with JSON-object response format for
+  analysis and agent responses (`response_format={"type": "json_object"}`).
+- `responses`: Responses with structured output parsing for analysis and agent
+  responses. This is the default mode.
+
+API compatibility depends on these features, not just the ability to accept a
+basic chat request. Use `flowpilot models` to list model IDs when your provider
+supports the `/models` endpoint; a successful listing does not verify reasoning
+or structured-output support.
 
 You can also use `auto` to try Responses first and retry Chat Completions if the
 endpoint returns `404` for Responses:
@@ -295,10 +313,10 @@ flowpilot analyze capture.pcap --src 10.0.0.5 --dst 198.51.100.20 --no-llm
 flowpilot analyze capture.pcap --host 10.0.0.5 --show-flows 50 --no-llm
 ```
 
-Analyze with OpenAI reasoning:
+Analyze with your configured LLM provider:
 
 ```bash
-flowpilot analyze capture.pcap --model gpt-5-mini
+flowpilot analyze capture.pcap --model your-provider-model-id
 ```
 
 When LLM reasoning is enabled, FlowPilot prints `[info]` progress lines, renders
@@ -429,7 +447,7 @@ Core options:
 | `--chat` | After the first LLM report, open an interactive follow-up chat over the same derived metadata. |
 | `--agent` | Route LLM reasoning and interactive chat through the LangGraph workflow. Deep TCP/UDP/TLS/SMB2 rereads run only when the LLM requests an allow-listed tool. |
 | `--agent-auto-tools` | With `--agent`, run deterministic deep TCP/UDP/TLS/SMB2/ESP/RTP/IKE/MACsec/EAPOL rereads before the first LLM request when local symptoms indicate packet-header detail is useful. |
-| `--model TEXT` | OpenAI or OpenAI-compatible model used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
+| `--model TEXT` | Model ID at the configured OpenAI API-compatible endpoint used for reasoning. Defaults to `FLOWPILOT_MODEL` or `gpt-5-mini`. |
 | `--analysis-focus transport\|security` | Select the LLM reasoning lens. `transport` is the default for data-transfer troubleshooting; `security` asks the LLM to prioritize security-relevant metadata such as TLS certificates/ciphers/alerts and SMB encryption/signing clues. Local packet analysis is unchanged. |
 | `--json [PATH]` | Set the JSON output filename under `private/`. Fresh analysis saves automatically to `<capture>.json`. With `--load-summary`, nothing is saved unless `--json` is supplied. An output targeting the loaded source is redirected to a separate `.filtered.json` or `.reanalyzed.json` report, numbered if necessary, to preserve the source. |
 | `--detailed-summary` | Save to `<capture>-detailed.json` (or append `-detailed` to a custom `--json` filename). On a fresh analysis, retain every selected packet observation and all extracted rows from supported deep tools in the saved JSON. Filter to the flow(s) you need first. |
@@ -620,7 +638,8 @@ original PCAP, which must remain available and unchanged.
 It does not automatically send every packet in a single LLM request or guarantee
 that the model has reviewed the complete flow.
 
-FlowPilot sends derived flow metadata to OpenAI, not raw packet payloads. Review
+FlowPilot sends derived flow metadata to the configured LLM endpoint, without raw
+packet payloads. Review
 the generated summary before using LLM reasoning on sensitive captures.
 
 `--max-request NUMBER` controls the maximum LLM-requested deep-tool rounds with
