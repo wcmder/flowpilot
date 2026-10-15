@@ -151,3 +151,43 @@ def test_macsec_large_saved_batch_and_cli_round_trip(tmp_path, monkeypatch):
     assert cached["batch"]["returned"] == 5
     assert cached["link_header_samples"][0]["macsec.PN"] == "1001"
     assert cached["header_summary"]["number_ranges"]["macsec.PN"] == [1, 1005]
+
+
+def test_mka_cak_names_reach_saved_summary_and_provider(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    from flowpilot import reasoning
+
+    if not tshark_path():
+        pytest.skip("TShark required")
+    frames = []
+    for index, name in enumerate((b"CKN1", b"CKN2")):
+        basic = (struct.pack("!BBH", 1, 1, 0xd020) + bytes.fromhex("0011223344550001") +
+                 bytes(12) + struct.pack("!II", 1, 0x0080c201) + name + bytes(16))
+        frames.append(ethernet(0x888e, struct.pack("!BBH", 3, 5, len(basic)) + basic,
+                               reverse=bool(index)))
+    path = tmp_path / "names.pcap"
+    write_capture(path, frames)
+    summary = summarize_capture(list(read_capture(path)))
+    flow = summary.flows[0]
+    assert len(flow.eapol.fields["mka.cak_name"]) == 2
+    result = deep_eapol_flow(path, flow_id=1, flow=flow, reason="Compare names")
+    assert result["status"] == "ok"
+    assert len({row["mka.cak_name"] for row in result["link_header_samples"]}) == 2
+    flow.deep_details["deep_eapol_flow"] = result
+    loaded = CaptureSummary.model_validate_json(summary.model_dump_json())
+    calls = []
+    client = SimpleNamespace(responses=SimpleNamespace(create=lambda **kw: (
+        calls.append(kw) or SimpleNamespace(output_text="Names differ.")
+    )))
+    monkeypatch.setattr(reasoning, "LLM_REQUESTS_PER_MINUTE", 0)
+    reasoning._chat_with_responses(client, loaded, "Compare MKA names in flow 1",
+                                   model="test", max_flows=1, report=None, history=None)
+    context = json.loads(calls[0]["input"][-1]["content"].split("\n\n", 1)[1])
+    assert len(context["summary"]["top_flows"][0]["eapol"]["fields"]["mka.cak_name"]) == 2
+    evidence = context["additional_tool_evidence"][0]
+    assert evidence["source"] == "saved_summary"
+    assert len({row["mka.cak_name"] for row in evidence["link_header_samples"]}) == 2
+    assert "potential configuration mismatch" in calls[0]["instructions"]
+    assert "mka.aes_key_wrap_cak" not in str(context)

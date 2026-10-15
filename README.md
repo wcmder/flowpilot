@@ -868,7 +868,7 @@ The header tables and LLM metadata include:
 - **EAPOL/EAP:** version, packet type, length, key-descriptor metadata/replay
   counter range, EAP code/identifier/type, and decoded RSNA key-message number
   and flags when available. EAP code `3`/`4` means observed Success/Failure.
-- **MKA:** version, key-server priority/role, MACsec capability/desire, SCI,
+- **MKA:** version, key-server priority/role, MACsec capability/desire, SCI, CAK name (CKN),
   actor identifier/message-number range, association usage, and cipher-suite
   identifiers when visible.
 
@@ -892,3 +892,10 @@ reader. Existing summaries remain loadable. Header definitions follow the
 [Wireshark MACsec](https://www.wireshark.org/docs/dfref/m/macsec.html),
 [EAPOL](https://www.wireshark.org/docs/dfref/e/eapol.html), and
 [MKA](https://www.wireshark.org/docs/dfref/m/mka.html) field references.
+
+MKA CAK names (CKNs) are included in summary metadata and deep packet batches;
+the secret CAK is not extracted. Differing CKNs between peers expected to share
+an association indicate a potential configuration mismatch. Compare MAC/SCI
+identities and association/rekey context; matching names do not prove matching
+secret keys. Older summaries need regeneration or a fresh deep reread to obtain
+CKNs; existing cached details do not gain fields automatically.

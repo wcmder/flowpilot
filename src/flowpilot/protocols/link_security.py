@@ -25,7 +25,7 @@ EAPOL_FIELDS = [
     "wlan_rsna_eapol.keydes.msgnr", "wlan_rsna_eapol.keydes.key_info",
     "eap.code", "eap.id", "eap.len", "eap.type",
     "mka.version_id", "mka.ks_prio", "mka.key_server", "mka.macsec_desired",
-    "mka.macsec_capability", "mka.sci", "mka.actor_mi", "mka.actor_mn",
+    "mka.macsec_capability", "mka.sci", "mka.cak_name", "mka.actor_mi", "mka.actor_mn",
     "mka.algo_agility", "mka.latest_key_an", "mka.latest_key_tx", "mka.latest_key_rx",
     "mka.old_key_an", "mka.old_key_tx", "mka.old_key_rx", "mka.distributed_an",
     "mka.confidentiality_offset", "mka.macsec_cipher_suite",

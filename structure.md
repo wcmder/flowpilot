@@ -409,3 +409,11 @@ not verified by that review.
 Regression coverage includes DHCP direction/pair separation, worker offset
 propagation, repeated requests in one round, and initial/chat budget exhaustion.
 Provider tests use mocks; live LLM behavior and Windows packaging are not validated.
+
+- MKA summary and deep evidence must retain visible `mka.cak_name` (CKN), the
+  public CAK identifier, without extracting the secret CAK or wrapped keys.
+  Provider guidance must flag differing names for peers expected to share an
+  association as a potential configuration mismatch, cite MAC/SCI context, and
+  distinguish other associations/rekeying. Absent names are unknown; matching
+  names do not prove matching keys. Verify real extraction, saved round trips,
+  cached batches, and provider metadata.

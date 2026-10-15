@@ -20,7 +20,12 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
                           "loss/replay from PN ranges or integrity from SecTAG presence. "
                           "EAPOL/MKA multicast flows are not automatically paired with unicast "
                           "traffic. EAP Success/Failure is observed status, not proof of MACsec "
-                          "establishment. Encrypted contents and keys remain unavailable."),
+                          "establishment. Compare visible mka.cak_name (CKN) values for peers "
+                          "expected to share a connectivity association: differing names indicate "
+                          "a potential configuration mismatch. Cite names and MAC/SCI identities; "
+                          "different associations or rekeying may explain differences. Missing CKN "
+                          "is unknown, and matching names do not prove matching secret CAKs. "
+                          "Encrypted contents and keys remain unavailable."),
         notes="Visible headers only; no credentials, keys or encrypted payload extraction.",
     ),
     ProtocolModule(
@@ -36,7 +41,12 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
                           "loss/replay from PN ranges or integrity from SecTAG presence. "
                           "EAPOL/MKA multicast flows are not automatically paired with unicast "
                           "traffic. EAP Success/Failure is observed status, not proof of MACsec "
-                          "establishment. Encrypted contents and keys remain unavailable."),
+                          "establishment. Compare visible mka.cak_name (CKN) values for peers "
+                          "expected to share a connectivity association: differing names indicate "
+                          "a potential configuration mismatch. Cite names and MAC/SCI identities; "
+                          "different associations or rekeying may explain differences. Missing CKN "
+                          "is unknown, and matching names do not prove matching secret CAKs. "
+                          "Encrypted contents and keys remain unavailable."),
         notes="Visible headers only; no credentials, keys or encrypted payload extraction.",
     ),
 
