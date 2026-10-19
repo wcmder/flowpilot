@@ -96,6 +96,7 @@ def run_deep_tool(
 
 
 _SAMPLE_KEYS = {
+    "deep_bgp_flow": "bgp_header_samples",
     "deep_macsec_flow": "link_header_samples",
     "deep_eapol_flow": "link_header_samples",
     "deep_ike_flow": "ike_header_samples",
@@ -111,7 +112,7 @@ _SAMPLE_KEYS = {
 def collect_flow_details(capture_path: Path, flow: FlowSummary, flow_id: int) -> None:
     """Save all extracted rows for each supported tool, including explicit failures."""
     tools = {
-        "TCP": ("deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow"),
+        "TCP": ("deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow", "deep_bgp_flow"),
         "UDP": ("deep_udp_flow", "deep_tls_flow", "deep_rtp_flow", "deep_ike_flow"),
         "ESP": ("deep_esp_flow",),
         "MACSEC": ("deep_macsec_flow",),

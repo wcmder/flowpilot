@@ -51,6 +51,7 @@ analysis depends on the headers and fields TShark can decode.
 
 | Protocol | Current analysis support | Deep evidence tool |
 | --- | --- | --- |
+| BGP over TCP | OPEN parameters/capabilities, message counts, NOTIFICATION errors, selected UPDATE fields and ROUTE-REFRESH metadata. | `deep_bgp_flow` |
 | TCP | Retransmissions, sequence/ACK information, resets, windows, initial RTT, and timing. | `deep_tcp_flow` |
 | UDP | Directionality, sizes, timing, checksums, and visible DNS/DHCP transactions. | `deep_udp_flow` |
 | ESP / IPsec | SPIs, sequence gaps, duplicates, reordering, fragmentation, and outer headers; native ESP and UDP encapsulation. | `deep_esp_flow` |
@@ -899,3 +900,46 @@ an association indicate a potential configuration mismatch. Compare MAC/SCI
 identities and association/rekey context; matching names do not prove matching
 secret keys. Older summaries need regeneration or a fresh deep reread to obtain
 CKNs; existing cached details do not gain fields automatically.
+
+## BGP
+
+BGP analysis uses decoded BGP over TCP (normally port 179), retaining the TCP
+Flow ID and shared A/B rates. `--protocol BGP` filters decoded messages, not all
+traffic on port 179. Loaded-summary filtering retains whole matching flows.
+
+```bash
+flowpilot analyze routing.pcap --protocol BGP --no-llm
+flowpilot analyze routing.pcap --protocol BGP --agent --agent-auto-tools --chat
+flowpilot analyze routing.pcap --protocol BGP --detailed-summary --no-llm
+flowpilot analyze routing.pcap --load-detailed-summary --agent --chat
+```
+
+The BGP Messages table and LLM metadata include per-direction field counts:
+
+- OPEN version, sender AS, router ID, advertised hold time, capability codes,
+  four-octet AS capability, and multiprotocol AFI/SAFI.
+- Message types, including KEEPALIVE and UPDATE, and NOTIFICATION error codes
+  and type-specific subcodes.
+- Visible IPv4 NLRI/withdrawn addresses, prefix-length observations, origin,
+  next hop, local preference, MED, and two-/four-octet AS-path values.
+- ROUTE-REFRESH AFI, SAFI and subtype.
+
+Ask `run deep_bgp_flow for flow id 1` for matching packet headers and relative
+frame times. The tool supports saved details, `--offset`, 1,000-packet batches,
+continuation requests, and the existing `--max-request` limit. Detailed TCP
+summaries retain all extracted BGP rows; ordinary summaries keep aggregates.
+Older summaries remain readable but need regeneration or a deep reread for new
+BGP fields. Older cached details do not gain new fields automatically.
+
+Counts are dissector observations, not deduplicated wire-message counts. TCP
+reassembly can place a message on its completing frame; a frame can also contain
+multiple messages. Repeated fields are preserved but flattened: they must not be
+used to assign particular attributes to individual routes/messages. This feature
+does not reconstruct a RIB, best paths, BGP state transitions, or complete
+multiprotocol NLRI. It does not validate TCP authentication, decrypt traffic, or
+provide a BGP-specific decode-as flag. OPEN values are advertised values;
+KEEPALIVE alone does not prove establishment, and missing messages do not prove
+network loss. NOTIFICATION analysis should cite the actual code, subcode, sender,
+and matching TCP evidence.
+
+Field names follow the [Wireshark BGP field reference](https://www.wireshark.org/docs/dfref/b/bgp.html).

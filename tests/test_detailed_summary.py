@@ -45,7 +45,7 @@ def test_detailed_summary_preserves_every_analyzed_flow_type(
     loaded = cli._load_summary(tmp_path / "capture-detailed.json")
     assert loaded.flows[0].packet_details == [observation]
     expected = {
-        "TCP": {"deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow"},
+        "TCP": {"deep_tcp_flow", "deep_tls_flow", "deep_smb2_flow", "deep_bgp_flow"},
         "UDP": {"deep_udp_flow", "deep_tls_flow", "deep_rtp_flow", "deep_ike_flow"},
         "ESP": {"deep_esp_flow"},
     }.get(protocol, set())

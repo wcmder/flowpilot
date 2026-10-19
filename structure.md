@@ -417,3 +417,24 @@ Provider tests use mocks; live LLM behavior and Windows packaging are not valida
   distinguish other associations/rekeying. Absent names are unknown; matching
   names do not prove matching keys. Verify real extraction, saved round trips,
   cached batches, and provider metadata.
+
+## Must: BGP support
+
+- Preserve TCP Flow IDs and shared directional rates. Classify decoded BGP, never
+  infer it from port 179 alone. Register extraction, recording, rendering, guidance
+  and `deep_bgp_flow`; support `--protocol BGP` and saved directional filters.
+- Retain all occurrences of allow-listed OPEN, capability, message type,
+  NOTIFICATION code/subcode, selected UPDATE and ROUTE-REFRESH fields. Aggregate
+  by A/B direction; default older summaries to empty BGP metadata.
+- Match exact TCP endpoint pairs on IPv4/IPv6 and require the BGP layer. Preserve
+  frame times, full-flow counters, all detailed rows, cached retrieval and standard
+  batch/offset/request-limit behavior. Detailed TCP collection includes BGP.
+- Counts are decoded observations, not deduplicated messages. Multiple PDUs and
+  TCP reassembly affect frame/message counts. Flattened field occurrences cannot
+  reliably pair attributes with NLRI or individual PDUs. No RIB/FSM reconstruction,
+  complete multiprotocol routing analysis, authentication validation or raw payloads.
+- Guidance must distinguish advertised OPEN values from negotiated settings,
+  cite NOTIFICATION direction/codes, and avoid inferring loss, latency, installed
+  routes or establishment from missing messages/KEEPALIVEs. Different peer ASNs
+  can be normal eBGP. Verify real TShark IPv4/IPv6, multiple PDUs, exact filtering,
+  pagination, saved details and mocked provider arguments.

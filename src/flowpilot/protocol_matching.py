@@ -35,6 +35,8 @@ def packet_protocols(packet: PacketObservation) -> set[str]:
             names.add("MKA")
         if any(k.startswith("eap.") for k in packet.eapol_fields):
             names.add("EAP")
+    if packet.bgp_fields:
+        names.add("BGP")
     if packet.ike is not None:
         names.update(("IKE", f"IKEV{packet.ike.version >> 4}"))
     if packet.rtp_ssrc is not None:
@@ -58,6 +60,8 @@ def packet_protocols(packet: PacketObservation) -> set[str]:
 
 def flow_protocols(flow: FlowSummary, direction: int | None = None) -> set[str]:
     names = expanded([flow.key.protocol])
+    if (flow.bgp.packet_count if direction is None else flow.bgp.packets_by_direction[direction]):
+        names.add("BGP")
     if direction is None:
         names.update(expanded(flow.decoded_protocols))
     else:

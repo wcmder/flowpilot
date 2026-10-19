@@ -31,6 +31,7 @@ from .filters import (
 )
 from .models import CaptureSummary, FlowKey, FlowSummary
 from .paths import runtime_private_dir
+from .protocols.bgp import render_bgp_details
 from .protocols.dhcp import render_dhcp_details
 from .protocols.dns import render_dns_details
 from .protocols.esp import format_esp_sequences
@@ -641,6 +642,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
             _format_flow_issues(flow),
         )
     console.print(table)
+    render_bgp_details(summary, show_flows=show_flows, console=console)
     render_macsec_details(summary, show_flows=show_flows, console=console)
     render_eapol_details(summary, show_flows=show_flows, console=console)
     render_ike_details(summary, show_flows=show_flows, console=console)

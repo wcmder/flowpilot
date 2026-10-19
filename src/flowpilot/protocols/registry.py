@@ -8,6 +8,23 @@ from .base import ProtocolModule
 
 PROTOCOLS: tuple[ProtocolModule, ...] = (
     ProtocolModule(
+        name="bgp", display_name="BGP", flow_attributes=("bgp",),
+        extract_hook="flowpilot.protocols.bgp.extract_bgp",
+        record_hook="flowpilot.protocols.bgp.record_bgp",
+        render_hook="flowpilot.protocols.bgp.render_bgp_details",
+        compact_metadata_key="bgp", deep_tools=("deep_bgp_flow",),
+        deep_tool_runner_hooks=("flowpilot.protocols.bgp.deep_bgp_flow",),
+        deep_reason_hook="flowpilot.protocols.bgp.deep_bgp_reason",
+        deep_tool_prompt="Use deep_bgp_flow for BGP OPEN, UPDATE and NOTIFICATION headers.",
+        transport_prompt=("BGP: cite NOTIFICATION codes/subcodes and direction. OPEN values "
+                          "are advertised, not necessarily negotiated. Different peer ASNs may "
+                          "be normal eBGP. Missing messages do not prove loss; KEEPALIVE alone "
+                          "does not prove establishment. Flattened fields cannot pair route "
+                          "attributes to NLRI/messages. Do not infer installed routes or latency. "
+                          "Counts reflect dissector observations, including retransmissions."),
+        notes="Visible BGP over TCP; no RIB/FSM reconstruction or authentication validation.",
+    ),
+    ProtocolModule(
         name="macsec", display_name="MACSEC", flow_attributes=("macsec",),
         extract_hook="flowpilot.protocols.link_security.extract_macsec",
         record_hook="flowpilot.protocols.link_security.record_macsec",

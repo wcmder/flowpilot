@@ -241,6 +241,12 @@ class LinkSecuritySummary(BaseModel):
     number_ranges: dict[str, list[int]] = Field(default_factory=dict)
 
 
+class BgpSummary(BaseModel):
+    packet_count: int = 0
+    packets_by_direction: list[int] = Field(default_factory=lambda: [0, 0])
+    fields_by_direction: list[dict[str, dict[str, int]]] = Field(default_factory=lambda: [{}, {}])
+
+
 class PacketObservation(BaseModel):
     src_mac: str | None = None
     dst_mac: str | None = None
@@ -264,6 +270,7 @@ class PacketObservation(BaseModel):
         return value
 
     decoded_protocols: list[str] = Field(default_factory=list)
+    bgp_fields: dict[str, list[str]] = Field(default_factory=dict)
     ike: IkePacketMetadata | None = None
     timestamp: datetime | None = None
     src_ip: str | None = None
@@ -447,6 +454,7 @@ class FlowSummary(BaseModel):
     decoded_protocols: list[str] = Field(default_factory=list)
     protocols_a_to_b: list[str] = Field(default_factory=list)
     protocols_b_to_a: list[str] = Field(default_factory=list)
+    bgp: BgpSummary = Field(default_factory=BgpSummary)
     ike_sessions: list[IkeSessionSummary] = Field(default_factory=list)
     rtp_streams: list[RtpStreamSummary] = Field(default_factory=list)
     key: FlowKey
@@ -898,6 +906,7 @@ class CaptureSummary(BaseModel):
                             "one_way": flow.is_one_way,
                         },
                     },
+                    "bgp": flow.bgp.model_dump(),
                     "ike": {"sessions": [s.model_dump() for s in flow.ike_sessions]},
                     "rtp": {"streams": [stream.compact() for stream in flow.rtp_streams]},
                     "esp_spis": flow.esp_spis,
