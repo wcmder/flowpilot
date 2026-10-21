@@ -13,6 +13,7 @@ from .deep_common import (
     tshark_path,
     udp_flow_filter,
 )
+from .packet_gaps import annotate_packet_gaps
 
 UDP_HEADER_FIELDS = [
     "frame.number",
@@ -123,6 +124,7 @@ def deep_udp_flow(
         }
 
     rows = parse_field_rows(result.stdout, UDP_HEADER_FIELDS)
+    gaps = annotate_packet_gaps(rows, flow, rtp=False)
     return {
         "tool": "deep_udp_flow",
         "flow_id": flow_id,
@@ -130,6 +132,7 @@ def deep_udp_flow(
         "status": "ok",
         "display_filter": display_filter,
         "packet_count": len(rows),
+        "packet_gaps": gaps,
         "udp_metadata_counts": udp_metadata_counts(rows),
         "udp_header_fields": UDP_HEADER_FIELDS,
         "udp_header_samples": rows[

@@ -74,6 +74,9 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         is_src_to_dst = packet.source_endpoint == key.endpoint_a and (
             key.port_a is None or packet.src_port == key.port_a
         )
+        flow.packet_gaps_by_direction[0 if is_src_to_dst else 1].record(
+            str(packet.timestamp.timestamp()) if packet.timestamp is not None else None
+        )
         detected = packet_protocols(packet)
         flow.decoded_protocols = sorted(set(flow.decoded_protocols) | detected)
         if is_src_to_dst:

@@ -73,6 +73,23 @@ def run_deep_tool(
     if saved and saved.get("status") == "ok":
         sample_key = _SAMPLE_KEYS[tool_name]
         rows = saved[sample_key]
+        if tool_name in {"deep_udp_flow", "deep_rtp_flow"}:
+            from .protocols.packet_gaps import annotate_packet_gaps
+
+            # Complete saved rows support recalculation without a PCAP reread.
+            rows = [dict(row) for row in rows]
+            gaps = annotate_packet_gaps(rows, flow, rtp=tool_name == "deep_rtp_flow")
+            saved = {**saved, "packet_gaps": gaps}
+            if tool_name == "deep_rtp_flow":
+                streams = []
+                for stream in saved.get("rtp_streams", []):
+                    timing = next((g for g in gaps["by_ssrc"] if
+                                   g["ssrc"] == stream["ssrc"] and
+                                   g["direction"] == stream["direction"]), None)
+                    streams.append({**stream, **({"packet_gaps": {
+                        k: v for k, v in timing.items() if k not in {"ssrc", "direction"}
+                    }} if timing else {})})
+                saved = {**saved, "rtp_streams": streams}
         return {
             **saved,
             "flow_id": flow_id,

@@ -98,7 +98,11 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
                           "network loss; capture loss and restarts can contribute. Do not infer "
                           "codec/clock rate from dynamic payload type, "
                           "latency from RTP timestamps, "
-                          "or media quality/decryption from SRTP headers."),
+                          "or media quality/decryption from SRTP headers. "
+                          "Use packet_gaps per direction "
+                          "and SSRC for measured pauses; a gap can reflect silence suppression, "
+                          "sender inactivity or capture scope, not necessarily loss or latency. "
+                          "The configured threshold is descriptive, not a media-quality limit."),
         notes="Visible UDP RTP/SRTP headers; no media payload extraction or decryption.",
     ),
     ProtocolModule(
@@ -141,7 +145,10 @@ PROTOCOLS: tuple[ProtocolModule, ...] = (
         ),
         transport_prompt=(
             "UDP: focus on one-way visibility, packet rate, throughput, checksum status, "
-            "port reachability, and request/response visibility."
+            "port reachability, and request/response visibility. Use packet_gaps for "
+            "measured pauses per direction; full-tool statistics cover all matching rows, "
+            "not just the batch. Pause count uses the explicit configured threshold, not a "
+            "failure criterion. Smaller gaps remain visible in max/mean and packet rows."
         ),
         notes="UDP transport metadata plus DNS/DHCP deep transaction rereads.",
     ),

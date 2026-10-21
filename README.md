@@ -943,3 +943,37 @@ network loss. NOTIFICATION analysis should cite the actual code, subcode, sender
 and matching TCP evidence.
 
 Field names follow the [Wireshark BGP field reference](https://www.wireshark.org/docs/dfref/b/bgp.html).
+
+## UDP and RTP packet pauses
+
+Summaries include packet-gap statistics in A→B/B→A order; RTP/SRTP streams also
+include separate statistics per direction and SSRC. These use capture timestamps,
+not RTP clock ticks. Statistics include valid interval count, maximum and mean
+gap in milliseconds, and `pause_count` for gaps **greater than or equal to 100 ms by default**.
+This configurable reporting threshold is not a failure threshold: shorter interruptions
+remain visible in maximum/mean values and individual deep packet rows.
+
+`deep_udp_flow` and `deep_rtp_flow` compute `packet_gaps` across all matching rows
+before pagination. Each sample includes `direction_gap_ms`; RTP samples also
+include `stream_gap_ms`. A later batch's first packet retains the gap from its
+predecessor in the prior batch. Offsets do not reset tracking. Full-flow statistics
+repeat across batches and must not be summed. UDP includes all matching UDP
+packets; RTP timing includes only matching decoded RTP packets.
+
+Initial summaries cover selected observations, which may be filtered or limited;
+deep statistics cover the complete matching flow/protocol. Missing and backward
+timestamps are counted separately and excluded from gap statistics. Missing
+timestamps break adjacency; the first packet has a null gap, and equal timestamps
+produce zero. Old summaries remain readable but have unavailable gap measurements
+until regenerated. Complete cached deep rows can be annotated on retrieval.
+A traffic pause alone does not prove loss, network latency, jitter, or poor media
+quality; sender inactivity and silence suppression can also explain it.
+
+`--pause-threshold-ms NUMBER` sets the pause-count threshold for both UDP direction
+and RTP direction/SSRC calculations (default 100 ms, positive finite milliseconds).
+For example, `flowpilot analyze capture.pcap --pause-threshold-ms 50 --agent --chat`.
+It changes pause counts, not max/mean gaps or per-packet timing. Complete cached
+UDP/RTP rows are recalculated using the current threshold without rereading the
+capture. Loaded summary aggregates keep their recorded threshold/count because
+max/mean alone cannot reconstruct a different count; regenerate the summary to
+change those aggregates. Each result explicitly states its threshold.

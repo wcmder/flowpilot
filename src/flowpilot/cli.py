@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import atexit
 import json
+import math
 import os
 import re
 import shutil
@@ -29,7 +30,7 @@ from .filters import (
     filter_sip_calls_by_phone,
     include_redirect_related_flows,
 )
-from .models import CaptureSummary, FlowKey, FlowSummary
+from .models import PAUSE_THRESHOLD_MS, CaptureSummary, FlowKey, FlowSummary
 from .paths import runtime_private_dir
 from .protocols.bgp import render_bgp_details
 from .protocols.dhcp import render_dhcp_details
@@ -109,7 +110,7 @@ def _capture_path_arg(argv: list[str]) -> str | None:
     options_with_values = {
         "--model",
         "--max-request",
-        "--offset",
+        "--offset", "--pause-threshold-ms",
         "--rtp-udp-port",
         "--srtp-udp-port",
         "--packet-limit",
@@ -262,6 +263,11 @@ def analyze(
         list[int] | None, typer.Option("--srtp-udp-port", min=0, max=65535,
                                       help="Decode visible RTP headers on a known SRTP UDP port."),
     ] = None,
+    pause_threshold_ms: Annotated[
+        float, typer.Option("--pause-threshold-ms", min=0.001,
+                            help="UDP/RTP pause threshold in milliseconds. Default: 100. "
+                                 "Loaded aggregates retain their saved thresholds."),
+    ] = 100.0,
     offset: Annotated[
         int, typer.Option(
             "--offset", min=0,
@@ -379,6 +385,9 @@ def analyze(
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
 
+    if not math.isfinite(pause_threshold_ms):
+        raise typer.BadParameter("--pause-threshold-ms must be finite.")
+
     session = _CachedCaptureSession.create(capture_path, keep=keep_cache) if cache_pcap else None
     if session:
         _info(
@@ -386,6 +395,7 @@ def analyze(
             f"{session.capture_path}. Full packet headers and captured bytes are preserved."
         )
         capture_path = session.capture_path
+    pause_token = PAUSE_THRESHOLD_MS.set(pause_threshold_ms)
     offset_token = EVIDENCE_START_OFFSET.set(offset)
     try:
         flow_filter = FlowFilter(
@@ -568,6 +578,7 @@ def analyze(
             )
     finally:
         EVIDENCE_START_OFFSET.reset(offset_token)
+        PAUSE_THRESHOLD_MS.reset(pause_token)
         if session:
             session.close()
 

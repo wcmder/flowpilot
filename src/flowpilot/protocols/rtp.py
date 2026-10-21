@@ -14,6 +14,7 @@ from .deep_common import (
     tshark_path,
     udp_flow_filter,
 )
+from .packet_gaps import annotate_packet_gaps
 
 RTP_HEADER_FIELDS = [
     "frame.number", "frame.time_relative", "frame.len", "ip.src", "ipv6.src",
@@ -54,6 +55,8 @@ def record_rtp(flow: FlowSummary, packet: PacketObservation) -> None:
     if stream is None:
         stream = RtpStreamSummary(ssrc=packet.rtp_ssrc, direction=direction)
         flow.rtp_streams.append(stream)
+    stream.packet_gaps.record(
+        str(packet.timestamp.timestamp()) if packet.timestamp is not None else None)
     stream.packet_count += 1
     stream.srtp_packets += int(packet.srtp)
     if packet.rtp_payload_type is not None:
@@ -155,6 +158,7 @@ def deep_rtp_flow(
         }
 
     rows = parse_field_rows(result.stdout, RTP_HEADER_FIELDS)
+    gaps = annotate_packet_gaps(rows, flow, rtp=True)
     headers = FlowSummary(key=flow.key)
     for row in rows:
         def integer(field, row=row):
@@ -172,6 +176,15 @@ def deep_rtp_flow(
             rtp_timestamp=integer("rtp.timestamp"), rtp_payload_type=integer("rtp.p_type"),
             srtp=secure,
         ))
+    streams = []
+    for stream in headers.rtp_streams:
+        compact = stream.compact()
+        timing = next((g for g in gaps["by_ssrc"]
+                       if g["ssrc"] == stream.ssrc and g["direction"] == stream.direction), None)
+        if timing:
+            compact["packet_gaps"] = {k: v for k, v in timing.items()
+                                      if k not in {"ssrc", "direction"}}
+        streams.append(compact)
     return {
         "tool": "deep_rtp_flow",
         "flow_id": flow_id,
@@ -179,9 +192,10 @@ def deep_rtp_flow(
         "status": "ok",
         "display_filter": display_filter,
         "packet_count": len(rows),
+        "packet_gaps": gaps,
         "rtp_metadata_counts": {"rtp_packets": len(rows),
                                 "srtp_packets": sum(s.srtp_packets for s in headers.rtp_streams)},
-        "rtp_streams": [s.compact() for s in headers.rtp_streams],
+        "rtp_streams": streams,
         "rtp_header_fields": RTP_HEADER_FIELDS,
         "rtp_header_samples": rows[
             sample_offset:sample_offset + sample_limit if sample_limit is not None else None

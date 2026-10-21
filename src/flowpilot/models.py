@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections import Counter
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
 LONG_LIVED_FLOW_SECONDS = 180
+PAUSE_THRESHOLD_MS: ContextVar[float] = ContextVar("pause_threshold_ms", default=100.0)
 
 
 class TlsCertificateObservation(BaseModel):
@@ -172,7 +174,55 @@ class DhcpFlowMetadata(BaseModel):
     lease_times: list[str] = Field(default_factory=list)
 
 
+class PacketGapSummary(BaseModel):
+    interval_count: int = 0
+    max_gap_ms: float | None = None
+    total_gap_ms: float = 0
+    pause_threshold_ms: float = Field(default_factory=PAUSE_THRESHOLD_MS.get)
+    pause_count: int = 0
+    missing_timestamp_count: int = 0
+    backward_timestamp_count: int = 0
+    previous_seconds: str | None = None
+
+    def record(self, seconds: str | None) -> float | None:
+        from decimal import Decimal, InvalidOperation
+
+        try:
+            current = Decimal(seconds) if seconds is not None else None
+        except InvalidOperation:
+            current = None
+        if current is None or not current.is_finite():
+            self.missing_timestamp_count += 1
+            self.previous_seconds = None
+            return None
+        previous = self.previous_seconds
+        self.previous_seconds = str(current)
+        if previous is None:
+            return None
+        gap = float((current - Decimal(previous)) * 1000)
+        if gap < 0:
+            self.backward_timestamp_count += 1
+            return None
+        self.interval_count += 1
+        self.total_gap_ms += gap
+        self.max_gap_ms = max(self.max_gap_ms or 0, gap)
+        self.pause_count += int(gap >= self.pause_threshold_ms)
+        return gap
+
+    def compact(self) -> dict[str, Any]:
+        return {
+            **self.model_dump(exclude={"previous_seconds", "total_gap_ms"}),
+            "mean_gap_ms": self.total_gap_ms / self.interval_count if self.interval_count else None,
+            "assessment": (
+                "Capture-order spacing, not network latency, jitter or proven loss. "
+                "Pause count uses gaps >= the stated threshold, not a failure count. "
+                "Missing/backward timestamps are excluded; gaps do not span missing timestamps."
+            ),
+        }
+
+
 class RtpStreamSummary(BaseModel):
+    packet_gaps: PacketGapSummary = Field(default_factory=PacketGapSummary)
     ssrc: str
     direction: str
     packet_count: int = 0
@@ -195,6 +245,7 @@ class RtpStreamSummary(BaseModel):
             "duplicate_count": self.duplicate_count,
             "out_of_order_count": self.out_of_order_count,
             "observed_sequence_holes": max(0, expected - len(self.seen_sequences)),
+            "packet_gaps": self.packet_gaps.compact(),
             "jitter_ms": None,
             "assessment": "Sequence holes are capture observations, not proven network loss. "
                           "16-bit sequence extension assumes less than half a sequence space "
@@ -475,6 +526,8 @@ class FlowSummary(BaseModel):
     rtt_max_ms: float | None = None
     rtt_samples_ms: list[float] = Field(default_factory=list)
     initial_rtt_ms: float | None = None
+    packet_gaps_by_direction: list[PacketGapSummary] = Field(
+        default_factory=lambda: [PacketGapSummary(), PacketGapSummary()])
     max_interarrival_ms: float | None = None
     issue_counts: dict[str, int] = Field(default_factory=dict)
     redirect_locations: list[str] = Field(default_factory=list)
@@ -906,6 +959,9 @@ class CaptureSummary(BaseModel):
                             "one_way": flow.is_one_way,
                         },
                     },
+                    "packet_gaps_by_direction": [
+                        g.compact() for g in flow.packet_gaps_by_direction
+                    ],
                     "bgp": flow.bgp.model_dump(),
                     "ike": {"sessions": [s.model_dump() for s in flow.ike_sessions]},
                     "rtp": {"streams": [stream.compact() for stream in flow.rtp_streams]},

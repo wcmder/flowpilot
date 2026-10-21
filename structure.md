@@ -438,3 +438,31 @@ Provider tests use mocks; live LLM behavior and Windows packaging are not valida
   routes or establishment from missing messages/KEEPALIVEs. Different peer ASNs
   can be normal eBGP. Verify real TShark IPv4/IPv6, multiple PDUs, exact filtering,
   pagination, saved details and mocked provider arguments.
+
+## Must: packet-gap evidence
+
+- Retain direction-specific capture-order gap statistics in summaries and compact
+  provider metadata; RTP adds direction/SSRC isolation. Never use RTP clock ticks
+  as wall-clock time or combine reverse traffic when measuring a direction's pause.
+- UDP/RTP deep tools calculate full matching-flow gaps before slicing. Per-row
+  direction gaps and RTP stream gaps retain predecessors across batch boundaries;
+  detailed saves preserve them and cached paging returns unchanged full statistics.
+- Report interval count, max/mean milliseconds and pause count with explicit fixed
+  threshold >=100ms by default, configurable using `--pause-threshold-ms`. This is descriptive, not proof of failure. Keep shorter gaps
+  available. Exclude/count missing and backward timestamps, break adjacency on
+  missing values, preserve zero gaps, and report no intervals as unavailable.
+- Initial statistics cover selected observations; deep statistics cover the full
+  matching protocol/flow. Old summaries default to unknown maximum/mean; old
+  detailed rows are recalculated on retrieval without changing the saved source.
+- Guidance must not equate pauses with network latency, jitter, proven loss or
+  media failure. Test direction/SSRC isolation, exact thresholds, timestamp anomalies,
+  saved round trips, cross-page predecessors, and provider delivery.
+
+`--pause-threshold-ms NUMBER` sets the pause-count threshold for both UDP direction
+and RTP direction/SSRC calculations (default 100 ms, positive finite milliseconds).
+For example, `flowpilot analyze capture.pcap --pause-threshold-ms 50 --agent --chat`.
+It changes pause counts, not max/mean gaps or per-packet timing. Complete cached
+UDP/RTP rows are recalculated using the current threshold without rereading the
+capture. Loaded summary aggregates keep their recorded threshold/count because
+max/mean alone cannot reconstruct a different count; regenerate the summary to
+change those aggregates. Each result explicitly states its threshold.
