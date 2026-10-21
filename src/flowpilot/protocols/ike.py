@@ -43,7 +43,8 @@ HEADER_NAMES = ["version", "ispi", "rspi", "exchangetype", "messageid", "flags",
                 "nextpayload", "length", "notify.msgtype", "frag.number", "frag.total",
                 "frag.packetid", "frag.seq", "frag.last"]
 IKE_HEADER_FIELDS = [
-    "frame.number", "frame.time_relative", "frame.len", "ip.src", "ipv6.src", "ip.dst",
+    "frame.number", "frame.time_relative", "frame.time_epoch",
+    "frame.len", "ip.src", "ipv6.src", "ip.dst",
     "ipv6.dst", "udp.srcport", "udp.dstport",
     *[f"isakmp.{name}" for name in HEADER_NAMES + PROPOSAL_FIELDS],
 ]

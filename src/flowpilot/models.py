@@ -324,6 +324,9 @@ class PacketObservation(BaseModel):
     bgp_fields: dict[str, list[str]] = Field(default_factory=dict)
     ike: IkePacketMetadata | None = None
     timestamp: datetime | None = None
+    frame_number: int | None = None
+    timestamp_epoch: str | None = None
+    time_relative: str | None = None
     src_ip: str | None = None
     dst_ip: str | None = None
     src_port: int | None = None
@@ -831,6 +834,14 @@ class CaptureSummary(BaseModel):
         return {
             "analysis_focus": "network transport troubleshooting",
             "transport_metric_notes": {
+                "timestamps": (
+                    "first_seen/last_seen are saved flow-boundary timestamps in ISO 8601. "
+                    "An absent timezone offset means the saved timezone is unspecified, not UTC. "
+                    "Deep frame.time_epoch is absolute Unix seconds, stored as a precise string. "
+                    "Deep frame.time_relative is seconds since capture start, not flow start. "
+                    "Flow boundaries do not provide every packet timestamp; inspect deep samples "
+                    "for packet-level timing. Null or missing timestamps are unavailable."
+                ),
                 "loss": (
                     "TCP uses tcp.analysis.lost_segment rate over observed flow packets; "
                     "ESP uses missing sequence numbers over expected ESP sequence span"
@@ -905,6 +916,8 @@ class CaptureSummary(BaseModel):
                     "dst_to_src_bytes": flow.dst_to_src_bytes,
                     "src_to_dst_issue_counts": flow.src_to_dst_issue_counts,
                     "dst_to_src_issue_counts": flow.dst_to_src_issue_counts,
+                    "first_seen": flow.first_seen.isoformat() if flow.first_seen else None,
+                    "last_seen": flow.last_seen.isoformat() if flow.last_seen else None,
                     "duration_seconds": round(flow.duration_seconds, 3),
                     "packet_rate_per_second_by_direction": list(
                         flow.packet_rate_per_second_by_direction

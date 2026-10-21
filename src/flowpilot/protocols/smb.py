@@ -21,7 +21,7 @@ SMB_TRANSFER_FILE_MIN_BYTES = 1_048_576
 
 SMB2_DEEP_FIELDS = [
     "frame.number",
-    "frame.time_relative",
+    "frame.time_relative", "frame.time_epoch",
     "ip.src",
     "ipv6.src",
     "ip.dst",

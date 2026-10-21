@@ -87,7 +87,8 @@ def deep_bgp_flow(capture_path, *, flow_id, flow, reason,
     tshark = tshark_path()
     if not tshark:
         return {**base, 'status': 'unavailable', 'message': 'TShark not found.'}
-    fields = ['frame.number', 'frame.time_relative', 'frame.len', 'ip.src', 'ipv6.src',
+    fields = ['frame.number', 'frame.time_relative', 'frame.time_epoch',
+              'frame.len', 'ip.src', 'ipv6.src',
               'ip.dst', 'ipv6.dst', 'tcp.srcport', 'tcp.dstport', *BGP_FIELDS]
     display_filter = f'({tcp_flow_filter(flow)}) && bgp'
     try:

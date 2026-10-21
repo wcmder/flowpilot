@@ -17,7 +17,7 @@ from .packet_gaps import annotate_packet_gaps
 
 UDP_HEADER_FIELDS = [
     "frame.number",
-    "frame.time_relative",
+    "frame.time_relative", "frame.time_epoch",
     "ip.src",
     "ipv6.src",
     "ip.dst",

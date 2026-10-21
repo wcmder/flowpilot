@@ -62,6 +62,7 @@ def test_bgp_real_headers_filters_saved_batches_and_provider(tmp_path, monkeypat
     assert result['batch']['next_offset'] == 1
     assert result['bgp_header_samples'][0]['bgp.type'] == '1,4,4'
     assert 'frame.time_relative' in result['bgp_header_samples'][0]
+    assert 'frame.time_epoch' in result['bgp_header_samples'][0]
     collect_flow_details(path, flow, 1)
     assert len(flow.deep_details['deep_bgp_flow']['bgp_header_samples']) == 2
     loaded = CaptureSummary.model_validate_json(summary.model_dump_json())

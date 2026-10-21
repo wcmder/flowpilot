@@ -95,6 +95,10 @@ def packet_to_observation(packet: Any) -> PacketObservation | None:
         "src_mac": src_mac, "dst_mac": dst_mac,
         "link_type": link_type if link_protocol else None, "vlan_ids": vlan_ids,
         "timestamp": _timestamp(packet),
+        "frame_number": _safe_int(getattr(packet, "number", None)),
+        "timestamp_epoch": (str(packet.sniff_timestamp)
+                            if getattr(packet, "sniff_timestamp", None) is not None else None),
+        "time_relative": _relative_timestamp(packet),
         "src_ip": src_ip,
         "dst_ip": dst_ip,
         "src_port": src_port,
@@ -149,6 +153,12 @@ def observations_from_iterable(packets: Iterable[Any]) -> Iterator[PacketObserva
         observation = packet_to_observation(packet)
         if observation:
             yield observation
+
+
+def _relative_timestamp(packet: Any) -> str | None:
+    value = _layer_attr(packet, "frame_info", "time_relative")
+    # PyShark can append a display unit; preserve numeric precision without float conversion.
+    return value.split()[0] if value and value.split() else None
 
 
 def _timestamp(packet: Any) -> datetime | None:

@@ -466,3 +466,22 @@ UDP/RTP rows are recalculated using the current threshold without rereading the
 capture. Loaded summary aggregates keep their recorded threshold/count because
 max/mean alone cannot reconstruct a different count; regenerate the summary to
 change those aggregates. Each result explicitly states its threshold.
+
+Flow metadata sent to the LLM includes saved `first_seen` and `last_seen` ISO 8601
+timestamps for every protocol, including TCP and TLS on TCP Flow IDs. Missing
+values remain null; timestamps without a timezone offset must not be labeled UTC.
+TCP/TLS deep samples already include `frame.time_relative` in seconds since capture
+start when available. Flow boundaries are not per-packet timing: request deep
+evidence for that. Existing summaries with saved boundaries need no regeneration.
+
+Every newly extracted deep-tool packet row includes `frame.number`,
+`frame.time_epoch` (absolute Unix seconds) and `frame.time_relative` (seconds
+since capture start) when available. Preserve numeric timestamp strings and their
+capture precision through JSON saving, cached pagination, and provider requests.
+Detailed packet observations also retain frame number, epoch and relative time.
+Missing timestamps remain unavailable; never manufacture absolute times from a
+flow boundary. This applies to TCP, UDP, TLS/DTLS, SMB, ESP, RTP/SRTP, IKE, BGP,
+MACsec and EAPOL tools. Packet evidence is still paged; only supplied batches have
+been sent to the LLM. Ordinary summaries retain aggregates, not every packet.
+Regenerate older detailed summaries (or reread the PCAP without their cached
+results) to obtain absolute timestamps absent from old saved rows.

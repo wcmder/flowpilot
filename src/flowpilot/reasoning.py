@@ -103,7 +103,16 @@ requested schema. Protocol-specific guidance is supplied separately based only o
 in the metadata or additional deep evidence.
 
 Tool access is delegated through the JSON evidence_requests field; you do not call
-tools directly. Deep packet samples are paged: inspect batch.offset, returned,
+tools directly. Flow first_seen/last_seen provide flow-boundary timestamps;
+they are not a per-packet timeline. TCP and TLS/DTLS deep samples include
+frame.time_relative (seconds since capture start) and frame.time_epoch (absolute
+Unix seconds) when available. Each deep sample is a packet/frame row with its own
+timestamps; retain frame identity when citing timing. Timestamp strings preserve
+capture precision. Do not infer absent absolute timestamps from relative values. Use supplied
+values rather than claiming timestamps are absent. If packet-level timestamps
+are needed but no matching samples are attached, request the appropriate deep
+tool. Do not invent timezones or equate packet spacing with latency.
+Deep packet samples are paged: inspect batch.offset, returned,
 total_matching_packets, has_more, and next_offset. This is only one batch, not the
 entire flow. When more details are needed, request the same tool and flow_id with
 sample_offset set to batch.next_offset. Aggregate counters cover the full matching

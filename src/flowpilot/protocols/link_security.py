@@ -30,7 +30,8 @@ EAPOL_FIELDS = [
     "mka.old_key_an", "mka.old_key_tx", "mka.old_key_rx", "mka.distributed_an",
     "mka.confidentiality_offset", "mka.macsec_cipher_suite",
 ]
-LINK_FIELDS = ["frame.number", "frame.time_relative", "frame.len", "eth.src", "eth.dst",
+LINK_FIELDS = ["frame.number", "frame.time_relative", "frame.time_epoch",
+    "frame.len", "eth.src", "eth.dst",
                "wlan.sa", "wlan.da", "vlan.id"]
 NUMBER_FIELDS = {"macsec.PN", "eapol.keydes.replay_counter", "mka.actor_mn"}
 ASSESSMENT = (

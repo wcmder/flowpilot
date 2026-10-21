@@ -18,7 +18,7 @@ from .deep_common import (
 
 ESP_DEEP_FIELDS = [
     "frame.number",
-    "frame.time_relative",
+    "frame.time_relative", "frame.time_epoch",
     "frame.len",
     "ip.src",
     "ipv6.src",

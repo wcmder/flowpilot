@@ -17,7 +17,7 @@ from .deep_common import (
 from .packet_gaps import annotate_packet_gaps
 
 RTP_HEADER_FIELDS = [
-    "frame.number", "frame.time_relative", "frame.len", "ip.src", "ipv6.src",
+    "frame.number", "frame.time_relative", "frame.time_epoch", "frame.len", "ip.src", "ipv6.src",
     "ip.dst", "ipv6.dst", "udp.srcport", "udp.dstport", "udp.length",
     "rtp.version", "rtp.ssrc", "rtp.seq", "rtp.timestamp", "rtp.p_type", "rtp.marker",
     "_ws.col.Protocol",

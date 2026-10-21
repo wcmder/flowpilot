@@ -22,7 +22,7 @@ from .deep_common import (
 
 TLS_DEEP_FIELDS = [
     "frame.number",
-    "frame.time_relative",
+    "frame.time_relative", "frame.time_epoch",
     "ip.src",
     "ipv6.src",
     "ip.dst",
