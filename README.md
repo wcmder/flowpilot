@@ -978,6 +978,8 @@ capture. Loaded summary aggregates keep their recorded threshold/count because
 max/mean alone cannot reconstruct a different count; regenerate the summary to
 change those aggregates. Each result explicitly states its threshold.
 
+## Packet timestamps and timezones
+
 Flow metadata sent to the LLM includes saved `first_seen` and `last_seen` ISO 8601
 timestamps for every protocol, including TCP and TLS on TCP Flow IDs. Missing
 values remain null; timestamps without a timezone offset must not be labeled UTC.
@@ -996,3 +998,21 @@ MACsec and EAPOL tools. Packet evidence is still paged; only supplied batches ha
 been sent to the LLM. Ordinary summaries retain aggregates, not every packet.
 Regenerate older detailed summaries (or reread the PCAP without their cached
 results) to obtain absolute timestamps absent from old saved rows.
+
+FlowPilot does **not** normalize all readable timestamps to UTC. During capture
+analysis, observation `timestamp` and flow `first_seen`/`last_seen` use PyShark's
+`sniff_time`, which follows the analyzing machine's local timezone and may lack
+an explicit timezone offset. This is the timezone of the machine running
+FlowPilot, not necessarily the machine that originally captured the packets.
+Loading a saved summary preserves its stored values; it does not convert them
+to the current machine's timezone.
+
+| Timestamp field | Timezone behavior |
+| --- | --- |
+| Observation `timestamp`, flow `first_seen` / `last_seen` | Readable timestamps from PyShark; normally local time at analysis. Preserve any stored offset; do not assume UTC when no offset is present. |
+| Deep `frame.time_epoch`, observation `timestamp_epoch` | Absolute seconds since 1970-01-01 00:00:00 UTC. The numeric value is independent of local timezone settings. Use UTC explicitly when converting it to a readable time. |
+| Deep `frame.time_relative`, observation `time_relative` | Elapsed seconds since capture start; no timezone. |
+
+Analyzing the same capture on machines in different timezones can produce
+different readable clock times while epoch and relative timestamps remain
+unchanged. Use epoch timestamps when correlating captures or logs across machines.
