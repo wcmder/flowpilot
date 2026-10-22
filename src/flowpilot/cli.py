@@ -280,9 +280,9 @@ def analyze(
         int,
         typer.Option(
             "--max-request", min=0,
-            help=("Maximum LLM-requested deep-tool rounds per analysis or chat turn "
-                  "with --agent. Default: 2. Zero disables additional rounds. "
-                  "Each round may request multiple tools; automatic initial tools are separate."),
+            help=("Maximum individual LLM-requested deep-tool calls per analysis or chat turn "
+                  "with --agent. Default: 2. Zero disables LLM-requested calls. "
+                  "Each tool/flow/offset is one call; initial automatic tools are separate."),
         ),
     ] = 2,
     agent_auto_tools: Annotated[

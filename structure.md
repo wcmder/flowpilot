@@ -278,9 +278,13 @@ not verified by that review.
   Offsets are zero-based matching packet indices, not capture frame numbers.
   Zero must display as `0`; missing batch metadata must display as unknown (`-`).
 
-- `--max-request N` must bound LLM-requested tool rounds per analysis/chat turn
+- `--max-request N` must bound individual LLM-requested tool calls per analysis/chat turn
   (default 2, nonnegative), independently of automatic initial tools. Graph
-  recursion limits must accommodate the configured number of rounds.
+  recursion limits must accommodate the configured number of calls. Validate, clamp
+  offsets and deduplicate before applying the remaining budget. Each accepted
+  tool/flow/offset costs one call, including cached/error results; surplus requests
+  remain unexecuted and trigger an unexamined-evidence notice in the final answer.
+  Automatic initial tools and explicit user-named chat tool requests are separate.
 
 - LLM requests must serialize packet evidence without pretty-print indentation.
   Chat must attach each evidence payload once, with the current question and

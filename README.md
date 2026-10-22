@@ -499,7 +499,7 @@ Core options:
 | `--rtp-udp-port INTEGER` | Decode a known UDP media port as RTP. Repeat for multiple ports; applies to initial reads and deep rereads. |
 | `--srtp-udp-port INTEGER` | Decode visible RTP headers on a known SRTP port and mark it as SRTP based on the explicit setting. Repeatable; does not decrypt media. |
 | `--offset INTEGER` | Starting zero-based matching-packet offset per flow/tool, including initial automatic evidence and saved previews. Default `0`; full-flow metrics remain unchanged. |
-| `--max-request INTEGER` | Maximum additional LLM-requested tool rounds per analysis/chat turn. Default `2`; `0` disables additional rounds. Initial automatic tools are separate. |
+| `--max-request INTEGER` | Maximum individual LLM-requested tool calls per analysis/chat turn. Default `2`; `0` disables LLM-requested calls. Initial automatic tools are separate. |
 | `--max-flows INTEGER` | Initial flow selection limit for LLM requests; chat additionally includes an explicitly requested Flow ID outside this limit. Does not limit `--json` output. Defaults to `25`. |
 | `--show-flows INTEGER` | Maximum flows shown in the terminal table. Does not limit `--json` output. Defaults to `10`. |
 
@@ -680,12 +680,16 @@ FlowPilot sends derived flow metadata to the configured LLM endpoint, without ra
 packet payloads. Review
 the generated summary before using LLM reasoning on sensitive captures.
 
-`--max-request NUMBER` controls the maximum LLM-requested deep-tool rounds with
-`--agent` (default `2`, minimum `0`). It applies separately to initial analysis
-and each chat turn. Each round may request multiple tools. Automatic initial
-tools from `--agent-auto-tools` are separate; `--max-request 0` disables only subsequent
-LLM-requested tools. For example, `--agent --agent-auto-tools --max-request 1` allows
-one additional round after the initial evidence. This limits rounds, not tokens.
+`--max-request NUMBER` caps individual LLM-requested deep-tool calls (`--agent`),
+not rounds. Default: `2`. The budget resets for initial analysis and each chat turn.
+Each distinct tool/flow/offset request costs one call, including cached results
+and failed attempts. Invalid or duplicate requests do not consume the budget.
+When a response requests more calls than remain, FlowPilot executes only the first
+allowed requests in response order and reports the unexamined evidence. Automatic
+initial tools (`--agent-auto-tools`) and explicitly named user chat tool requests
+remain separate from this LLM-request budget. `--max-request 0` disables
+LLM-requested tools. This is not a token limit; accumulated evidence is still
+sent for reasoning, so provider token-per-minute limits can still be reached.
 
 Use `--offset 5000` to skip the first 5,000 matching packet rows when retrieving
 deep evidence (including saved detailed previews). Each flow/tool starts at its

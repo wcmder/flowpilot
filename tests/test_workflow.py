@@ -956,3 +956,67 @@ def test_exhausted_budget_explains_unexamined_evidence(monkeypatch, tmp_path, ch
     assert "tool limit" in answer
     assert "unexamined" in answer
     assert state["deep_evidence"] == []
+
+
+@pytest.mark.parametrize('chat', [False, True])
+@pytest.mark.parametrize('limit', [0, 1, 2])
+def test_individual_llm_call_budget_and_surplus_notice(monkeypatch, tmp_path, chat, limit):
+    summary = _summary()
+    summary.flows = [FlowSummary(key=FlowKey(
+        endpoint_a='10.0.0.1', endpoint_b='10.0.0.2', protocol='UDP',
+    ))]
+    requested = [
+        {'tool': 'deep_udp_flow', 'flow_id': 1, 'sample_offset': offset, 'reason': 'inspect'}
+        for offset in (0, 0, 1000, 2000)
+    ]
+    requested.insert(0, {'tool': 'invalid_tool', 'flow_id': 1, 'reason': 'invalid'})
+    provider_calls = []
+    tool_calls = []
+
+    def provider(*args, **kwargs):
+        requests = requested if not provider_calls else []
+        provider_calls.append(kwargs)
+        if chat:
+            return AgentChatResponse(answer='Assessment.', evidence_requests=requests)
+        return ReasoningReport(executive_summary='Assessment.', risk_level='unknown',
+                               evidence_requests=requests)
+
+    def tool(name, path, *, sample_offset=0, **kwargs):
+        tool_calls.append(sample_offset)
+        return {'tool': name, 'flow_id': 1, 'status': 'error', 'message': 'Test failure',
+                'batch': {'offset': sample_offset}}
+
+    monkeypatch.setattr(workflow, 'reason_about_capture', provider)
+    monkeypatch.setattr(workflow, 'agent_chat_about_capture', provider)
+    monkeypatch.setattr(workflow, 'run_deep_tool', tool)
+    if chat:
+        result = workflow.run_agent_chat_state(
+            summary, 'Investigate flow 1', capture_path=tmp_path / 'test.pcap',
+            max_tool_rereads=limit,
+        )
+        answer = result['answer']
+    else:
+        result = workflow.run_agent_reasoning_state(
+            summary, capture_path=tmp_path / 'test.pcap', max_tool_rereads=limit,
+        )
+        answer = result['report'].executive_summary
+    assert tool_calls == [0, 1000][:limit]
+    assert result['llm_tool_call_count'] == limit
+    assert 'unexamined' in answer  # Must survive the final provider response with no requests.
+    assert len(provider_calls) == (2 if limit else 1)
+
+
+def test_budget_counts_across_responses_after_offset_clamp():
+    state = {'max_tool_rereads': 2, 'sample_offset': 1000, 'tool_requests': [
+        {'tool': 'deep_udp_flow', 'flow_id': 1, 'sample_offset': offset}
+        for offset in (0, 500, 1000)
+    ]}
+    first = workflow._limit_llm_tool_calls(state, workflow._pending_tool_requests(state))
+    assert first['llm_tool_call_count'] == 1
+    second = workflow._limit_llm_tool_calls({**state, **first}, [
+        {'tool': 'deep_udp_flow', 'flow_id': 1, 'sample_offset': offset}
+        for offset in (2000, 3000)
+    ])
+    assert second['llm_tool_call_count'] == 2
+    assert [r['sample_offset'] for r in second['tool_requests']] == [2000]
+    assert second['tool_budget_truncated']

@@ -27,7 +27,7 @@ from .reasoning import (
 ALLOWED_TOOLS = deep_tool_names()
 TOOL_LIMIT_NOTICE = (
     "\n\nFlowPilot reached this turn's tool limit before retrieving all requested "
-    "packet batches. The requested evidence remains unexamined; ask to continue "
+    "packet batches. Some requested evidence remains unexamined; ask to continue "
     "reviewing the next batch."
 )
 
@@ -46,7 +46,8 @@ class FlowPilotAgentState(TypedDict, total=False):
     tool_requests: list[dict[str, Any]]
     completed_tool_requests: list[str]
     deep_evidence: list[dict[str, Any]]
-    tool_loop_count: int
+    tool_budget_truncated: bool
+    llm_tool_call_count: int
     max_tool_rereads: int
     sample_offset: int
     agent_auto_tools: bool
@@ -98,7 +99,7 @@ def run_agent_reasoning_state(
         "max_flows": max_flows,
         "max_tool_rereads": max_tool_rereads,
         "sample_offset": sample_offset,
-        "tool_loop_count": 0,
+        "llm_tool_call_count": 0,
         "agent_auto_tools": agent_auto_tools,
         "completed_tool_requests": [],
         "deep_evidence": [],
@@ -169,7 +170,7 @@ def run_agent_chat_state(
         "deep_evidence": evidence,
         "tool_requests": [],
         "completed_tool_requests": completed,
-        "tool_loop_count": 0,
+        "llm_tool_call_count": 0,
         "max_tool_rereads": max_tool_rereads,
         "sample_offset": sample_offset,
     }
@@ -256,21 +257,18 @@ def _build_reasoning_graph() -> Any:
         return {"report": report}
 
     def collect_llm_requests_node(state: FlowPilotAgentState) -> dict[str, Any]:
-        loop_count = state.get("tool_loop_count", 0)
-        requests = _pending_tool_requests({**state, "tool_requests": _llm_tool_requests(state)})
-        if loop_count >= state.get("max_tool_rereads", 2):
-            update = {"tool_requests": [], "tool_loop_count": loop_count}
-            if requests:
-                update["report"] = state["report"].model_copy(update={
-                    "executive_summary": state["report"].executive_summary + TOOL_LIMIT_NOTICE,
+        pending = _pending_tool_requests({**state, "tool_requests": _llm_tool_requests(state)})
+        update = _limit_llm_tool_calls(state, pending)
+        if update["tool_budget_truncated"]:
+            report = state["report"]
+            if TOOL_LIMIT_NOTICE not in report.executive_summary:
+                update["report"] = report.model_copy(update={
+                    "executive_summary": report.executive_summary + TOOL_LIMIT_NOTICE,
                 })
-            return update
-        if requests:
-            _progress(state, f"LLM requested {len(requests)} additional deep evidence reread(s).")
-        return {
-            "tool_requests": requests,
-            "tool_loop_count": loop_count + 1 if requests else loop_count,
-        }
+        if update["tool_requests"]:
+            _progress(state, f"LLM requested {len(update['tool_requests'])} "
+                            "additional deep evidence call(s) within the remaining budget.")
+        return update
 
     graph = StateGraph(FlowPilotAgentState)
     graph.add_node("deterministic_router", deterministic_router_node)
@@ -347,28 +345,17 @@ def _build_chat_graph() -> Any:
                 ),
                 "tool_requests": [],
             }
-        loop_count = state.get("tool_loop_count", 0)
-        pending_requests = _pending_tool_requests({
+        pending = _pending_tool_requests({
             **state, "tool_requests": _valid_tool_requests(state, response.evidence_requests),
         })
+        update = _limit_llm_tool_calls(state, pending)
         answer = response.answer
-        if loop_count >= state.get("max_tool_rereads", 2):
-            requests = []
-            if pending_requests:
-                answer += TOOL_LIMIT_NOTICE
-        else:
-            requests = pending_requests
-        if requests:
-            _progress(
-                state,
-                f"LLM chat requested {len(requests)} additional deep evidence reread(s).",
-            )
-        return {
-            "answer": answer,
-            "chat_response": response,
-            "tool_requests": requests,
-            "tool_loop_count": loop_count + 1 if requests else loop_count,
-        }
+        if update["tool_budget_truncated"]:
+            answer += TOOL_LIMIT_NOTICE
+        if update["tool_requests"]:
+            _progress(state, f"LLM chat requested {len(update['tool_requests'])} "
+                            "additional deep evidence call(s) within the remaining budget.")
+        return {**update, "answer": answer, "chat_response": response}
 
     graph = StateGraph(FlowPilotAgentState)
     graph.add_node("explicit_request", explicit_request_node)
@@ -479,6 +466,19 @@ def _valid_tool_requests(
         if _tool_request_key(request_dict) not in state.get("completed_tool_requests", []):
             requests.append(request_dict)
     return requests
+
+
+def _limit_llm_tool_calls(state: FlowPilotAgentState, pending: list[dict]) -> dict[str, Any]:
+    """Reserve one unit per validated, deduplicated call, including cached/error results."""
+    used = state.get("llm_tool_call_count", 0)
+    remaining = max(0, state.get("max_tool_rereads", 2) - used)
+    accepted = pending[:remaining]
+    return {
+        "tool_requests": accepted,
+        "llm_tool_call_count": used + len(accepted),
+        "tool_budget_truncated": state.get("tool_budget_truncated", False)
+        or len(pending) > len(accepted),
+    }
 
 
 def _pending_tool_requests(state: FlowPilotAgentState) -> list[dict[str, Any]]:
