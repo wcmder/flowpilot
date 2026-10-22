@@ -1016,3 +1016,30 @@ to the current machine's timezone.
 Analyzing the same capture on machines in different timezones can produce
 different readable clock times while epoch and relative timestamps remain
 unchanged. Use epoch timestamps when correlating captures or logs across machines.
+
+## Recommended evidence offsets
+
+Local analysis prints a **Recommended Evidence Offsets** table alongside the flow
+results and includes the same entries in each flow's LLM metadata and saved JSON.
+Each entry includes a tool, `sample_offset`, zero-based `issue_packet_index`,
+original frame number/timestamps when available, direction, and trigger reasons.
+The start is `max(0, issue_packet_index - 100)`: up to 100 matching packets before
+the observed issue. For example, an issue at matching-packet index 2,500 recommends
+`sample_offset=2400`, not capture frame 2400.
+
+Indices are calculated per flow/tool before CLI protocol/direction filtering.
+A TLS-only reread and a full TCP reread can therefore have different offsets for
+the same frame. Recommendations cover captured TCP issue tags, observed pauses
+(using `--pause-threshold-ms`), ESP/RTP sequence anomalies, and visible DNS/SIP/TLS,
+BGP/IKE notification and EAP failure indicators. Triggers are observations to
+investigate, not proof of failure or a complete detector for every protocol.
+
+The LLM is instructed to request the suggested tool and offset instead of always
+paging from zero. These are hints, not automatic extra requests: existing
+`--max-request` budgets, deduplication and the minimum `--offset` still apply.
+The local table follows `--show-flows`; LLM flow selection follows `--max-flows`
+and explicitly requested flow IDs. All recommendations remain in saved JSON.
+No initial packet data or deep rows are discarded. A packet limit only discovers
+issues within the analyzed prefix. Keep the same capture and decode settings for
+rereads so matching-packet positions remain valid. Older summaries remain usable
+but need regeneration to acquire these local recommendations.

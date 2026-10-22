@@ -24,6 +24,7 @@ from .analysis import summarize_capture
 from .capture import read_capture
 from .decode_as import ALL_ESP_UDP_PORTS, set_esp_udp_ports, set_rtp_udp_ports
 from .deep_tools import collect_flow_details
+from .evidence_offsets import annotate_evidence_offsets, render_evidence_offsets
 from .filters import (
     FlowFilter,
     filter_observations,
@@ -453,6 +454,7 @@ def analyze(
                     total_packets=total_packets,
                 )
             )
+            observations = list(annotate_evidence_offsets(observations))
             if flow_filter.is_active and include_redirects:
                 _info("Applying flow filters and redirect expansion.")
                 seed_observations = list(filter_observations(observations, flow_filter))
@@ -653,6 +655,7 @@ def _render_summary(summary, *, show_flows: int) -> None:
             _format_flow_issues(flow),
         )
     console.print(table)
+    render_evidence_offsets(summary, show_flows=show_flows, console=console)
     render_bgp_details(summary, show_flows=show_flows, console=console)
     render_macsec_details(summary, show_flows=show_flows, console=console)
     render_eapol_details(summary, show_flows=show_flows, console=console)

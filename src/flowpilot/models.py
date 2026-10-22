@@ -324,6 +324,8 @@ class PacketObservation(BaseModel):
     bgp_fields: dict[str, list[str]] = Field(default_factory=dict)
     ike: IkePacketMetadata | None = None
     timestamp: datetime | None = None
+    evidence_offsets_indexed: bool = False
+    recommended_evidence_offsets: list[dict[str, Any]] = Field(default_factory=list)
     frame_number: int | None = None
     timestamp_epoch: str | None = None
     time_relative: str | None = None
@@ -512,6 +514,7 @@ class FlowSummary(BaseModel):
     ike_sessions: list[IkeSessionSummary] = Field(default_factory=list)
     rtp_streams: list[RtpStreamSummary] = Field(default_factory=list)
     key: FlowKey
+    recommended_evidence_offsets: list[dict[str, Any]] = Field(default_factory=list)
     packet_details: list[PacketObservation] = Field(default_factory=list)
     deep_details: dict[str, dict[str, Any]] = Field(default_factory=dict)
     packet_count: int = 0
@@ -879,6 +882,7 @@ class CaptureSummary(BaseModel):
             "flow_endpoint_inventory": _flow_endpoint_inventory(flows),
             "top_flows": [
                 {
+                    "recommended_evidence_offsets": flow.recommended_evidence_offsets,
                     "flow_id": flow_id,
                     "flow_label": _flow_label(flow),
                     "saved_packet_details": {

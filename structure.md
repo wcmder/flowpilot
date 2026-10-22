@@ -485,3 +485,20 @@ MACsec and EAPOL tools. Packet evidence is still paged; only supplied batches ha
 been sent to the LLM. Ordinary summaries retain aggregates, not every packet.
 Regenerate older detailed summaries (or reread the PCAP without their cached
 results) to obtain absolute timestamps absent from old saved rows.
+
+## Must: recommended evidence offsets
+
+- Local analysis indexes packets per flow and matching deep tool before CLI
+  packet filters. Store recommendations with tool, zero-based issue index and
+  `sample_offset=max(0, issue_index-100)`, direction, available frame/time identity
+  and trigger reasons. Do not confuse capture frame numbers with tool offsets.
+- Protocol-specific tools count only matching decoded-layer packets; TCP/UDP tools
+  count both directions of their whole flow. RTP offset counts all matched SSRCs,
+  although pause/sequence detection isolates streams. Preserve indices after filters.
+- Retain recommendations in normal/detailed JSON and compact LLM flow metadata;
+  render a local table with actual current Flow IDs. Older summaries default empty.
+- Provider guidance should prefer useful recommended windows while respecting
+  request budgets, completed offsets, and the explicit minimum --offset. Hints do
+  not force tool calls or establish confirmed failures. Do not discard packet rows.
+- Test early clamping, per-tool indices, prefilter positioning, sequence/pause
+  triggers, provider arguments, saved round trips, CLI display, and real rereads.

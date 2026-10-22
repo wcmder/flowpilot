@@ -112,6 +112,13 @@ capture precision. Do not infer absent absolute timestamps from relative values.
 values rather than claiming timestamps are absent. If packet-level timestamps
 are needed but no matching samples are attached, request the appropriate deep
 tool. Do not invent timezones or equate packet spacing with latency.
+Prefer locally suggested recommended_evidence_offsets when investigating issues in
+large flows. Each entry names a tool and sample_offset starting up to 100 matching
+packets before its issue_packet_index, plus frame/time/reasons. Use that tool and
+sample_offset in evidence_requests rather than paging blindly from zero. These
+are capture observations, not proof of failure. Do not reuse one tool's offset
+for another tool. Respect the configured minimum --offset and completed requests;
+request a later batch if clamping leaves the issue outside the supplied window.
 Deep packet samples are paged: inspect batch.offset, returned,
 total_matching_packets, has_more, and next_offset. This is only one batch, not the
 entire flow. When more details are needed, request the same tool and flow_id with

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 
+from .evidence_offsets import annotate_evidence_offsets
 from .models import (
     CaptureSummary,
     FlowKey,
@@ -25,7 +26,7 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
     packet_count = 0
     total_bytes = 0
 
-    for packet in observations:
+    for packet in annotate_evidence_offsets(observations):
         packet_count += 1
         total_bytes += packet.length
         protocols[packet.protocol] += 1
@@ -43,6 +44,7 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
 
         key = FlowKey.from_packet(packet)
         flow = flows.setdefault(key, FlowSummary(key=key))
+        flow.recommended_evidence_offsets.extend(packet.recommended_evidence_offsets)
         previous_last_seen = flow.last_seen
         flow.packet_count += 1
         flow.byte_count += packet.length
