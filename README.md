@@ -949,7 +949,7 @@ Field names follow the [Wireshark BGP field reference](https://www.wireshark.org
 Summaries include packet-gap statistics in A→B/B→A order; RTP/SRTP streams also
 include separate statistics per direction and SSRC. These use capture timestamps,
 not RTP clock ticks. Statistics include valid interval count, maximum and mean
-gap in milliseconds, and `pause_count` for gaps **greater than or equal to 100 ms by default**.
+gap in milliseconds, and `pause_count` for gaps **greater than or equal to 300 ms by default**.
 This configurable reporting threshold is not a failure threshold: shorter interruptions
 remain visible in maximum/mean values and individual deep packet rows.
 
@@ -970,7 +970,7 @@ A traffic pause alone does not prove loss, network latency, jitter, or poor medi
 quality; sender inactivity and silence suppression can also explain it.
 
 `--pause-threshold-ms NUMBER` sets the pause-count threshold for both UDP direction
-and RTP direction/SSRC calculations (default 100 ms, positive finite milliseconds).
+and RTP direction/SSRC calculations (default 300 ms, positive finite milliseconds).
 For example, `flowpilot analyze capture.pcap --pause-threshold-ms 50 --agent --chat`.
 It changes pause counts, not max/mean gaps or per-packet timing. Complete cached
 UDP/RTP rows are recalculated using the current threshold without rereading the

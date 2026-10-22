@@ -266,9 +266,9 @@ def analyze(
     ] = None,
     pause_threshold_ms: Annotated[
         float, typer.Option("--pause-threshold-ms", min=0.001,
-                            help="UDP/RTP pause threshold in milliseconds. Default: 100. "
+                            help="UDP/RTP pause threshold in milliseconds. Default: 300. "
                                  "Loaded aggregates retain their saved thresholds."),
-    ] = 100.0,
+    ] = 300.0,
     offset: Annotated[
         int, typer.Option(
             "--offset", min=0,

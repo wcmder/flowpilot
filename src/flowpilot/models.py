@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 LONG_LIVED_FLOW_SECONDS = 180
-PAUSE_THRESHOLD_MS: ContextVar[float] = ContextVar("pause_threshold_ms", default=100.0)
+PAUSE_THRESHOLD_MS: ContextVar[float] = ContextVar("pause_threshold_ms", default=300.0)
 
 
 class TlsCertificateObservation(BaseModel):

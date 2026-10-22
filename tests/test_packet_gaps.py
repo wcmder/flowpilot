@@ -141,7 +141,7 @@ def test_other_direction_and_ssrc_do_not_hide_pause():
 def test_default_and_configured_thresholds_and_saved_counts():
     from flowpilot.models import PAUSE_THRESHOLD_MS
 
-    assert PacketGapSummary().pause_threshold_ms == 100
+    assert PacketGapSummary().pause_threshold_ms == 300
     token = PAUSE_THRESHOLD_MS.set(50)
     try:
         stats = PacketGapSummary()
