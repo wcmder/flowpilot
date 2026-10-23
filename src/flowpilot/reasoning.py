@@ -116,7 +116,10 @@ Prefer locally suggested recommended_evidence_offsets when investigating issues 
 large flows. Each entry names a tool and sample_offset starting up to 100 matching
 packets before its issue_packet_index, plus frame/time/reasons. Use that tool and
 sample_offset in evidence_requests rather than paging blindly from zero. These
-are capture observations, not proof of failure. Do not reuse one tool's offset
+are capture observations, not proof of failure. Each recommendation merges triggers
+covered by one 1000-packet window; reasons are unique, issue_count counts triggers,
+and events retain their locations with reason_indices into the reasons list.
+Request the window once, not once per reason/event. Do not reuse one tool's offset
 for another tool. Respect the configured minimum --offset and completed requests;
 request a later batch if clamping leaves the issue outside the supplied window.
 Deep packet samples are paged: inspect batch.offset, returned,

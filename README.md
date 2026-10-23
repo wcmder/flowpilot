@@ -1047,3 +1047,13 @@ No initial packet data or deep rows are discarded. A packet limit only discovers
 issues within the analyzed prefix. Keep the same capture and decode settings for
 rereads so matching-packet positions remain valid. Older summaries remain usable
 but need regeneration to acquire these local recommendations.
+
+Recommended offsets are consolidated per flow/tool into 1,000-packet windows.
+Later triggers already covered by a window reuse its offset, with unique reasons
+and an `issue_count`. All trigger locations remain in `events`; each event's
+`reason_indices` refers to the recommendation's unique `reasons` list. The table
+shows one row per window and the number of triggering packets. For a window at
+0, issues through index 999 are covered; an issue at 1000 starts a new window at
+900, retaining 100 packets of preceding context. Different flows/tools never
+share windows. Loaded older recommendation lists are merged in memory without
+rewriting the source JSON. This consolidates suggestions, not arbitrary tool calls.

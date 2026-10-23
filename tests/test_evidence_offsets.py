@@ -145,9 +145,56 @@ def test_recommended_offset_targets_real_deep_tool_rows(tmp_path):
     recommendation = next(e for e in flow.recommended_evidence_offsets
                           if e['tool'] == 'deep_bgp_flow' and
                           any('NOTIFICATION' in reason for reason in e['reasons']))
-    assert recommendation['sample_offset'] == 150
+    # The earlier observed pauses already recommend the window covering this notification.
+    assert recommendation['sample_offset'] == 0
     result = deep_bgp_flow(path, flow_id=1, flow=flow, reason='recommended',
                            sample_offset=recommendation['sample_offset'])
     assert result['status'] == 'ok', result
-    assert result['bgp_header_samples'][0]['frame.number'] == '151'
-    assert result['bgp_header_samples'][100]['bgp.notify.major_error'] == '6'
+    assert result['bgp_header_samples'][0]['frame.number'] == '1'
+    assert result['bgp_header_samples'][250]['bgp.notify.major_error'] == '6'
+
+
+def test_overlapping_windows_merge_reasons_and_preserve_boundaries():
+    from flowpilot.evidence_offsets import merge_evidence_offsets
+
+    entries = [
+        {'tool': tool, 'sample_offset': max(0, index - 100), 'issue_packet_index': index,
+         'frame_number': index + 5000, 'reasons': [reason]}
+        for tool, index, reason in [
+            ('deep_tcp_flow', 100, 'reset'),
+            ('deep_tls_flow', 100, 'alert'),
+            ('deep_tcp_flow', 900, 'reset'),
+            ('deep_tcp_flow', 999, 'zero_window'),
+            ('deep_tcp_flow', 1000, 'reset'),
+            ('deep_tcp_flow', 1800, 'reset'),
+        ]
+    ]
+    merged = merge_evidence_offsets(entries)
+    assert [(e['tool'], e['sample_offset']) for e in merged] == [
+        ('deep_tcp_flow', 0), ('deep_tls_flow', 0), ('deep_tcp_flow', 900),
+    ]
+    assert merged[0]['reasons'] == ['reset', 'zero_window']
+    assert merged[0]['issue_count'] == 3
+    assert [e['issue_packet_index'] for e in merged[0]['events']] == [100, 900, 999]
+    assert merged[0]['events'][1]['reason_indices'] == [0]
+    assert merged[0]['events'][2]['reason_indices'] == [1]
+    assert merge_evidence_offsets(merged) == merged
+
+
+def test_loaded_recommendations_are_merged_without_rewriting_source(tmp_path):
+    observations = packets(count=301)
+    observations[100].issue_tags = ['tcp_reset']
+    observations[200].issue_tags = ['tcp_reset']
+    summary = summarize_capture(observations)
+    # Simulate an older summary containing separate recommendations.
+    summary.flows[0].recommended_evidence_offsets = [
+        *observations[100].recommended_evidence_offsets,
+        *observations[200].recommended_evidence_offsets,
+    ]
+    path = tmp_path / 'old.json'
+    path.write_text(summary.model_dump_json())
+    original = path.read_bytes()
+    loaded = cli._load_summary(path)
+    assert len(loaded.flows[0].recommended_evidence_offsets) == 1
+    assert loaded.flows[0].recommended_evidence_offsets[0]['issue_count'] == 2
+    assert path.read_bytes() == original

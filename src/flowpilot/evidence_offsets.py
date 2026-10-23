@@ -101,19 +101,55 @@ def annotate_evidence_offsets(observations):
         yield packet
 
 
+def merge_evidence_offsets(entries):
+    """Keep one window per tool until the next trigger falls outside its 1000 rows."""
+    groups = []
+    latest = {}
+    for entry in entries:
+        # Already merged summaries retain their complete local event list.
+        events = entry.get('events') or [{k: v for k, v in entry.items()
+                                         if k not in {'tool', 'sample_offset'}}]
+        for event in events:
+            reasons = event.get('reasons')
+            if reasons is None:
+                reasons = [entry['reasons'][i] for i in event['reason_indices']]
+            position = event['issue_packet_index']
+            tool = entry['tool']
+            group = latest.get(tool)
+            if group is None or not (group['sample_offset'] <= position <
+                                      group['sample_offset'] + 1000):
+                group = {**entry, **{k: v for k, v in event.items()
+                                    if k not in {'reasons', 'reason_indices'}},
+                         'sample_offset': max(0, position - CONTEXT_PACKETS),
+                         'reasons': [], 'events': [], 'issue_count': 0, 'batch_size': 1000}
+                groups.append(group)
+                latest[tool] = group
+            indices = []
+            for reason in reasons:
+                if reason not in group['reasons']:
+                    group['reasons'].append(reason)
+                indices.append(group['reasons'].index(reason))
+            group['events'].append({k: v for k, v in event.items()
+                                    if k not in {'reasons', 'reason_indices'}} |
+                                   {'reason_indices': indices})
+            group['issue_count'] += 1
+    return groups
+
+
 def render_evidence_offsets(summary, *, console, show_flows):
     from rich.table import Table
 
     table = Table(title='Recommended Evidence Offsets', caption=(
-        'Zero-based matching-packet offsets per tool; up to 100 packets before each trigger. '
+        'Zero-based matching-packet offsets per tool; 1000-packet windows, '
+        'starting up to 100 packets before the first trigger. '
         'Triggers are observations, not confirmed failures. --offset remains a minimum.'
     ))
-    for column in ('Flow ID', 'Tool', 'Offset', 'Issue index / frame', 'Reason'):
+    for column in ('Flow ID', 'Tool', 'Offset', 'First issue / frame', 'Issues', 'Reason'):
         table.add_column(column, overflow='fold')
     for flow_id, flow in enumerate(summary.flows[:show_flows], 1):
         for item in flow.recommended_evidence_offsets:
             table.add_row(str(flow_id), item['tool'], str(item['sample_offset']),
                           f"{item['issue_packet_index']} / {item.get('frame_number')}",
-                          '; '.join(item['reasons']))
+                          str(item.get('issue_count', 1)), '; '.join(item['reasons']))
     if table.row_count:
         console.print(table)

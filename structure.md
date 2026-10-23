@@ -506,3 +506,13 @@ results) to obtain absolute timestamps absent from old saved rows.
   not force tool calls or establish confirmed failures. Do not discard packet rows.
 - Test early clamping, per-tool indices, prefilter positioning, sequence/pause
   triggers, provider arguments, saved round trips, CLI display, and real rereads.
+
+Recommended offsets are consolidated per flow/tool into 1,000-packet windows.
+Later triggers already covered by a window reuse its offset, with unique reasons
+and an `issue_count`. All trigger locations remain in `events`; each event's
+`reason_indices` refers to the recommendation's unique `reasons` list. The table
+shows one row per window and the number of triggering packets. For a window at
+0, issues through index 999 are covered; an issue at 1000 starts a new window at
+900, retaining 100 packets of preceding context. Different flows/tools never
+share windows. Loaded older recommendation lists are merged in memory without
+rewriting the source JSON. This consolidates suggestions, not arbitrary tool calls.

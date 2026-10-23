@@ -24,7 +24,11 @@ from .analysis import summarize_capture
 from .capture import read_capture
 from .decode_as import ALL_ESP_UDP_PORTS, set_esp_udp_ports, set_rtp_udp_ports
 from .deep_tools import collect_flow_details
-from .evidence_offsets import annotate_evidence_offsets, render_evidence_offsets
+from .evidence_offsets import (
+    annotate_evidence_offsets,
+    merge_evidence_offsets,
+    render_evidence_offsets,
+)
 from .filters import (
     FlowFilter,
     filter_observations,
@@ -716,7 +720,11 @@ def _load_summary_with_metadata(summary_path: Path) -> tuple[CaptureSummary, Pat
     source_capture_path = None
     if isinstance(data, dict) and data.get("source_capture_path"):
         source_capture_path = Path(str(data["source_capture_path"])).expanduser()
-    return CaptureSummary.model_validate(summary_data), source_capture_path
+    summary = CaptureSummary.model_validate(summary_data)
+    for flow in summary.flows:
+        flow.recommended_evidence_offsets = merge_evidence_offsets(
+            flow.recommended_evidence_offsets)
+    return summary, source_capture_path
 
 
 def _write_json_report(path: Path, payload: dict) -> None:

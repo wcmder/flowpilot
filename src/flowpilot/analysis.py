@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 
-from .evidence_offsets import annotate_evidence_offsets
+from .evidence_offsets import annotate_evidence_offsets, merge_evidence_offsets
 from .models import (
     CaptureSummary,
     FlowKey,
@@ -109,6 +109,10 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         if flow_names:
             merged = list(dict.fromkeys([*flow.names, *sorted(flow_names)]))
             flow.names = merged[:25]
+
+    for flow in flows.values():
+        flow.recommended_evidence_offsets = merge_evidence_offsets(
+            flow.recommended_evidence_offsets)
 
     return CaptureSummary(
         packet_count=packet_count,
