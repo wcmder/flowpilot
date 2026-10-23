@@ -100,6 +100,15 @@ previews and retrieve subsequent saved batches through existing deep tools.
 
 ## Must: saved-summary compatibility
 
+- Retain every observed ESP SPI and SPI/direction sequence summary without a
+  stream-count cap. Saved summaries and compact LLM metadata must preserve their
+  sequence, missing, duplicate, and out-of-order statistics.
+- Retain all unique DNS answers, SIP call IDs, participants, and trace events
+  without count caps in summaries and compact metadata. Display limits must not
+  truncate the stored collections.
+- Shared summaries and compact metadata retain all flow names, HTTP redirect
+  locations, capture names, protocol counts, port counts, and issue counts.
+  Keep frequency ordering without truncating stored counters to a top-N subset.
 - `--load-summary` must use saved directional counters and timestamps to derive
   current metrics without an initial PCAP reread.
 - Adding derived metadata must not require regenerating a complete saved summary
@@ -199,6 +208,9 @@ previews and retrieve subsequent saved batches through existing deep tools.
   endpoint; missing ports must not be invented. Port zero is a valid filter value.
 - ESP rereads must require an ESP layer, excluding IKE and NAT keepalives sharing
   UDP/4500. Native ESP filters must exclude UDP-encapsulated ESP conversations.
+- UDP rereads must exclude decoded ESP packets assigned to separate ESP flows,
+  including when they share the same UDP endpoints. Keep UDP recommendation
+  indices, batch offsets, packet counts, and detailed rows in this same space.
 - UDP-encapsulated ESP must use TShark's `udpencap` decode target for both initial
   reads and deep rereads (`-d udp.port==PORT,udpencap`), not `udp.port==PORT,esp`.
 - A bare `--esp-udp-port` must decode all UDP ports using
@@ -445,6 +457,12 @@ Provider tests use mocks; live LLM behavior and Windows packaging are not valida
 
 ## Must: packet-gap evidence
 
+- Redirect expansion must select packets in original capture order, retaining
+  each selected observation once; seed packets must not be moved ahead of earlier
+  related packets. Filtering must not introduce artificial backward timestamps.
+- Initial direction and RTP stream gap calculations must prefer preserved epoch
+  strings, falling back to datetime only when unavailable, consistently with
+  recommendation generation. Do not round timestamps before computing gaps.
 - Retain direction-specific capture-order gap statistics in summaries and compact
   provider metadata; RTP adds direction/SSRC isolation. Never use RTP clock ticks
   as wall-clock time or combine reverse traffic when measuring a direction's pause.
@@ -452,7 +470,7 @@ Provider tests use mocks; live LLM behavior and Windows packaging are not valida
   direction gaps and RTP stream gaps retain predecessors across batch boundaries;
   detailed saves preserve them and cached paging returns unchanged full statistics.
 - Report interval count, max/mean milliseconds and pause count with explicit fixed
-  threshold >=100ms by default, configurable using `--pause-threshold-ms`. This is descriptive, not proof of failure. Keep shorter gaps
+  threshold >=300ms by default, configurable using `--pause-threshold-ms`. This is descriptive, not proof of failure. Keep shorter gaps
   available. Exclude/count missing and backward timestamps, break adjacency on
   missing values, preserve zero gaps, and report no intervals as unavailable.
 - Initial statistics cover selected observations; deep statistics cover the full
@@ -463,7 +481,7 @@ Provider tests use mocks; live LLM behavior and Windows packaging are not valida
   saved round trips, cross-page predecessors, and provider delivery.
 
 `--pause-threshold-ms NUMBER` sets the pause-count threshold for both UDP direction
-and RTP direction/SSRC calculations (default 100 ms, positive finite milliseconds).
+and RTP direction/SSRC calculations (default 300 ms, positive finite milliseconds).
 For example, `flowpilot analyze capture.pcap --pause-threshold-ms 50 --agent --chat`.
 It changes pause counts, not max/mean gaps or per-packet timing. Complete cached
 UDP/RTP rows are recalculated using the current threshold without rereading the

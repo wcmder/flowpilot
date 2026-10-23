@@ -77,7 +77,8 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
             key.port_a is None or packet.src_port == key.port_a
         )
         flow.packet_gaps_by_direction[0 if is_src_to_dst else 1].record(
-            str(packet.timestamp.timestamp()) if packet.timestamp is not None else None
+            packet.timestamp_epoch or (
+                str(packet.timestamp.timestamp()) if packet.timestamp is not None else None)
         )
         detected = packet_protocols(packet)
         flow.decoded_protocols = sorted(set(flow.decoded_protocols) | detected)
@@ -100,7 +101,7 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
             direction_counts[issue_tag] = direction_counts.get(issue_tag, 0) + 1
 
         if packet.http_location and packet.http_location not in flow.redirect_locations:
-            flow.redirect_locations = [*flow.redirect_locations, packet.http_location][:25]
+            flow.redirect_locations.append(packet.http_location)
 
         for record_protocol in PROTOCOL_RECORD_HOOKS:
             record_protocol(flow, packet)
@@ -108,7 +109,7 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         flow_names = {packet.dns_query, packet.http_host, packet.tls_sni} - {None}
         if flow_names:
             merged = list(dict.fromkeys([*flow.names, *sorted(flow_names)]))
-            flow.names = merged[:25]
+            flow.names = merged
 
     for flow in flows.values():
         flow.recommended_evidence_offsets = merge_evidence_offsets(
@@ -118,9 +119,9 @@ def summarize_capture(observations: Iterable[PacketObservation]) -> CaptureSumma
         packet_count=packet_count,
         total_bytes=total_bytes,
         flow_count=len(flows),
-        protocols=counter_to_sorted_dict(protocols, 20),
-        top_ports=counter_to_sorted_dict(ports, 20),
-        issue_counts=counter_to_sorted_dict(issue_counts, 30),
-        names=list(counter_to_sorted_dict(names, 50).keys()),
+        protocols=counter_to_sorted_dict(protocols),
+        top_ports=counter_to_sorted_dict(ports),
+        issue_counts=counter_to_sorted_dict(issue_counts),
+        names=list(counter_to_sorted_dict(names).keys()),
         flows=sorted(flows.values(), key=lambda flow: flow.byte_count, reverse=True),
     )

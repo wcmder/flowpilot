@@ -417,9 +417,8 @@ def _explicit_chat_tool_requests(state: FlowPilotAgentState) -> list[dict[str, A
             "flow_id": flow_id,
             "reason": f"User explicitly requested {tool} for Flow ID {flow_id}.",
         }
-        if _tool_request_key(request) not in state.get("completed_tool_requests", []):
-            requests.append(request)
-    return requests
+        requests.append(request)
+    return _pending_tool_requests({**state, "tool_requests": requests})
 
 
 def _explicit_flow_id(question: str, tool_pattern: str) -> int | None:
@@ -462,10 +461,8 @@ def _valid_tool_requests(
     for request in evidence_requests:
         if request.tool not in ALLOWED_TOOLS or not _valid_flow_id(state, request.flow_id):
             continue
-        request_dict = request.model_dump(exclude_defaults=True)
-        if _tool_request_key(request_dict) not in state.get("completed_tool_requests", []):
-            requests.append(request_dict)
-    return requests
+        requests.append(request.model_dump(exclude_defaults=True))
+    return _pending_tool_requests({**state, "tool_requests": requests})
 
 
 def _limit_llm_tool_calls(state: FlowPilotAgentState, pending: list[dict]) -> dict[str, Any]:

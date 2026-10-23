@@ -46,6 +46,30 @@ def test_direction_and_ssrc_gaps_survive_summary_round_trip():
     assert old_flow.packet_gaps_by_direction[0].max_gap_ms is None
 
 
+@pytest.mark.parametrize('with_datetime', [False, True])
+@pytest.mark.parametrize('fraction,expected_gap,pauses', [
+    ('299999999', 299.999999, 0), ('300000000', 300.0, 1),
+])
+def test_summary_gap_uses_precise_epoch(fraction, expected_gap, pauses, with_datetime):
+    packets = [PacketObservation(
+        timestamp=datetime(2026, 1, 1) + timedelta(milliseconds=300 * i)
+        if with_datetime else None,
+        timestamp_epoch=f'1767225600.{value}',
+        src_ip='10.0.0.1', dst_ip='10.0.0.2', protocol='UDP',
+        decoded_protocols=['UDP', 'RTP'], rtp_ssrc='1', rtp_sequence=i,
+    ) for i, value in enumerate(('000000000', fraction))]
+    summary = summarize_capture(packets)
+    for candidate in [summary, CaptureSummary.model_validate_json(summary.model_dump_json())]:
+        flow = candidate.flows[0]
+        for gap in [flow.packet_gaps_by_direction[0], flow.rtp_streams[0].packet_gaps]:
+            assert gap.max_gap_ms == expected_gap
+            assert gap.pause_count == pauses
+        assert bool(flow.recommended_evidence_offsets) == bool(pauses)
+        metadata = candidate.compact()['top_flows'][0]
+        assert metadata['packet_gaps_by_direction'][0]['max_gap_ms'] == expected_gap
+        assert metadata['rtp']['streams'][0]['packet_gaps']['pause_count'] == pauses
+
+
 def test_missing_backward_zero_and_threshold_timestamps():
     stats = PacketGapSummary(pause_threshold_ms=1000)
     assert [stats.record(s) for s in ('0', '0', '0.999', '1.999', None, '9', '8', '8.1')] == [
@@ -212,4 +236,4 @@ def test_cli_applies_threshold_and_resets_context(monkeypatch, tmp_path):
     summary = cli._load_summary(tmp_path / 'capture.json')
     assert summary.flows[0].packet_gaps_by_direction[0].pause_count == 2
     assert summary.flows[0].rtp_streams[0].packet_gaps.pause_count == 2
-    assert PAUSE_THRESHOLD_MS.get() == 100
+    assert PAUSE_THRESHOLD_MS.get() == 300

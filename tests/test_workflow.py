@@ -916,6 +916,43 @@ def test_start_offset_applies_before_deduplication_and_keeps_later_pages():
     assert "sample_offset" not in state["tool_requests"][0]
 
 
+@pytest.mark.parametrize('explicit', [False, True])
+@pytest.mark.parametrize('completed_offset', [0, 1000])
+def test_chat_reused_evidence_deduplicates_at_effective_offset(
+    monkeypatch, tmp_path, explicit, completed_offset,
+):
+    summary = _summary()
+    summary.flows = [FlowSummary(key=FlowKey(
+        endpoint_a='10.0.0.1', endpoint_b='10.0.0.2', protocol='UDP',
+    ))]
+    calls = []
+
+    def tool(name, path, **kwargs):
+        calls.append(kwargs['sample_offset'])
+        return {'tool': name, 'flow_id': 1, 'status': 'ok',
+                'batch': {'offset': kwargs['sample_offset']}}
+
+    monkeypatch.setattr(workflow, 'run_deep_tool', tool)
+    # Repeated default-offset requests must clamp to 1000, run once, then deduplicate.
+    monkeypatch.setattr(workflow, 'agent_chat_about_capture', lambda *a, **kw: AgentChatResponse(
+        answer='Inspect evidence.', evidence_requests=[] if explicit else [
+            {'tool': 'deep_udp_flow', 'flow_id': 1, 'reason': 'Inspect packets'},
+        ],
+    ))
+    previous = {'tool': 'deep_udp_flow', 'flow_id': 1, 'status': 'ok',
+                'batch': {'offset': completed_offset}}
+    state = workflow.run_agent_chat_state(
+        summary, 'Run deep_udp_flow for flow 1' if explicit else 'Inspect flow 1',
+        capture_path=tmp_path / 'capture.pcap', sample_offset=1000,
+        additional_evidence=[previous], max_tool_rereads=1,
+    )
+    assert calls == ([1000] if completed_offset == 0 else [])
+    assert state['deep_evidence'][0] == previous
+    assert len(state['deep_evidence']) == (2 if completed_offset == 0 else 1)
+    assert 'deep_udp_flow:1:offset=1000' in state['completed_tool_requests']
+    assert state.get('llm_tool_call_count', 0) == int(not explicit and completed_offset == 0)
+
+
 def test_same_round_requests_deduplicate_after_offset_clamping(monkeypatch):
     calls = []
     monkeypatch.setattr(workflow, "_run_tool_request", lambda state, req: calls.append(req) or {})

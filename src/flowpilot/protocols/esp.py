@@ -51,7 +51,7 @@ def extract_esp(packet, helpers) -> dict:
 
 def record_esp(flow: FlowSummary, packet: PacketObservation) -> None:
     if packet.esp_spi and packet.esp_spi not in flow.esp_spis:
-        flow.esp_spis = [*flow.esp_spis, packet.esp_spi][:25]
+        flow.esp_spis.append(packet.esp_spi)
     if packet.esp_spi and packet.esp_sequence is not None:
         record_esp_sequence(flow, packet)
 
@@ -71,7 +71,7 @@ def record_esp_sequence(flow: FlowSummary, packet: PacketObservation) -> None:
     )
     if sequence is None:
         sequence = EspSequenceSummary(spi=packet.esp_spi, direction=direction)
-        flow.esp_sequences = [*flow.esp_sequences, sequence][:25]
+        flow.esp_sequences.append(sequence)
 
     current = packet.esp_sequence
     sequence.packet_count += 1

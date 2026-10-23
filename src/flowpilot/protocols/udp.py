@@ -93,7 +93,9 @@ def deep_udp_flow(
             "message": "tshark was not found on PATH or in the Wireshark app bundle.",
         }
 
-    display_filter = udp_flow_filter(flow)
+    # Capture analysis assigns decoded ESP to its own flow, even over UDP.
+    # Keep this tool's packet indices aligned with the UDP summary/bookmarks.
+    display_filter = f"({udp_flow_filter(flow)}) && !esp"
     command = field_command(tshark, capture_path, display_filter, UDP_HEADER_FIELDS)
     try:
         result = subprocess.run(

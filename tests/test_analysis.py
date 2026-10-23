@@ -13,8 +13,102 @@ from flowpilot.filters import (
     filter_sip_calls_by_phone,
     include_redirect_related_flows,
 )
-from flowpilot.models import PacketObservation, TlsCertificateObservation
+from flowpilot.models import CaptureSummary, PacketObservation, TlsCertificateObservation
 from flowpilot.protocols.tls import _all_field_values, tls_alert, tls_certificates
+
+
+def test_shared_summary_collections_preserve_all_values_and_frequency_order():
+    packets = [PacketObservation(
+        src_ip='192.0.2.1', dst_ip='192.0.2.2', protocol='TCP',
+        http_host=f'host-{i}.example', http_location=f'https://host-{i}.example/new',
+        issue_tags=[f'issue-{i}'],
+    ) for i in range(60)]
+    packets.extend(PacketObservation(
+        src_ip='192.0.2.1', dst_ip='192.0.2.2', protocol=f'CUSTOM-{i}',
+        src_port=1000 + i, dst_port=2000 + i,
+    ) for i in range(30))
+    # A later repeated value must lead frequency-sorted capture metadata.
+    packets.append(packets[59].model_copy(deep=True))
+    summary = summarize_capture(packets)
+    for candidate in [summary, CaptureSummary.model_validate_json(summary.model_dump_json())]:
+        flow = next(f for f in candidate.flows if f.key.protocol == 'TCP')
+        assert len(flow.names) == len(flow.redirect_locations) == 60
+        assert len(candidate.names) == len(candidate.issue_counts) == 60
+        assert len(candidate.protocols) == 31
+        assert len(candidate.top_ports) == 60
+        assert candidate.names[0] == 'host-59.example'
+        assert next(iter(candidate.issue_counts.items())) == ('issue-59', 2)
+        assert next(iter(candidate.protocols.items())) == ('TCP', 61)
+        metadata = candidate.compact(max_flows=100)
+        assert metadata['observed_names'] == candidate.names
+        assert metadata['issue_counts'] == candidate.issue_counts
+        assert metadata['protocols'] == candidate.protocols
+        assert metadata['top_ports'] == candidate.top_ports
+        tcp = next(f for f in metadata['top_flows'] if f['protocol'] == 'TCP')
+        assert tcp['names'] == flow.names
+        assert tcp['redirect_locations'] == flow.redirect_locations
+
+
+def test_dns_and_sip_collections_retain_details_beyond_old_caps():
+    start = datetime(2026, 1, 1)
+    packets = [PacketObservation(
+        src_ip='192.0.2.1', dst_ip='192.0.2.2', protocol='UDP',
+        timestamp=start + timedelta(seconds=i),
+        dns_answers=[f'198.51.100.{i}', f'198.51.100.{i}'],
+        sip_call_id=f'call-{i % 30}', sip_method='INVITE', sip_from=f'caller-{i % 30}',
+    ) for i in range(60)]
+    packets.extend(PacketObservation(
+        src_ip='192.0.2.1', dst_ip='192.0.2.2', protocol='UDP',
+        timestamp=start + timedelta(seconds=60 + i),
+        sip_call_id='long-call', sip_method='INVITE',
+    ) for i in range(60))
+    summary = summarize_capture(packets)
+    for candidate in [summary, CaptureSummary.model_validate_json(summary.model_dump_json())]:
+        flow = candidate.flows[0]
+        assert len(flow.dns_answers) == 60
+        assert len(flow.sip_call_ids) == 31
+        assert len(flow.sip_participants) == 30
+        assert len(flow.sip_calls['long-call'].trace) == 60
+        metadata = candidate.compact()['top_flows'][0]
+        assert metadata['dns']['answers'] == flow.dns_answers
+        assert metadata['sip']['call_ids'] == flow.sip_call_ids
+        assert metadata['sip']['participants'] == flow.sip_participants
+        call = next(c for c in metadata['sip']['calls'] if c['call_id'] == 'long-call')
+        assert len(call['trace']) == 60
+
+
+def test_esp_retains_all_spis_and_directions_beyond_25_streams():
+    packets = []
+    # Interleave streams so later packets must find and update retained state.
+    for sequence in [1, 5, 3, 3]:
+        for spi in range(30):
+            for source, destination in [('192.0.2.1', '192.0.2.2'),
+                                        ('192.0.2.2', '192.0.2.1')]:
+                packets.append(PacketObservation(
+                    src_ip=source, dst_ip=destination, protocol='ESP',
+                    esp_spi=f'0x{spi:08x}', esp_sequence=sequence,
+                ))
+    summary = summarize_capture(packets)
+    for candidate in [summary, CaptureSummary.model_validate_json(summary.model_dump_json())]:
+        flow = candidate.flows[0]
+        assert len(flow.esp_spis) == 30
+        assert len(set(flow.esp_spis)) == 30
+        assert len(flow.esp_sequences) == 60
+        assert len({(s.spi, s.direction) for s in flow.esp_sequences}) == 60
+        for stream in flow.esp_sequences:
+            assert stream.packet_count == 4
+            assert stream.missing_count == 2
+            assert stream.duplicate_count == 1
+            assert stream.out_of_order_count == 1
+            assert stream.largest_sequence_gap == 3
+        assert flow.packet_loss_rate == pytest.approx(2 / 5)
+        assert flow.packet_loss_rates_by_direction == pytest.approx((2 / 5, 2 / 5))
+        assert flow.out_of_order_count == 60
+        compact = candidate.compact()['top_flows'][0]
+        assert len(compact['esp_spis']) == 30
+        assert len(compact['esp_sequences']) == 60
+        assert all(s['missing_count'] == 2 and s['duplicate_count'] == 1
+                   and s['out_of_order_count'] == 1 for s in compact['esp_sequences'])
 
 
 @pytest.mark.parametrize(
@@ -839,6 +933,35 @@ def test_tls_alert_reads_level_and_description() -> None:
     )
 
     assert tls_alert(packet) == ("Fatal (2)", "Certificate Unknown (46)")
+
+
+def test_redirect_expansion_preserves_capture_order_and_gaps():
+    start = datetime(2026, 1, 1)
+    earlier = PacketObservation(
+        src_ip='192.0.2.1', dst_ip='192.0.2.2', protocol='TCP',
+        timestamp=start, frame_number=1, http_host='target.example',
+    )
+    unrelated = PacketObservation(
+        src_ip='198.51.100.1', dst_ip='198.51.100.2', protocol='TCP',
+        timestamp=start, frame_number=2,
+    )
+    seed = PacketObservation(
+        src_ip='192.0.2.1', dst_ip='192.0.2.2', protocol='TCP',
+        timestamp=start + timedelta(seconds=1), frame_number=3,
+        http_location='https://target.example/new',
+    )
+    later = earlier.model_copy(update={'timestamp': start + timedelta(seconds=2),
+                                       'frame_number': 4})
+    original = [earlier, unrelated, seed, later]
+    expanded = include_redirect_related_flows(original, [seed])
+    assert [p.frame_number for p in expanded] == [1, 3, 4]
+    assert [p.frame_number for p in original] == [1, 2, 3, 4]
+    assert sum(p is seed for p in expanded) == 1
+    gaps = summarize_capture(expanded).flows[0].packet_gaps_by_direction[0]
+    assert gaps.backward_timestamp_count == 0
+    assert gaps.interval_count == 2
+    assert gaps.max_gap_ms == 1000
+    assert gaps.pause_count == 2
 
 
 def test_include_redirect_related_flows_adds_redirect_target_flow() -> None:

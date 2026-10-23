@@ -21,7 +21,7 @@ def extract_sip(packet, helpers) -> dict:
 
 def record_sip(flow: FlowSummary, packet: PacketObservation) -> None:
     if packet.sip_call_id and packet.sip_call_id not in flow.sip_call_ids:
-        flow.sip_call_ids = [*flow.sip_call_ids, packet.sip_call_id][:25]
+        flow.sip_call_ids.append(packet.sip_call_id)
     if packet.sip_call_id:
         call = flow.sip_calls.setdefault(
             packet.sip_call_id,
@@ -41,7 +41,7 @@ def record_sip(flow: FlowSummary, packet: PacketObservation) -> None:
                 call.issues = [*call.issues, issue]
         event = sip_trace_event(packet)
         if event and event not in call.trace:
-            call.trace = [*call.trace, event][:50]
+            call.trace.append(event)
     if packet.sip_method:
         flow.sip_methods[packet.sip_method] = flow.sip_methods.get(packet.sip_method, 0) + 1
     if packet.sip_status_code is not None:
@@ -49,7 +49,7 @@ def record_sip(flow: FlowSummary, packet: PacketObservation) -> None:
         flow.sip_statuses[status] = flow.sip_statuses.get(status, 0) + 1
     for participant in (packet.sip_from, packet.sip_to):
         if participant and participant not in flow.sip_participants:
-            flow.sip_participants = [*flow.sip_participants, participant][:25]
+            flow.sip_participants.append(participant)
 
 
 def sip_status(packet: PacketObservation) -> str:

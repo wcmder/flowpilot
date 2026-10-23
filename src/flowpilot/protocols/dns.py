@@ -30,7 +30,7 @@ def record_dns(flow: FlowSummary, packet: PacketObservation) -> None:
             flow.dns_error_count += 1
     for answer in packet.dns_answers:
         if answer and answer not in flow.dns_answers:
-            flow.dns_answers = [*flow.dns_answers, answer][:50]
+            flow.dns_answers.append(answer)
 
 
 def is_dns_success(response_code: str) -> bool:

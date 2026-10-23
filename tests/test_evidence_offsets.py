@@ -154,6 +154,50 @@ def test_recommended_offset_targets_real_deep_tool_rows(tmp_path):
     assert result['bgp_header_samples'][250]['bgp.notify.major_error'] == '6'
 
 
+@pytest.mark.parametrize('family', [4, 6])
+def test_udp_offsets_exclude_esp_on_shared_natt_endpoints(tmp_path, family):
+    import struct
+
+    from test_deep_filters import _frame
+    from test_ike import ike_packet, write_capture
+
+    from flowpilot.capture import read_capture
+    from flowpilot.protocols.deep_common import tshark_path
+    from flowpilot.protocols.esp import deep_esp_flow
+    from flowpilot.protocols.udp import deep_udp_flow
+
+    if not tshark_path():
+        pytest.skip('TShark required')
+    a, b = ('10.0.0.1', '10.0.0.2') if family == 4 else ('2001:db8::1', '2001:db8::2')
+    frames = [_frame(a, b, 4500, 4500, 'udp', bytes(4) + ike_packet(0x20))]
+    frames.extend(_frame(a, b, 4500, 4500, 'udp',
+                         struct.pack('!II', 1234, i + 1) + bytes(32)) for i in range(120))
+    frames.append(_frame(b, a, 4500, 4500, 'udp',
+                         bytes(4) + ike_packet(0x20, response=True, notifications=(14,))))
+    path = tmp_path / 'mixed-natt.pcap'
+    write_capture(path, frames)
+    summary = summarize_capture(list(read_capture(path)))
+    flow = next(f for f in summary.flows if f.key.protocol == 'UDP')
+    recommendation = next(e for e in flow.recommended_evidence_offsets
+                          if e['tool'] == 'deep_udp_flow')
+    assert recommendation['issue_packet_index'] == 1
+    assert recommendation['frame_number'] == 122
+    assert recommendation['sample_offset'] == 0
+    result = deep_udp_flow(path, flow_id=1, flow=flow, reason='recommended', sample_limit=None)
+    assert result['status'] == 'ok', result
+    assert result['packet_count'] == flow.packet_count == 2
+    assert [row['frame.number'] for row in result['udp_header_samples']] == ['1', '122']
+    page = deep_udp_flow(path, flow_id=1, flow=flow, reason='next',
+                         sample_offset=1, sample_limit=1)
+    assert page['udp_header_samples'][0]['frame.number'] == '122'
+    assert page['batch']['total_matching_packets'] == 2
+    assert page['batch']['returned'] == 1
+    esp = next(f for f in summary.flows if f.key.protocol == 'ESP')
+    evidence = deep_esp_flow(path, flow_id=2, flow=esp, reason='ESP still separate')
+    assert evidence['status'] == 'ok', evidence
+    assert evidence['packet_count'] == esp.packet_count == 120
+
+
 def test_overlapping_windows_merge_reasons_and_preserve_boundaries():
     from flowpilot.evidence_offsets import merge_evidence_offsets
 

@@ -144,11 +144,12 @@ def include_redirect_related_flows(
     related_ips = _ips_for_names(observations, redirect_hosts)
     included: list[PacketObservation] = []
     seen_ids: set[int] = set()
+    seed_ids = {id(packet) for packet in seed_observations}
 
-    for packet in [*seed_observations, *observations]:
+    for packet in observations:
         if id(packet) in seen_ids:
             continue
-        if packet in seed_observations or _matches_related_target(
+        if id(packet) in seed_ids or _matches_related_target(
             packet,
             redirect_hosts,
             related_ips,

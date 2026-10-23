@@ -878,7 +878,7 @@ class CaptureSummary(BaseModel):
             "flow_count": self.flow_count,
             "protocols": self.protocols,
             "top_ports": self.top_ports,
-            "observed_names": self.names[:50],
+            "observed_names": self.names,
             "flow_endpoint_inventory": _flow_endpoint_inventory(flows),
             "top_flows": [
                 {
@@ -1096,7 +1096,7 @@ class AgentChatResponse(BaseModel):
     evidence_requests: list[EvidenceRequest] = Field(default_factory=list)
 
 
-def counter_to_sorted_dict(counter: Counter[str], limit: int) -> dict[str, int]:
+def counter_to_sorted_dict(counter: Counter[str], limit: int | None = None) -> dict[str, int]:
     return dict(counter.most_common(limit))
 
 

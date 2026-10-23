@@ -56,7 +56,8 @@ def record_rtp(flow: FlowSummary, packet: PacketObservation) -> None:
         stream = RtpStreamSummary(ssrc=packet.rtp_ssrc, direction=direction)
         flow.rtp_streams.append(stream)
     stream.packet_gaps.record(
-        str(packet.timestamp.timestamp()) if packet.timestamp is not None else None)
+        packet.timestamp_epoch or (
+            str(packet.timestamp.timestamp()) if packet.timestamp is not None else None))
     stream.packet_count += 1
     stream.srtp_packets += int(packet.srtp)
     if packet.rtp_payload_type is not None:
