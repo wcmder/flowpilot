@@ -10,86 +10,80 @@ from .models import FlowSummary, PacketObservation
 from .protocol_matching import canonical, flow_protocols, packet_protocols
 
 
+def _values(value):
+    if value is None:
+        return ()
+    return tuple(value) if isinstance(value, (list, tuple)) else (value,)
+
+
 @dataclass(frozen=True)
 class FlowFilter:
-    host: str | None = None
-    peer: str | None = None
-    protocol: str | None = None
-    port: int | None = None
-    src: str | None = None
-    dst: str | None = None
-    src_port: int | None = None
-    dst_port: int | None = None
+    host: str | list[str] | None = None
+    peer: str | list[str] | None = None
+    protocol: str | list[str] | None = None
+    port: int | list[int] | None = None
+    src: str | list[str] | None = None
+    dst: str | list[str] | None = None
+    src_port: int | list[int] | None = None
+    dst_port: int | list[int] | None = None
+    match_any: bool = False
 
     @property
     def is_active(self) -> bool:
-        return any(
-            value is not None
-            for value in (
-                self.host,
-                self.peer,
-                self.protocol,
-                self.port,
-                self.src,
-                self.dst,
-                self.src_port,
-                self.dst_port,
-            )
-        )
-
-    def matches(self, packet: PacketObservation) -> bool:
-        return (not self.protocol or canonical(self.protocol) in packet_protocols(packet)) and (
-            self._matches_endpoints(packet.source_endpoint, packet.destination_endpoint,
-                                    packet.src_port, packet.dst_port)
-        )
+        return any(_values(getattr(self, field)) for field in
+                   ('host', 'peer', 'protocol', 'port', 'src', 'dst', 'src_port', 'dst_port'))
 
     @property
     def is_directional(self) -> bool:
-        return any(
-            value is not None for value in (self.src, self.dst, self.src_port, self.dst_port)
-        )
+        return any(_values(getattr(self, field)) for field in
+                   ('src', 'dst', 'src_port', 'dst_port'))
+
+    def matches(self, packet: PacketObservation) -> bool:
+        return self._matches(packet.source_endpoint, packet.destination_endpoint,
+                             packet.src_port, packet.dst_port, packet_protocols(packet))
 
     def matches_flow(self, flow: FlowSummary) -> bool:
-        """Select whole saved flows with an observed direction matching all criteria."""
+        """Evaluate AND within one observed direction; OR may match any supplied field."""
         key = flow.key
         directions = (
             (key.endpoint_a, key.endpoint_b, key.port_a, key.port_b, flow.src_to_dst_packets),
             (key.endpoint_b, key.endpoint_a, key.port_b, key.port_a, flow.dst_to_src_packets),
         )
-        return any(
-            (not self.is_directional or packets > 0)
-            and (not self.protocol or canonical(self.protocol) in
-                 flow_protocols(flow, index if self.is_directional else None))
-            and self._matches_endpoints(src, dst, src_port, dst_port)
-            for index, (src, dst, src_port, dst_port, packets) in enumerate(directions)
-        )
+        for index, (src, dst, src_port, dst_port, packets) in enumerate(directions):
+            if self.is_directional and not self.match_any and packets <= 0:
+                continue
+            protocols = flow_protocols(
+                flow, index if self.is_directional and not self.match_any else None)
+            if self._matches(src, dst, src_port, dst_port, protocols, observed=packets > 0):
+                return True
+        return False
 
-    def _matches_endpoints(
-        self, src: str, dst: str, src_port: int | None, dst_port: int | None
-    ) -> bool:
+    def _matches(self, src, dst, src_port, dst_port, protocols, *, observed=True):
         is_mac = bool(re.fullmatch(r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}", src))
-        if is_mac:
-            src, dst = src.lower(), dst.lower()
 
         def normalize(value):
-            return value.lower() if is_mac and value else value
-        if self.host and normalize(self.host) not in (src, dst):
-            return False
-        if self.peer and normalize(self.peer) not in (src, dst):
-            return False
-        if self.host and self.peer and {src, dst} != {normalize(self.host), normalize(self.peer)}:
-            return False
-        if self.src and src != normalize(self.src):
-            return False
-        if self.dst and dst != normalize(self.dst):
-            return False
-        if self.port is not None and self.port not in (src_port, dst_port):
-            return False
-        if self.src_port is not None and src_port != self.src_port:
-            return False
-        if self.dst_port is not None and dst_port != self.dst_port:
-            return False
-        return True
+            return value.lower() if is_mac and isinstance(value, str) else value
+
+        src, dst = normalize(src), normalize(dst)
+        hosts = tuple(normalize(v) for v in _values(self.host))
+        peers = tuple(normalize(v) for v in _values(self.peer))
+        checks = []
+        if hosts:
+            checks.append(src in hosts or dst in hosts)
+        if peers:
+            checks.append(src in peers or dst in peers)
+        if hosts and peers and not self.match_any:
+            checks.append((src in hosts and dst in peers) or (dst in hosts and src in peers))
+        if _values(self.protocol):
+            checks.append(any(canonical(v) in protocols for v in _values(self.protocol)))
+        if _values(self.port):
+            checks.append(src_port in _values(self.port) or dst_port in _values(self.port))
+        for field, actual in (('src', src), ('dst', dst),
+                              ('src_port', src_port), ('dst_port', dst_port)):
+            wanted = tuple(normalize(v) for v in _values(getattr(self, field)))
+            if wanted:
+                checks.append(observed and actual in wanted)
+        return (any(checks) if self.match_any else all(checks)) if checks else True
 
 
 def filter_observations(

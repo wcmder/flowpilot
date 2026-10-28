@@ -512,8 +512,28 @@ Model discovery:
 
 Local packet filters:
 
+Repeat `--host`, `--peer`, `--protocol`, `--port`, `--src`, `--dst`,
+`--src-port`, or `--dst-port` to match any of that option's values.
+Different options combine with AND by default (`--and`). Use `--or` to match
+any supplied option instead. These are global modes, not grouped expressions.
+
+```bash
+# TCP involving either host
+flowpilot analyze capture.pcap --host 10.0.0.1 --host 10.0.0.2 --protocol TCP --and
+# Any ESP traffic OR any traffic involving either host
+flowpilot analyze capture.pcap --protocol ESP --host 10.0.0.1 --host 10.0.0.2 --or
+```
+
+In AND mode, `--host` and `--peer` require opposite endpoints to match their
+respective lists. In OR mode, either list can match either endpoint independently.
+Saved-summary filtering uses the same logic but retains whole matching flows and
+their saved counters. Directional AND conditions must match the same observed
+direction; OR conditions can independently select a flow. `--sip-phone` remains
+a separate additional restriction, and `--include-redirects` expands the result.
+
 | Option | Direction | Meaning |
 | --- | --- | --- |
+| `--and` / `--or` | Either | Combine different filter options with AND (default) or OR. Repeated values of one option are alternatives in either mode. |
 | `--host IP` | Bidirectional | Include packets where this IP is either source or destination. |
 | `--peer IP` | Bidirectional | Use with `--host` to isolate traffic between two endpoints. |
 | `--src IP` | One-way | Include packets from this source IP only. |

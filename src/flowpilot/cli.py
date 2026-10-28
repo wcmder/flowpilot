@@ -191,33 +191,39 @@ def analyze(
         ),
     ] = None,
     host: Annotated[
-        str | None, typer.Option(help="Match this IP or MAC address at either endpoint.")
+        list[str] | None, typer.Option(help="Match IP/MAC at either endpoint. Repeatable.")
     ] = None,
     peer: Annotated[
-        str | None,
-        typer.Option(help="Use with --host to isolate traffic between two endpoints."),
+        list[str] | None,
+        typer.Option(help="Match peer IP/MAC; pairs with --host in AND mode. Repeatable."),
     ] = None,
     protocol: Annotated[
-        str | None, typer.Option(help=(
+        list[str] | None, typer.Option(help=(
             "Match a decoded protocol name, e.g. tcp, esp, ike, ikev2, rtp, dns, tls, smb. "
-            "One name, not a Wireshark display-filter expression."
+            "Repeat for multiple names; not a Wireshark display-filter expression."
         ))
     ] = None,
     port: Annotated[
-        int | None, typer.Option(help="Only include packets where this TCP/UDP port appears.")
+        list[int] | None, typer.Option(help="Match either TCP/UDP port. Repeat for alternatives.")
     ] = None,
     src: Annotated[
-        str | None, typer.Option(help="Only include packets from this source IP or MAC address.")
+        list[str] | None, typer.Option(help="Match source IP/MAC. Repeat for alternatives.")
     ] = None,
     dst: Annotated[
-        str | None, typer.Option(help="Only include packets to this destination IP or MAC address.")
+        list[str] | None, typer.Option(help="Match destination IP/MAC. Repeat for alternatives.")
     ] = None,
     src_port: Annotated[
-        int | None, typer.Option(help="Only include packets from this TCP/UDP source port.")
+        list[int] | None, typer.Option(help="Match TCP/UDP source port. Repeatable.")
     ] = None,
     dst_port: Annotated[
-        int | None, typer.Option(help="Only include packets to this TCP/UDP destination port.")
+        list[int] | None, typer.Option(help="Match TCP/UDP destination port. Repeatable.")
     ] = None,
+    match_any: Annotated[
+        bool, typer.Option("--or/--and", help=(
+            "Combine different filter options with OR instead of AND (default). "
+            "Repeated values of one option always match any value."
+        )),
+    ] = False,
     include_redirects: Annotated[
         bool,
         typer.Option(
@@ -368,7 +374,7 @@ def analyze(
             "--detailed-summary builds details from a PCAP; omit both loading options. "
             "Use --load-detailed-summary to load existing detailed JSON."
         )
-    if protocol and not re.fullmatch(r"[A-Za-z0-9_.-]+", protocol):
+    if any(not re.fullmatch(r"[A-Za-z0-9_.-]+", name) for name in (protocol or [])):
         raise typer.BadParameter("--protocol accepts one decoded protocol name, not an expression.")
     source_capture_path_for_json = original_capture_path
     effective_json_path = json_path or _default_summary_path_for_capture(original_capture_path)
@@ -404,6 +410,7 @@ def analyze(
     offset_token = EVIDENCE_START_OFFSET.set(offset)
     try:
         flow_filter = FlowFilter(
+            match_any=match_any,
             host=host,
             peer=peer,
             protocol=protocol,

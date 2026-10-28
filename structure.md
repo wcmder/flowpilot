@@ -142,7 +142,7 @@ previews and retrieve subsequent saved batches through existing deep tools.
   output filenames remain supported.
 - Loaded-summary filters must preserve endpoint/port pairing and document any
   packet-level filtering semantics they cannot reproduce from aggregated data.
-- Directional saved-summary filters select whole flows only when one observed
+- In AND mode, directional saved-summary filters select whole flows only when one observed
   direction satisfies all source/destination criteria together. Preserve both
   directions' metrics and explain this scope in the CLI. Directions with no saved
   packet count cannot match. Packet-level subsets require a fresh capture read.
@@ -363,14 +363,23 @@ not verified by that review.
 
 ## Must: direct decoded-protocol filtering
 
-- `--protocol` must match one case-insensitive decoded protocol name, independently
+- Host, peer, protocol, port, source/destination and source/destination-port filters
+  accept repeated values, matching any value within each option. Different options
+  combine with AND by default (`--and`); global `--or` matches any supplied option.
+  Apply the same rules to fresh packets and whole saved flows. Preserve opposite
+  endpoint host/peer pairing in AND mode; OR evaluates them independently.
+  Directional AND clauses must match one observed direction, including protocol
+  presence. Under OR, non-directional matches remain independent of directional
+  clauses; a directional clause cannot match an unobserved direction. Empty filters
+  select all. SIP-phone selection and redirect expansion remain separate stages.
+- Each `--protocol` value must match one case-insensitive decoded protocol name, independently
   of transport FlowKey identity. Preserve all decoded layer names on observations
   and their union per flow and A/B direction in new saved summaries.
 - Support IKE/ISAKMP, IKEV1/IKEV2, RTP/SRTP, DNS, DHCP/BOOTP, SIP, TLS/SSL, DTLS,
   SMB family/SMB2, plus generic recorded dissector names. Do not infer a protocol
   solely from its port. Explicit SRTP decoding remains user-supplied knowledge.
 - Fresh filtering is packet-level; loaded filtering selects whole flows and
-  retains counters. For directional filters, protocol presence and endpoint/port
+  retains counters. For directional AND filters, protocol presence and endpoint/port
   pairing must match the same direction. Do not borrow reverse-direction evidence.
 - Old summaries remain readable. Use recorded protocol metadata or detailed
   observations when available; missing protocol/direction evidence is unavailable,
